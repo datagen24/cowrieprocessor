@@ -998,10 +998,17 @@ def read_uh_data(ip_address, urlhausapi):
     Returns:
         Comma-separated string of unique URLHaus tags, or empty string.
     """
+    if skip_enrich:
+        return ""
     uh_path = cache_dir / ("uh_" + ip_address)
     if not uh_path.exists():
         uh_query(ip_address, urlhausapi)
-    uh_data = open(uh_path, 'r', encoding='utf-8')
+    if not uh_path.exists():
+        return ""
+    try:
+        uh_data = open(uh_path, 'r', encoding='utf-8')
+    except FileNotFoundError:
+        return ""
     tags = ""
     file = ""
     for eachline in uh_data:
@@ -1121,10 +1128,17 @@ def read_spur_data(ip_address):
          tunnel_anonymous, tunnel_entries, tunnel_operator, tunnel_type].
     """
     global summary_text
+    if skip_enrich:
+        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
     spur_path = cache_dir / ("spur_" + ip_address.replace(":", "_") + ".json")
     if not spur_path.exists():
         spur_query(ip_address)
-    spur_data = open(spur_path, 'r', encoding="utf-8")
+    if not spur_path.exists():
+        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+    try:
+        spur_data = open(spur_path, 'r', encoding="utf-8")
+    except FileNotFoundError:
+        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
     file = ""
     for eachline in spur_data:
         file += eachline
