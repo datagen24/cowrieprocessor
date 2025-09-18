@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import signal
 import socket
 import sqlite3
 import sys
@@ -301,6 +302,45 @@ rate_limits = {
 }
 
 last_request_time = {k: 0.0 for k in rate_limits.keys()}
+
+
+class TimeoutError(Exception):
+    """Custom timeout exception."""
+
+    pass
+
+
+def timeout_handler(signum, frame):
+    """Signal handler for timeout."""
+    raise TimeoutError("Operation timed out")
+
+
+def with_timeout(timeout_seconds, func, *args, **kwargs):
+    """Execute a function with a timeout.
+
+    Args:
+        timeout_seconds: Maximum time to wait for the function
+        func: Function to execute
+        *args: Arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
+
+    Returns:
+        Result of the function call
+
+    Raises:
+        TimeoutError: If the function doesn't complete within timeout_seconds
+    """
+    # Set up the signal handler
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_seconds)
+
+    try:
+        result = func(*args, **kwargs)
+        return result
+    finally:
+        # Restore the old signal handler
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 def rate_limit(service):
@@ -1073,6 +1113,15 @@ def read_uh_data(ip_address, urlhausapi):
     return stringtags[:-2]
 
 
+def safe_read_uh_data(ip_address, urlhausapi):
+    """Safely read URLHaus data with timeout handling."""
+    try:
+        return with_timeout(30, read_uh_data, ip_address, urlhausapi)
+    except TimeoutError:
+        logging.warning(f"URLHaus query timed out for IP {ip_address}")
+        return "TIMEOUT"
+
+
 def read_vt_data(hash, cache_dir: Path):
     """Parse a cached VirusTotal response for selected fields.
 
@@ -1333,7 +1382,19 @@ def print_session_info(data, sessions, attack_type):
     Returns:
         None.
     """
+    total_sessions = len(sessions)
+    processed_sessions = 0
+
     for session in sessions:
+        processed_sessions += 1
+        # Update status with progress during report generation
+        write_status(
+            state='generating_reports',
+            total_files=total_files,
+            processed_files=processed_files,
+            current_file=f"Session {processed_sessions}/{total_sessions}: {session[:8]}...",
+        )
+        logging.info(f"Processing session {processed_sessions}/{total_sessions}: {session}")
         cur = con.cursor()
         global attack_count
         attack_count += 1
@@ -1350,8 +1411,10 @@ def print_session_info(data, sessions, attack_type):
         print("Command Count: " + str(command_count))
         number_of_commands.append(command_count)
 
+        logging.info(f"Getting download/upload data for session {session}")
         downloaddata = get_file_download(session, data)
         uploaddata = get_file_upload(session, data)
+        logging.info(f"Found {len(downloaddata)} downloads, {len(uploaddata)} uploads for session {session}")
 
         attackstring = "{:>30s}  {:50s}".format("Session", str(session)) + "\n"
         attackstring += "{:>30s}  {:50s}".format("Session Duration", str(session_duration)[0:5] + " seconds") + "\n"
@@ -1362,16 +1425,30 @@ def print_session_info(data, sessions, attack_type):
         attackstring += "{:>30s}  {:50s}".format("Source IP Address", str(src_ip)) + "\n"
 
         if urlhausapi:
-            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", str(read_uh_data(src_ip, urlhausapi))) + "\n"
+            logging.info(f"Querying URLHaus for IP {src_ip}")
+            uh_data = safe_read_uh_data(src_ip, urlhausapi)
+            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", str(uh_data)) + "\n"
 
         if email:
-            json_data = dshield_query(src_ip)
-            attackstring += "{:>30s}  {:50s}".format("ASNAME", (json_data['ip']['asname'])) + "\n"
-            attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", (json_data['ip']['ascountry'])) + "\n"
-            attackstring += "{:>30s}  {:<6d}".format("Total Commands Run", command_count) + "\n"
+            logging.info(f"Querying DShield for IP {src_ip}")
+            try:
+                json_data = with_timeout(30, dshield_query, src_ip)
+                attackstring += "{:>30s}  {:50s}".format("ASNAME", (json_data['ip']['asname'])) + "\n"
+                attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", (json_data['ip']['ascountry'])) + "\n"
+                attackstring += "{:>30s}  {:<6d}".format("Total Commands Run", command_count) + "\n"
+            except TimeoutError:
+                logging.warning(f"DShield query timed out for IP {src_ip}")
+                attackstring += "{:>30s}  {:50s}".format("ASNAME", "TIMEOUT") + "\n"
+                attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", "TIMEOUT") + "\n"
+                attackstring += "{:>30s}  {:<6d}".format("Total Commands Run", command_count) + "\n"
 
         if spurapi:
-            spur_session_data = read_spur_data(src_ip)
+            logging.info(f"Querying SPUR for IP {src_ip}")
+            try:
+                spur_session_data = with_timeout(30, read_spur_data, src_ip)
+            except TimeoutError:
+                logging.warning(f"SPUR query timed out for IP {src_ip}")
+                spur_session_data = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
             if spur_session_data[0] != "":
                 attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_session_data[0])) + "\n"
             if spur_session_data[1] != "":
@@ -1411,6 +1488,7 @@ def print_session_info(data, sessions, attack_type):
 
         if len(downloaddata) > 0:
             attackstring += "\n------------------- DOWNLOAD DATA -------------------\n"
+            logging.info(f"Processing {len(downloaddata)} downloads for session {session}")
         for each_download in downloaddata:
             if each_download[1]:
                 attackstring += "\n"
@@ -1432,9 +1510,13 @@ def print_session_info(data, sessions, attack_type):
 
                 vt_cache_path = cache_dir / each_download[1]
                 if not vt_cache_path.exists() and vtapi:
-                    vt_query(each_download[1], cache_dir)
-                    if vt_sleep > 0:
-                        time.sleep(vt_sleep)
+                    logging.info(f"Querying VirusTotal for hash {each_download[1]}")
+                    try:
+                        with_timeout(60, vt_query, each_download[1], cache_dir)
+                        if vt_sleep > 0:
+                            time.sleep(vt_sleep)
+                    except TimeoutError:
+                        logging.warning(f"VT query timed out for hash {each_download[1]}")
 
                 if vt_cache_path.exists() and vtapi:
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
@@ -1486,7 +1568,7 @@ def print_session_info(data, sessions, attack_type):
                         if urlhausapi:
                             attackstring += (
                                 "{:>30s}  {:50s}".format(
-                                    "URLhaus Source Tags", read_uh_data(each_download[2], urlhausapi)
+                                    "URLhaus Source Tags", safe_read_uh_data(each_download[2], urlhausapi)
                                 )
                                 + "\n"
                             )
@@ -1495,7 +1577,7 @@ def print_session_info(data, sessions, attack_type):
                             sql,
                             (
                                 each_download[2],
-                                (read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
+                                (safe_read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
                                 session,
                                 each_download[1],
                                 hostname,
@@ -1507,7 +1589,9 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address", each_download[2]) + "\n"
                         if urlhausapi:
                             attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus IP Tags", read_uh_data(each_download[2], urlhausapi))
+                                "{:>30s}  {:50s}".format(
+                                    "URLhaus IP Tags", safe_read_uh_data(each_download[2], urlhausapi)
+                                )
                                 + "\n"
                             )
                         attackstring += "{:>30s}  {:50s}".format("ASNAME", (json_data['ip']['asname'])) + "\n"
@@ -1597,7 +1681,7 @@ def print_session_info(data, sessions, attack_type):
                                 sql,
                                 (
                                     each_download[2],
-                                    (read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
+                                    (safe_read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
                                     json_data['ip']['asname'],
                                     json_data['ip']['ascountry'],
                                     str(spur_data[0]),
@@ -1693,7 +1777,9 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         if urlhausapi:
                             attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus IP Tags", read_uh_data(each_upload[2], urlhausapi))
+                                "{:>30s}  {:50s}".format(
+                                    "URLhaus IP Tags", safe_read_uh_data(each_upload[2], urlhausapi)
+                                )
                                 + "\n"
                             )
 
@@ -1702,7 +1788,7 @@ def print_session_info(data, sessions, attack_type):
                             sql,
                             (
                                 each_upload[2],
-                                (read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
+                                (safe_read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
                                 session,
                                 each_upload[1],
                                 hostname,
@@ -1715,7 +1801,9 @@ def print_session_info(data, sessions, attack_type):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         if urlhausapi:
                             attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus IP Tags", read_uh_data(each_upload[2], urlhausapi))
+                                "{:>30s}  {:50s}".format(
+                                    "URLhaus IP Tags", safe_read_uh_data(each_upload[2], urlhausapi)
+                                )
                                 + "\n"
                             )
                         attackstring += "{:>30s}  {:50s}".format("ASNAME", (json_data['ip']['asname'])) + "\n"
@@ -1805,7 +1893,7 @@ def print_session_info(data, sessions, attack_type):
                                 sql,
                                 (
                                     each_upload[2],
-                                    (read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
+                                    (safe_read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
                                     json_data['ip']['asname'],
                                     json_data['ip']['ascountry'],
                                     str(spur_data[0]),
@@ -1867,7 +1955,7 @@ def print_session_info(data, sessions, attack_type):
                         password,
                         epoch_time,
                         src_ip,
-                        (read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
+                        (safe_read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
                         json_data['ip']['asname'],
                         json_data['ip']['ascountry'],
                         command_count,
@@ -1887,7 +1975,7 @@ def print_session_info(data, sessions, attack_type):
                         password,
                         epoch_time,
                         src_ip,
-                        (read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
+                        (safe_read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
                         "",
                         "",
                         command_count,
