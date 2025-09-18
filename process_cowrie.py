@@ -2286,7 +2286,7 @@ write_status(state='generating_reports', total_files=total_files, processed_file
 
 # Pre-index data by session for much better performance
 logging.info("Pre-indexing data by session for better performance...")
-data_by_session = {}
+data_by_session: dict[str, list[dict]] = {}
 for entry in data:
     session = entry.get('session')
     if session:

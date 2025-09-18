@@ -8,7 +8,8 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List
+
 import requests
 
 
@@ -183,15 +184,13 @@ def read_uh_data(ip_address: str, uh_api: str) -> str:
     except FileNotFoundError:
         return ""
     
-    tags = ""
-    file = ""
+    file_content = ""
     for eachline in uh_data:
-        file += eachline
-    uh_data.close()
+        file_content += eachline
     
     try:
-        json_data = json.loads(file)
-        tags = set()
+        json_data = json.loads(file_content)
+        tags: set[str] = set()
         for eachurl in json_data['urls']:
             if eachurl['tags']:
                 for eachtag in eachurl['tags']:
@@ -247,13 +246,12 @@ def read_spur_data(ip_address: str, spurapi: str, skip_enrich: bool = False) -> 
     except FileNotFoundError:
         return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
     
-    file = ""
+    file_content = ""
     for eachline in spur_data:
-        file += eachline
-    spur_data.close()
+        file_content += eachline
     
     try:
-        json_data = json.loads(file)
+        json_data = json.loads(file_content)
     except Exception:
         return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
     
