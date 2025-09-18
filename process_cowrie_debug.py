@@ -7,42 +7,29 @@ but with enhanced debugging capabilities and modular design.
 
 import argparse
 import bz2
-import collections
 import datetime
 import gzip
-import io
 import json
 import logging
 import os
-import re
-import signal
 import socket
 import sqlite3
 import sys
 import time
 from pathlib import Path
 
-import dropbox
-import requests
-
-from secrets_resolver import is_reference, resolve_secret
 from data_processing import (
-    pre_index_data_by_session,
-    get_session_id,
-    get_protocol_login,
-    get_session_duration,
-    get_login_data,
     get_command_total,
     get_file_download,
-    get_file_upload
+    get_file_upload,
+    get_login_data,
+    get_protocol_login,
+    get_session_duration,
+    get_session_id,
+    pre_index_data_by_session,
 )
-from enrichment_handlers import (
-    with_timeout,
-    vt_query,
-    dshield_query,
-    safe_read_uh_data,
-    read_spur_data
-)
+from secrets_resolver import is_reference, resolve_secret
+
 
 # Enhanced logging setup
 def setup_logging(log_level=logging.DEBUG):
@@ -298,15 +285,20 @@ def main():
     
     for i, session in enumerate(session_id):
         logger.info(f"Processing session {i+1}/{len(session_id)}: {session}")
-        write_status(state='generating_reports', total_files=total_files, processed_files=processed_files, current_file=f"Session {i+1}/{len(session_id)}: {session[:8]}...")
+            write_status(
+                state='generating_reports', 
+                total_files=total_files, 
+                processed_files=processed_files, 
+                current_file=f"Session {i+1}/{len(session_id)}: {session[:8]}..."
+            )
         
         try:
             # Get session data
             session_data = data_by_session.get(session, data)
             
             # Get basic session info
-            protocol = get_protocol_login(session, session_data)
-            session_duration = get_session_duration(session, session_data)
+            get_protocol_login(session, session_data)
+            get_session_duration(session, session_data)
             
             try:
                 username, password, timestamp, src_ip = get_login_data(session, session_data)
