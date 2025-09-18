@@ -1511,7 +1511,9 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         break
                     except sqlite3.OperationalError as e:
                         if "database is locked" in str(e) and retry < max_retries - 1:
-                            logging.warning(f"Database locked, retrying in 1 second (attempt {retry + 1}/{max_retries})")
+                            logging.warning(
+                                f"Database locked, retrying in 1 second (attempt {retry + 1}/{max_retries})"
+                            )
                             time.sleep(1)
                             continue
                         else:
@@ -1529,7 +1531,10 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             break
                         except sqlite3.OperationalError as e:
                             if "database is locked" in str(e) and retry < max_retries - 1:
-                                logging.warning(f"Database locked during insert, retrying in 1 second (attempt {retry + 1}/{max_retries})")
+                                logging.warning(
+                                    f"Database locked during insert, retrying in 1 second "
+                                    f"(attempt {retry + 1}/{max_retries})"
+                                )
                                 time.sleep(1)
                                 continue
                             else:
