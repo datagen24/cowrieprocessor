@@ -2126,10 +2126,16 @@ for filename in list_of_files:
     processed_files += 1
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
 
+# File processing complete - update status
+write_status(state='files_complete', total_files=total_files, processed_files=processed_files, current_file='')
+
 vt_session = requests.session()
 dshield_session = requests.session()
 uh_session = requests.session()
 spur_session = requests.session()
+
+# Report generation starting - update status
+write_status(state='generating_reports', total_files=total_files, processed_files=processed_files, current_file='')
 
 if summarizedays:
     session_id = get_session_id(data, "all", "unnecessary")
@@ -2307,3 +2313,6 @@ else:
 
 print(summarystring)
 db_commit()
+
+# Process complete - final status update
+write_status(state='complete', total_files=total_files, processed_files=processed_files, current_file='')
