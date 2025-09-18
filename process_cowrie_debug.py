@@ -70,28 +70,69 @@ date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
 # Argument parsing
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers (Debug Version)')
-parser.add_argument('--logpath', dest='logpath', type=str, help='Path of cowrie json log files', default='/srv/cowrie/var/log/cowrie')
+parser.add_argument(
+    '--logpath', 
+    dest='logpath', 
+    type=str, 
+    help='Path of cowrie json log files', 
+    default='/srv/cowrie/var/log/cowrie'
+)
 parser.add_argument('--ttyfile', dest='ttyfile', type=str, help='Name of TTY associated TTY log file')
-parser.add_argument('--downloadfile', dest='downloadfile', type=str, help='Name of downloaded file (matches file SHA-256 hash)')
+parser.add_argument(
+    '--downloadfile', 
+    dest='downloadfile', 
+    type=str, 
+    help='Name of downloaded file (matches file SHA-256 hash)'
+)
 parser.add_argument('--session', dest='session', type=str, help='Cowrie session number')
 parser.add_argument('--vtapi', dest='vtapi', type=str, help='VirusTotal API key (required for VT data lookup)')
 parser.add_argument('--email', dest='email', type=str, help='Your email address (required for DShield IP lookup)')
-parser.add_argument('--summarizedays', dest='summarizedays', type=str, help='Will summarize all attacks in the give number of days')
+parser.add_argument(
+    '--summarizedays', 
+    dest='summarizedays', 
+    type=str, 
+    help='Will summarize all attacks in the give number of days'
+)
 parser.add_argument('--dbxapi', dest='dbxapi', type=str, help='Dropbox API key (required for Dropbox upload)')
 parser.add_argument('--dbxkey', dest='dbxkey', type=str, help='Dropbox app key (required for Dropbox upload)')
 parser.add_argument('--dbxsecret', dest='dbxsecret', type=str, help='Dropbox app secret (required for Dropbox upload)')
-parser.add_argument('--dbxrefreshtoken', dest='dbxrefreshtoken', type=str, help='Dropbox refresh token (required for Dropbox upload)')
+parser.add_argument(
+    '--dbxrefreshtoken', 
+    dest='dbxrefreshtoken', 
+    type=str, 
+    help='Dropbox refresh token (required for Dropbox upload)'
+)
 parser.add_argument('--spurapi', dest='spurapi', type=str, help='SPUR.us API key (required for SPUR data lookup)')
-parser.add_argument('--urlhausapi', dest='urlhausapi', type=str, help='URLHaus API key (required for URLHaus data lookup)')
+parser.add_argument(
+    '--urlhausapi', 
+    dest='urlhausapi', 
+    type=str, 
+    help='URLHaus API key (required for URLHaus data lookup)'
+)
 parser.add_argument('--sensor', dest='sensor', type=str, help='Sensor name for this run')
 parser.add_argument('--db', dest='db', type=str, help='Database file path')
 parser.add_argument('--output-dir', dest='output_dir', type=str, help='Output directory for reports')
 parser.add_argument('--status-file', dest='status_file', type=str, help='Status file path')
 parser.add_argument('--status-interval', dest='status_interval', type=int, help='Status update interval in seconds')
-parser.add_argument('--temp-dir', dest='temp_dir', type=str, help='Temp directory (default: <data-dir>/temp/cowrieprocessor)')
+parser.add_argument(
+    '--temp-dir', 
+    dest='temp_dir', 
+    type=str, 
+    help='Temp directory (default: <data-dir>/temp/cowrieprocessor)'
+)
 parser.add_argument('--log-dir', dest='log_dir', type=str, help='Logs directory (default: <data-dir>/logs)')
-parser.add_argument('--bulk-load', dest='bulk_load', action='store_true', help='Enable SQLite bulk load mode (defer commits, relaxed PRAGMAs)')
-parser.add_argument('--skip-enrich', dest='skip_enrich', action='store_true', help='Skip all external enrichments (VT, DShield, URLhaus, SPUR) for faster ingest')
+parser.add_argument(
+    '--bulk-load', 
+    dest='bulk_load', 
+    action='store_true', 
+    help='Enable SQLite bulk load mode (defer commits, relaxed PRAGMAs)'
+)
+parser.add_argument(
+    '--skip-enrich', 
+    dest='skip_enrich', 
+    action='store_true', 
+    help='Skip all external enrichments (VT, DShield, URLhaus, SPUR) for faster ingest'
+)
 parser.add_argument('--buffer-bytes', dest='buffer_bytes', type=int, help='Buffer size for file reading')
 parser.add_argument('--debug', action='store_true', help='Enable debug logging')
 
@@ -225,7 +266,12 @@ def main():
     # Process files
     for file_path in list_of_files:
         logger.info(f"Processing file {file_path}")
-        write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=os.path.basename(file_path))
+        write_status(
+            state='reading', 
+            total_files=total_files, 
+            processed_files=processed_files, 
+            current_file=os.path.basename(file_path)
+        )
         
         try:
             if file_path.endswith('.bz2'):
@@ -262,7 +308,12 @@ def main():
                             continue
             
             processed_files += 1
-            write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=os.path.basename(file_path))
+            write_status(
+                state='reading', 
+                total_files=total_files, 
+                processed_files=processed_files, 
+                current_file=os.path.basename(file_path)
+            )
             
         except Exception as e:
             logger.error(f"Error processing file {file_path}: {e}")
@@ -285,12 +336,12 @@ def main():
     
     for i, session in enumerate(session_id):
         logger.info(f"Processing session {i+1}/{len(session_id)}: {session}")
-            write_status(
-                state='generating_reports', 
-                total_files=total_files, 
-                processed_files=processed_files, 
-                current_file=f"Session {i+1}/{len(session_id)}: {session[:8]}..."
-            )
+        write_status(
+            state='generating_reports', 
+            total_files=total_files, 
+            processed_files=processed_files, 
+            current_file=f"Session {i+1}/{len(session_id)}: {session[:8]}..."
+        )
         
         try:
             # Get session data
