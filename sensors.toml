@@ -1,0 +1,18 @@
+[global]
+db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+report_dir = "/mnt/dshield/reports"
+
+[[sensor]]
+name = "aws-eastus-dshield"
+logpath = "/mnt/dshield/aws-eastus-dshield/NSM/cowrie"
+summarizedays = 180
+email = "steve@scpeterson.com"
+vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
+urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
+# spurapi = "..."
+
+[[sensor]]
+name = "inter-nj01-dshield"
+logpath = "/mnt/dshield/inter-nj01-dshield/NSM/cowrie"
+summarizedays = 90
+
