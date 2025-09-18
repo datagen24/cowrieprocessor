@@ -147,10 +147,10 @@ if args.debug:
 data = []
 attack_count = 0
 number_of_commands = []
-vt_classifications = []
-vt_recent_submissions = set()
-abnormal_attacks = set()
-uncommon_command_counts = set()
+vt_classifications: list[str] = []
+vt_recent_submissions: set[str] = set()
+abnormal_attacks: set[str] = set()
+uncommon_command_counts: set[int] = set()
 
 # Configuration
 hostname = socket.gethostname()

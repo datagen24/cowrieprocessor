@@ -5,7 +5,7 @@ efficiently, including session-based data extraction and command counting.
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 def pre_index_data_by_session(data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -18,7 +18,7 @@ def pre_index_data_by_session(data: List[Dict[str, Any]]) -> Dict[str, List[Dict
         Dictionary mapping session IDs to lists of their events
     """
     logging.info("Pre-indexing data by session for better performance...")
-    data_by_session = {}
+    data_by_session: dict[str, list[dict]] = {}
     for entry in data:
         session = entry.get('session')
         if session:
@@ -99,7 +99,7 @@ def get_session_duration(session: str, data: List[Dict[str, Any]]) -> str:
     return duration
 
 
-def get_login_data(session: str, data: List[Dict[str, Any]]) -> tuple:
+def get_login_data(session: str, data: List[Dict[str, Any]]) -> tuple[str, str, str, str] | None:
     """Extract login details for a session.
     
     Args:
