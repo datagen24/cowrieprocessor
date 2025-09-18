@@ -164,6 +164,33 @@ parser.add_argument(
     default=1048576,
     help='Read buffer size in bytes for compressed log files (default: 1048576)',
 )
+parser.add_argument(
+    '--vt-sleep',
+    dest='vt_sleep',
+    type=float,
+    default=0.0,
+    help='Seconds to sleep after a VT lookup to allow propagation (default: 0)',
+)
+parser.add_argument(
+    '--max-line-bytes',
+    dest='max_line_bytes',
+    type=int,
+    default=8388608,
+    help='Maximum JSON line size to parse; skip lines larger than this (default: 8MB)',
+)
+parser.add_argument(
+    '--file-timeout',
+    dest='file_timeout',
+    type=int,
+    default=1800,
+    help='Maximum seconds to spend on a single file before skipping (default: 1800)',
+)
+parser.add_argument(
+    '--jq-normalize',
+    dest='jq_normalize',
+    action='store_true',
+    help='Normalize JSON files (arrays or non-JSONL) into JSONL using a Python fallback',
+)
 
 parser.add_argument(
     '--api-timeout',
@@ -259,6 +286,10 @@ except Exception:
 api_timeout = args.api_timeout if hasattr(args, 'api_timeout') else 15
 api_retries = args.api_retries if hasattr(args, 'api_retries') else 3
 api_backoff = args.api_backoff if hasattr(args, 'api_backoff') else 2.0
+vt_sleep = float(getattr(args, 'vt_sleep', 0.0))
+max_line_bytes = int(getattr(args, 'max_line_bytes', 8388608))
+file_timeout = int(getattr(args, 'file_timeout', 1800))
+jq_normalize = bool(getattr(args, 'jq_normalize', False))
 hash_ttl_seconds = (args.hash_ttl_days if hasattr(args, 'hash_ttl_days') else 30) * 24 * 3600
 hash_unknown_ttl_seconds = (args.hash_unknown_ttl_hours if hasattr(args, 'hash_unknown_ttl_hours') else 12) * 3600
 ip_ttl_seconds = (args.ip_ttl_hours if hasattr(args, 'ip_ttl_hours') else 24) * 3600
@@ -1389,7 +1420,8 @@ def print_session_info(data, sessions, attack_type):
                 vt_cache_path = cache_dir / each_download[1]
                 if not vt_cache_path.exists() and vtapi:
                     vt_query(each_download[1], cache_dir)
-                    time.sleep(15)
+                    if vt_sleep > 0:
+                        time.sleep(vt_sleep)
 
                 if vt_cache_path.exists() and vtapi:
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
@@ -1604,7 +1636,8 @@ def print_session_info(data, sessions, attack_type):
                 up_vt_cache_path = cache_dir / each_upload[1]
                 if not up_vt_cache_path.exists() and vtapi:
                     vt_query(each_upload[1], cache_dir)
-                    time.sleep(15)
+                    if vt_sleep > 0:
+                        time.sleep(vt_sleep)
 
                 if up_vt_cache_path.exists() and vtapi:
                     vt_description, vt_threat_classification, vt_first_submission, vt_malicious = read_vt_data(
@@ -1992,13 +2025,80 @@ for filename in list_of_files:
     print("Processing file " + filepath_str)
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
+        # Optional normalization pass: attempt to read entire file and parse non-JSONL formats
+        if jq_normalize:
+            with open_json_lines(filepath_str) as file:
+                contents = file.read()
+            try:
+                obj = json.loads(contents)
+                emit_count = 0
+                t_last = time.time()
+                if isinstance(obj, list):
+                    for rec in obj:
+                        if isinstance(rec, dict):
+                            data.append(rec)
+                        emit_count += 1
+                        if (time.time() - t_last) >= max(5, status_interval):
+                            write_status(
+                                state='reading',
+                                total_files=total_files,
+                                processed_files=processed_files,
+                                current_file=filename,
+                                file_lines=emit_count,
+                            )
+                            t_last = time.time()
+                elif isinstance(obj, dict):
+                    data.append(obj)
+                else:
+                    # Fallback to line-by-line using splitlines
+                    for line in contents.splitlines():
+                        if max_line_bytes and len(line) > max_line_bytes:
+                            continue
+                        try:
+                            rec = json.loads(line.replace('\0', ''))
+                            if isinstance(rec, dict):
+                                data.append(rec)
+                        except Exception:
+                            continue
+                processed_files += 1
+                write_status(
+                    state='reading',
+                    total_files=total_files,
+                    processed_files=processed_files,
+                    current_file=filename,
+                )
+                continue
+            except Exception:
+                # Fallback to streaming line-by-line parsing
+                pass
+
         with open_json_lines(filepath_str) as file:
             line_count = 0
             t_last = time.time()
+            started_at = time.time()
             for each_line in file:
+                # Bail out if a single file exceeds processing time budget
+                if file_timeout and (time.time() - started_at) > file_timeout:
+                    logging.error(
+                        "File processing timeout after %ss: %s (lines=%s)",
+                        file_timeout,
+                        filepath_str,
+                        line_count,
+                    )
+                    break
                 try:
+                    # Skip pathological oversized lines to avoid stalls
+                    if max_line_bytes and len(each_line) > max_line_bytes:
+                        logging.warning(
+                            "Oversized JSON line skipped in %s (size=%s bytes > %s)",
+                            filepath_str,
+                            len(each_line),
+                            max_line_bytes,
+                        )
+                        continue
                     json_file = json.loads(each_line.replace('\0', ''))
-                    data.append(json_file)
+                    if isinstance(json_file, dict):
+                        data.append(json_file)
                 except Exception:
                     # Skip malformed JSON lines
                     continue
