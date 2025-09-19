@@ -511,6 +511,7 @@ def db_commit():
     try:
         if not bulk_load:
             con.commit()
+            logging.debug("Database transaction committed")
     except Exception:
         logging.error("Commit failed", exc_info=True)
 
@@ -1397,19 +1398,24 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
             current_file=f"Session {processed_sessions}/{total_sessions}: {session[:8]}...",
         )
         logging.info(f"Processing session {processed_sessions}/{total_sessions}: {session}")
+        logging.info(f"Session {session} - Starting database operations")
         cur = con.cursor()
         global attack_count
         attack_count += 1
         # Use pre-indexed data if available, otherwise fall back to full data
         session_data = data_by_session.get(session, data) if data_by_session else data
         
+        logging.info(f"Session {session} - Getting protocol and duration")
         protocol = get_protocol_login(session, session_data)
         session_duration = get_session_duration(session, session_data)
+        logging.info(f"Session {session} - Protocol: {protocol}, Duration: {session_duration}")
 
         # try block for partially available data
         # this is usually needed due to an attack spanning multiple log files not included for processing
         try:
+            logging.info(f"Session {session} - Getting login data")
             username, password, timestamp, src_ip = get_login_data(session, session_data)
+            logging.info(f"Session {session} - Login data retrieved: {username}, {src_ip}")
         except Exception:
             continue
         command_count = get_command_total(session, session_data)
@@ -1610,7 +1616,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             sql,
                             (
                                 each_download[2],
-                                (safe_read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
+                                (safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""),
                                 session,
                                 each_download[1],
                                 hostname,
@@ -1727,7 +1733,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 sql,
                                 (
                                     each_download[2],
-                                    (safe_read_uh_data(each_download[2], urlhausapi) if urlhausapi else ""),
+                                    (safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""),
                                     json_data['ip']['asname'],
                                     json_data['ip']['ascountry'],
                                     str(spur_data[0]),
@@ -1837,7 +1843,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             sql,
                             (
                                 each_upload[2],
-                                (safe_read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
+                                (safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""),
                                 session,
                                 each_upload[1],
                                 hostname,
@@ -1955,7 +1961,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 sql,
                                 (
                                     each_upload[2],
-                                    (safe_read_uh_data(each_upload[2], urlhausapi) if urlhausapi else ""),
+                                    (safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""),
                                     json_data['ip']['asname'],
                                     json_data['ip']['ascountry'],
                                     str(spur_data[0]),
@@ -2017,7 +2023,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         password,
                         epoch_time,
                         src_ip,
-                        (safe_read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
+                        (safe_read_uh_data(src_ip, urlhausapi) if not skip_enrich and urlhausapi else ""),
                         json_data['ip']['asname'],
                         json_data['ip']['ascountry'],
                         command_count,
@@ -2037,7 +2043,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         password,
                         epoch_time,
                         src_ip,
-                        (safe_read_uh_data(src_ip, urlhausapi) if urlhausapi else ""),
+                        (safe_read_uh_data(src_ip, urlhausapi) if not skip_enrich and urlhausapi else ""),
                         "",
                         "",
                         command_count,
@@ -2175,6 +2181,7 @@ for filename in list_of_files:
     file_path_obj = Path(log_location) / filename
     filepath_str = os.fspath(file_path_obj)
     print("Processing file " + filepath_str)
+    logging.info(f"Starting to process file {filename} ({processed_files + 1}/{total_files})")
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
         # Optional normalization pass: attempt to read entire file and parse non-JSONL formats
@@ -2276,6 +2283,16 @@ for filename in list_of_files:
         write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
     processed_files += 1
+    logging.info(f"Completed processing file {filename} - found {len(data)} log entries")
+    
+    # Check database size periodically
+    if processed_files % 10 == 0:  # Every 10 files
+        try:
+            db_size = os.path.getsize(db)
+            logging.info(f"Database size after {processed_files} files: {db_size / (1024*1024):.1f} MB")
+        except Exception:
+            pass
+    
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
 
 # File processing complete - update status
@@ -2395,7 +2412,9 @@ spur_session.close()
 # Final commit if bulk-load deferred commits
 try:
     if bulk_load:
+        logging.info("Performing final bulk-load commit to database")
         con.commit()
+        logging.info("Bulk-load commit completed")
 except Exception:
     logging.error("Final commit failed in bulk-load mode", exc_info=True)
 
