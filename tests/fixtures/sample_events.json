@@ -1,0 +1,84 @@
+[
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.session.connect",
+    "protocol": "ssh",
+    "src_ip": "203.0.113.10",
+    "timestamp": "2024-09-28T12:00:00Z"
+  },
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.login.success",
+    "username": "root",
+    "password": "password",
+    "src_ip": "203.0.113.10",
+    "timestamp": "2024-09-28T12:00:05Z"
+  },
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.command.input",
+    "command": "ls -la",
+    "timestamp": "2024-09-28T12:00:06Z"
+  },
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.session.file_download",
+    "url": "http://198.51.100.20/malware.bin",
+    "shasum": "deadbeef",
+    "destfile": "/tmp/malware.bin",
+    "src_ip": "203.0.113.10",
+    "timestamp": "2024-09-28T12:00:07Z"
+  },
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.session.file_download",
+    "url": "http://malicious.example.com/dropper.bin",
+    "shasum": "badcafe",
+    "destfile": "/tmp/dropper.bin",
+    "src_ip": "203.0.113.10",
+    "timestamp": "2024-09-28T12:00:08Z"
+  },
+  {
+    "session": "c0ffee-01",
+    "eventid": "cowrie.session.closed",
+    "duration": "0:00:10",
+    "timestamp": "2024-09-28T12:00:10Z"
+  },
+  {
+    "session": "facade-02",
+    "eventid": "cowrie.session.connect",
+    "protocol": "telnet",
+    "src_ip": "198.51.100.25",
+    "timestamp": "2024-09-28T13:00:00Z"
+  },
+  {
+    "session": "facade-02",
+    "eventid": "cowrie.login.failed",
+    "username": "admin",
+    "password": "admin",
+    "timestamp": "2024-09-28T13:00:02Z"
+  },
+  {
+    "session": "facade-02",
+    "eventid": "cowrie.session.file_upload",
+    "url": "http://203.0.113.50/upload.sh",
+    "shasum": "feedface",
+    "filename": "upload.sh",
+    "src_ip": "198.51.100.25",
+    "timestamp": "2024-09-28T13:00:03Z"
+  },
+  {
+    "session": "tty-session",
+    "eventid": "cowrie.session.connect",
+    "protocol": "ssh",
+    "ttylog": "var/lib/cowrie/tty/tty-file",
+    "src_ip": "192.0.2.55",
+    "timestamp": "2024-09-28T14:00:00Z"
+  },
+  {
+    "session": "",
+    "eventid": "cowrie.system.info",
+    "message": "orphan event without session",
+    "timestamp": "2024-09-28T14:00:01Z"
+  }
+]

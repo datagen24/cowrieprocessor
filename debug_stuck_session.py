@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Debug script to investigate the stuck session issue."""
 
-import sqlite3
 import json
-import time
 import os
+import sqlite3
+import time
+
 
 def check_database_status():
     """Check database status and session information."""
@@ -77,7 +78,7 @@ def check_file_activity():
                         link = os.readlink(f'/proc/{pid}/fd/{fd.strip()}')
                         if '.bz2' in link:
                             print(f"Process is reading: {link}")
-                    except:
+                    except Exception:
                         pass
     except Exception as e:
         print(f"Could not check file activity: {e}")
