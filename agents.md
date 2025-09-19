@@ -6,7 +6,8 @@ This document defines strict requirements for any agent (AI or human) contributi
 ## 1. Environment Setup
 
 ### Required Python Version
-- Python 3.9+ (enforce with `python_requires` in setup.py)
+- Python 3.9+ (declared via `project.requires-python` in `pyproject.toml`)
+- Develop and run CI with Python 3.13 to match the current toolchain
 - Always use virtual environments (`python3 -m venv venv`)
 
 ### Required Development Tools
@@ -15,14 +16,26 @@ This document defines strict requirements for any agent (AI or human) contributi
 ruff==0.12.11
 mypy==1.14.1
 types-requests==2.32.0.20240914
-pytest>=8.0.0
-pytest-cov>=4.1.0
-pytest-mock>=3.12.0
-sphinx>=7.0.0
-sphinx-rtd-theme>=2.0.0
 pre-commit==3.8.0
-black==24.3.0
 ```
+
+### UV Environment Workflow
+- Use `uv` to manage the project environment and respect the locked dependencies
+- First-time setup:
+  ```bash
+  uv python pin 3.13          # ensure local interpreter matches CI
+  uv sync                     # create .venv and install dependencies
+  uv run pre-commit install   # enable git hooks inside the environment
+  ```
+- Day-to-day commands:
+  ```bash
+  uv run ruff check .
+  uv run ruff format .
+  uv run mypy .
+  uv run pytest --cov=. --cov-report=term-missing
+  ```
+- Pre-commit hooks run Ruff and MyPy across the entire repository (not just staged files), so make sure the repo is clean before committing to avoid breaking the shared pipeline.
+- Run project scripts the same way, e.g. `uv run python process_cowrie.py ...`
 
 ## 2. Code Quality Standards
 
@@ -62,81 +75,65 @@ def process_log_file(filepath: Path, enrichment: bool = True) -> dict:
 ### 2.3 Linting Rules
 Before ANY commit, you MUST run:
 ```bash
-ruff check . --fix
+ruff check .
 ruff format .
 ```
 
 Ruff configuration (`pyproject.toml`):
 ```toml
 [tool.ruff]
-target-version = "py39"
+target-version = "py313"
 line-length = 120
-select = [
-    "E", "F", "W", "C90", "I", "N", "D", "UP", "YTT", "ANN",
-    "S", "BLE", "FBT", "B", "A", "COM", "DTZ", "T10", "DJ",
-    "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "PYI",
-    "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH",
-    "ARG", "PTH", "ERA", "PGH", "PL", "TRY", "RUF"
-]
-ignore = ["D203", "D213", "ANN101", "ANN102"]
 
-[tool.ruff.per-file-ignores]
-"tests/*" = ["S101", "D100", "D103"]
+[tool.ruff.lint]
+select = ["E", "F", "D", "I"]
+ignore = []
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 ```
 
 ### 2.4 Static Type Checking
 Before ANY commit, you MUST run:
 ```bash
-mypy . --strict
+mypy .
 ```
 
 MyPy configuration (`pyproject.toml`):
 ```toml
 [tool.mypy]
-python_version = "3.9"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_any_generics = true
-check_untyped_defs = true
-no_implicit_optional = true
-warn_redundant_casts = true
+python_version = "3.13"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+check_untyped_defs = false
 warn_unused_ignores = true
-warn_unreachable = true
-strict_equality = true
+warn_redundant_casts = true
 ```
 
 ## 3. Testing Requirements
 
 ### 3.1 Test Coverage
 - Minimum 80% code coverage required
-- All new features MUST include tests
+- All new features MUST include unit and/or integration tests
 - All bug fixes MUST include regression tests
 
 ### 3.2 Test Structure
 ```
 tests/
 ├── unit/
-│   ├── test_processor.py
-│   ├── test_enrichment.py
-│   └── test_database.py
 ├── integration/
-│   ├── test_api_integration.py
-│   └── test_db_integration.py
 ├── fixtures/
-│   └── sample_logs/
 └── conftest.py
 ```
 
 ### 3.3 Running Tests
 ```bash
 # Run all tests with coverage
-pytest --cov=cowrieprocessor --cov-report=term-missing --cov-report=html
+uv run pytest --cov=. --cov-report=term-missing --cov-report=html
 
 # Run specific test categories
-pytest tests/unit/
-pytest tests/integration/ -m "not slow"
+uv run pytest tests/unit/
+uv run pytest tests/integration/ -m "not slow"
 ```
 
 ### 3.4 Test Patterns
