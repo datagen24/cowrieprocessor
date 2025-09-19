@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 
+
 def monitor_progress():
     """Monitor database size and status file changes."""
     db_path = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
@@ -23,7 +24,12 @@ def monitor_progress():
             if os.path.exists(db_path):
                 current_db_size = os.path.getsize(db_path)
                 if current_db_size != last_db_size:
-                    print(f"Database size: {current_db_size / (1024*1024):.1f} MB (change: +{(current_db_size - last_db_size) / (1024*1024):.1f} MB)")
+                    current_mb = current_db_size / (1024 * 1024)
+                    delta_mb = (current_db_size - last_db_size) / (1024 * 1024)
+                    print(
+                        "Database size: "
+                        f"{current_mb:.1f} MB (change: +{delta_mb:.1f} MB)"
+                    )
                     last_db_size = current_db_size
             
             # Check status files
@@ -42,10 +48,22 @@ def monitor_progress():
                             'total_sessions': data.get('total_sessions', 0)
                         }
                         
-                        if current_status != last_status.get(status_file.name, {}):
-                            print(f"[{status_file.stem}] {current_status['state']} {current_status['processed_files']}/{current_status['total_files']} {current_status['current_file']}")
-                            if current_status['total_sessions'] > 0:
-                                print(f"  Sessions: {current_status['sessions_processed']}/{current_status['total_sessions']}")
+                        previous = last_status.get(status_file.name, {})
+                        if current_status != previous:
+                            processed = current_status['processed_files']
+                            total = current_status['total_files']
+                            current_file = current_status['current_file']
+                            print(
+                                f"[{status_file.stem}] {current_status['state']} "
+                                f"{processed}/{total} {current_file}"
+                            )
+                            total_sessions = current_status['total_sessions']
+                            if total_sessions > 0:
+                                sessions_processed = current_status['sessions_processed']
+                                print(
+                                    "  Sessions: "
+                                    f"{sessions_processed}/{total_sessions}"
+                                )
                             last_status[status_file.name] = current_status
                             
                     except Exception as e:
