@@ -102,8 +102,19 @@ def run_with_retries(
                                     done = data.get('processed_files', 0)
                                     current = data.get('current_file', '')
                                     state = data.get('state', '')
-                                    print(f"[status] {state} {done}/{total} {current}")
-                            except Exception:
+                                    sessions = data.get('sessions_processed', 0)
+                                    total_sessions = data.get('total_sessions', 0)
+                                    status_line = (
+                                        f"[status] {state} {done}/{total} {current}"
+                                    )
+                                    if total_sessions > 0:
+                                        status_line = (
+                                            f"{status_line} "
+                                            f"Sessions: {sessions}/{total_sessions}"
+                                        )
+                                    print(status_line)
+                            except Exception as e:
+                                print(f"[debug] Status read error: {e}")
                                 pass
                         out, err = proc.communicate()
                         if out:
