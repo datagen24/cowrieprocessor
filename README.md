@@ -114,6 +114,20 @@ Hook configuration lives in `.pre-commit-config.yaml` and includes:
 - Ruff: linting, import sorting, and formatting (`ruff` + `ruff-format`)
 - MyPy: static type checks (with `types-requests`)
 
+## Testing
+
+The project uses a uv-managed virtual environment. Sync dependencies once and run tests through uv:
+
+```bash
+uv sync                                  # installs runtime + dev deps into .venv
+
+# Basic smoke suite
+uv run pytest
+
+# Coverage target (80% minimum)
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80
+```
+
 Basic usage:
 ```bash
 python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@example.com
