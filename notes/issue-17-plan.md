@@ -61,6 +61,7 @@
 - Support streaming pagination for large result sets, configurable output formats, and a compatibility layer for legacy report consumers including the Elastic exporter.
 - Validate report outputs against the legacy implementation to guarantee parity; document ORM optimization strategies or raw SQL usage for heavy aggregations.
 - Add health-check endpoints, graceful shutdown hooks ensuring report jobs flush checkpoints on termination, and content-security policies for any HTML outputs.
+- **Status:** In progress. Design captured in `notes/phase-4-reporting-plan.md` covering DAL, builders, ES publisher, telemetry wiring, and test strategy.
 
 ### Phase 5 – Telemetry & Operational Hardening
 - Extend status telemetry to include phase markers (bulk ingest, delta ingest, reporting), timestamps, throughput, resource usage, hostile-content scores, neutralization effectiveness, neutralization cache hit rate, time-to-detection metrics, false positive rates, JSON parsing failures, index hit ratios, WAL checkpoint intervals/durations, and queue saturation.

@@ -168,6 +168,33 @@ python refresh_cache_and_reports.py \
     --email your.email@example.com
 ```
 
+### Telemetry-Enabled Loader CLI
+
+The new ingestion CLI streams loader metrics, checkpoints, and dead-letter statistics to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` (or other observers) can display real-time progress.
+
+Bulk ingest example:
+```bash
+cowrie-loader bulk \
+    /mnt/dshield/a/NSM/cowrie/*.json \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status
+```
+
+Incremental ingest (delta) example:
+```bash
+cowrie-loader delta \
+    /mnt/dshield/a/NSM/cowrie/*.json \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status
+```
+
+Monitor progress in another terminal:
+```bash
+python monitor_progress.py
+```
+
+The status output now includes phase (`bulk_ingest`/`delta_ingest`), event throughput, last checkpoint (source + offset), and dead-letter totals.
+
 ## Command Line Reference
 
 ### Core Arguments
