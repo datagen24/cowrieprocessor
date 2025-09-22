@@ -63,13 +63,14 @@
 - Add health-check endpoints, graceful shutdown hooks ensuring report jobs flush checkpoints on termination, and content-security policies for any HTML outputs.
 - **Status:** ORM repository/builders, telemetry-enabled reporting CLI, and migration guidance (`notes/reporting-migration.md`) are in place. Remaining tasks: validate report parity vs legacy outputs, restore enrichments/alerts/backfill ergonomics, and remove `es_reports.py` once Phase 4 bake completes.
 
-### Phase 5 – Telemetry & Operational Hardening
-- Extend status telemetry to include phase markers (bulk ingest, delta ingest, reporting), timestamps, throughput, resource usage, hostile-content scores, neutralization effectiveness, neutralization cache hit rate, time-to-detection metrics, false positive rates, JSON parsing failures, index hit ratios, WAL checkpoint intervals/durations, and queue saturation.
-- Integrate OpenTelemetry tracing for loader and reporting workflows, with guidance on cardinality management; capture logs for neutralization/quarantine decisions, compliance mode accesses, and geographic intelligence updates.
-- Implement automated backpressure/throttling, circuit breakers, rate limiting, health check endpoints, and emergency isolation mode when defenses detect zero-day exploits or downstream outages.
-- Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth, anomaly spikes), and deployment scripts for new modes, telemetry fields, and configuration knobs.
-- Deliver incident-response playbooks covering hostile-content bypass, neutralization failure, supply-chain alerts, and rollback procedures for loader/reporting components.
-- Implement a shared status emitter that writes bulk and delta loader telemetry (phase marker, throughput, checkpoints, DLQ metrics) to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` and other observers expose unified progress.
+- **Phase 5 – Telemetry & Operational Hardening**
+    - Extend status telemetry to include phase markers (bulk ingest, delta ingest, reporting), timestamps, throughput, resource usage, hostile-content scores, neutralization effectiveness, neutralization cache hit rate, time-to-detection metrics, false positive rates, JSON parsing failures, index hit ratios, WAL checkpoint intervals/durations, and queue saturation.
+    - Integrate OpenTelemetry tracing for loader and reporting workflows, with guidance on cardinality management; capture logs for neutralization/quarantine decisions, compliance mode accesses, and geographic intelligence updates.
+    - Implement automated backpressure/throttling, circuit breakers, rate limiting, health check endpoints, and emergency isolation mode when defenses detect zero-day exploits or downstream outages.
+    - Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth, anomaly spikes), and deployment scripts for new modes, telemetry fields, and configuration knobs.
+    - Deliver incident-response playbooks covering hostile-content bypass, neutralization failure, supply-chain alerts, and rollback procedures for loader/reporting components.
+    - Implement a shared status emitter that writes bulk and delta loader telemetry (phase marker, throughput, checkpoints, DLQ metrics) to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` and other observers expose unified progress.
+    - **Status:** Circuit breaker/backpressure for loader flushes landed, status emitter now produces aggregate `status.json` with throughput metrics, and CLI telemetry reports per-sensor progress. Remaining work: health-check endpoints, OTEL integration, incident-response playbooks, and documentation/dashboards for the new metrics.
 
 ### Phase 6 – Validation, Migration & Rollout
 - Develop unit/integration tests for raw event persistence, loader workflows, reporting queries, JSON validation, hostile-content detection, neutralization routines, schema registry flows, compliance-mode behaviors, and geographic intelligence handling.
