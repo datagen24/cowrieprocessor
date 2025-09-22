@@ -6,6 +6,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
@@ -13,7 +15,7 @@ from typing import Iterable, List, Optional, Tuple
 from secrets_resolver import is_reference, resolve_secret
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
-from ..loader import BulkLoaderMetrics, LoaderCheckpoint
+from ..loader import LoaderCheckpoint
 from ..reporting import (
     DailyReportBuilder,
     ElasticsearchPublisher,
@@ -24,6 +26,19 @@ from ..reporting import (
 from ..reporting.builders import BaseReportBuilder, ReportContext
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
+
+
+@dataclass(slots=True)
+class ReportingMetrics:
+    """Telemetry snapshot for reporting workflows."""
+
+    ingest_id: str
+    reports_requested: int
+    reports_generated: int = 0
+    sensors: List[str] = field(default_factory=list)
+    duration_seconds: float = 0.0
+    published_reports: int = 0
+    errors: int = 0
 
 
 def _resolve_db_settings(db_arg: Optional[str]) -> DatabaseSettings:
@@ -204,14 +219,21 @@ def main(argv: Iterable[str] | None = None) -> int:
     ingest_id = args.ingest_id or f"report-{args.mode}-{label}"
 
     emitter = StatusEmitter("reporting", status_dir=args.status_dir)
-    metrics = BulkLoaderMetrics(ingest_id=ingest_id, events_inserted=len(contexts))
+    sensor_labels = [context.sensor or "aggregate" for context in contexts]
+    metrics = ReportingMetrics(ingest_id=ingest_id, reports_requested=len(contexts), sensors=sensor_labels)
     emitter.record_metrics(metrics)
+
+    start_time = time.perf_counter()
 
     reports = []
     for idx, context in enumerate(contexts):
         report = builder.build(context)
         reports.append(report)
         payload = json.dumps(report, indent=2)
+
+        metrics.reports_generated = len(reports)
+        metrics.duration_seconds = time.perf_counter() - start_time
+        emitter.record_metrics(metrics)
 
         if args.output:
             output_path = Path(args.output)
@@ -240,7 +262,16 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 2
 
     if publisher and reports:
-        publisher.publish(reports)
+        try:
+            publisher.publish(reports)
+            metrics.published_reports = len(reports)
+        except Exception:
+            metrics.errors = len(reports)
+            metrics.duration_seconds = time.perf_counter() - start_time
+            emitter.record_metrics(metrics)
+            raise
+    metrics.duration_seconds = time.perf_counter() - start_time
+    emitter.record_metrics(metrics)
 
     return 0
 

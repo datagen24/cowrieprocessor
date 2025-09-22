@@ -62,6 +62,10 @@ def test_report_cli_dry_run(tmp_path, capsys):
 
     status_file = status_dir / "reporting.json"
     assert status_file.exists()
+    status_payload = json.loads(status_file.read_text())
+    assert status_payload["metrics"]["reports_requested"] == 1
+    assert status_payload["metrics"]["reports_generated"] == 1
+    assert status_payload["metrics"]["sensors"] == ["aggregate"]
 
 
 def test_report_cli_all_sensors(tmp_path, capsys):
@@ -109,9 +113,17 @@ def test_report_cli_all_sensors(tmp_path, capsys):
             "--db",
             f"sqlite:///{db_path}",
             "--all-sensors",
+            "--status-dir",
+            str(tmp_path / "status"),
         ]
     )
 
     assert exit_code == 0
     captured = capsys.readouterr()
     assert captured.out == ""
+
+    status_file = tmp_path / "status" / "reporting.json"
+    payload = json.loads(status_file.read_text())
+    assert payload["metrics"]["reports_requested"] == 3
+    assert payload["metrics"]["reports_generated"] == 3
+    assert payload["metrics"]["sensors"] == ["sensor-a", "sensor-b", "aggregate"]
