@@ -37,6 +37,7 @@ def test_session_stats_and_top_commands(tmp_path):
                 login_attempts=1,
                 vt_flagged=1,
                 dshield_flagged=0,
+                matcher="sensor-a",
             )
         )
         session.add(
@@ -49,6 +50,7 @@ def test_session_stats_and_top_commands(tmp_path):
                     "eventid": "cowrie.command.input",
                     "input_safe": "ls",
                     "src_ip": "1.2.3.4",
+                    "sensor": "sensor-a",
                 },
                 risk_score=0,
                 quarantined=False,
@@ -65,6 +67,7 @@ def test_session_stats_and_top_commands(tmp_path):
                     "eventid": "cowrie.session.file_download",
                     "url": "http://malicious",
                     "src_ip": "1.2.3.4",
+                    "sensor": "sensor-a",
                 },
                 risk_score=0,
                 quarantined=False,
@@ -73,13 +76,15 @@ def test_session_stats_and_top_commands(tmp_path):
         )
         session.commit()
 
-    stats = repo.session_stats(start, end)
+    stats = repo.session_stats(start, end, sensor="sensor-a")
     assert stats.total_sessions == 1
     assert stats.file_downloads == 1
     assert stats.unique_ips == 1
 
-    commands = list(repo.top_commands(start, end, top_n=5))
+    commands = list(repo.top_commands(start, end, top_n=5, sensor="sensor-a"))
     assert commands[0].command == "ls"
 
-    downloads = list(repo.top_file_downloads(start, end))
+    downloads = list(repo.top_file_downloads(start, end, sensor="sensor-a"))
     assert downloads[0].url == "http://malicious"
+
+    assert repo.sensors() == ["sensor-a"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Iterator, Optional, cast
+from typing import Iterable, Iterator, List, Optional, cast
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -80,13 +80,16 @@ class ReportingRepository:
                 ).where(and_(*filters))
             ).one()
 
+            ip_filters = [
+                RawEvent.ingest_at >= start,
+                RawEvent.ingest_at < end,
+            ]
+            if sensor:
+                ip_filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
+
             unique_ips = session.execute(
-                select(func.count(func.distinct(func.json_extract(RawEvent.payload, "$.src_ip"))))
-                .where(
-                    and_(
-                        RawEvent.ingest_at >= start,
-                        RawEvent.ingest_at < end,
-                    )
+                select(func.count(func.distinct(func.json_extract(RawEvent.payload, "$.src_ip")))).where(
+                    and_(*ip_filters)
                 )
             ).scalar_one()
 
@@ -117,7 +120,7 @@ class ReportingRepository:
                 func.json_extract(RawEvent.payload, "$.eventid").like("%command%"),
             ]
             if sensor:
-                filters.append(func.json_extract(RawEvent.payload, "$.sensor").is_(sensor))
+                filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
 
             stmt = (
                 select(
@@ -140,21 +143,24 @@ class ReportingRepository:
         start: datetime,
         end: datetime,
         top_n: int = 10,
+        sensor: Optional[str] = None,
     ) -> Iterable[FileDownloadRow]:
         """Yield the most common file download URLs in the time range."""
         with self.session() as session:
+            filters = [
+                RawEvent.ingest_at >= start,
+                RawEvent.ingest_at < end,
+                func.json_extract(RawEvent.payload, "$.eventid") == "cowrie.session.file_download",
+            ]
+            if sensor:
+                filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
+
             stmt = (
                 select(
                     func.json_extract(RawEvent.payload, "$.url").label("url"),
                     func.count().label("count"),
                 )
-                .where(
-                    and_(
-                        RawEvent.ingest_at >= start,
-                        RawEvent.ingest_at < end,
-                        func.json_extract(RawEvent.payload, "$.eventid") == "cowrie.session.file_download",
-                    )
-                )
+                .where(and_(*filters))
                 .group_by("url")
                 .order_by(func.count().desc())
                 .limit(top_n)
@@ -164,3 +170,12 @@ class ReportingRepository:
                 url = row.url or "<unknown>"
                 occurrences = cast(int, row.count) if row.count is not None else 0
                 yield FileDownloadRow(url=url, occurrences=occurrences)
+
+    def sensors(self) -> List[str]:
+        """Return a sorted list of sensor identifiers present in summaries."""
+        with self.session() as session:
+            rows = session.execute(
+                select(func.distinct(SessionSummary.matcher)).where(SessionSummary.matcher.isnot(None))
+            )
+            sensors = [value for (value,) in rows if value]
+        return sorted(set(sensors))

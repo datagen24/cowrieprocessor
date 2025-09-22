@@ -87,10 +87,7 @@ class DeltaLoader:
                     processed = self._bulk._process_event(payload)
                     event_hash = self._bulk._payload_hash(processed.payload)
                     reset_generation = inode_changed or (
-                        cursor is not None
-                        and offset == 0
-                        and first_hash_value
-                        and event_hash != first_hash_value
+                        cursor is not None and offset == 0 and first_hash_value and event_hash != first_hash_value
                     )
                     if reset_generation:
                         self._set_cursor_last_offset(cursor, -1)
@@ -102,9 +99,7 @@ class DeltaLoader:
                     if processed.validation_errors:
                         metrics.events_invalid += 1
                         dead_letters.append(
-                            self._dead_letter_record(
-                                ingest_ref, str(path), offset, "validation", processed
-                            )
+                            self._dead_letter_record(ingest_ref, str(path), offset, "validation", processed)
                         )
                         metrics.last_source = str(path)
                         metrics.last_offset = offset
@@ -113,9 +108,7 @@ class DeltaLoader:
                     if processed.quarantined:
                         metrics.events_quarantined += 1
                         dead_letters.append(
-                            self._dead_letter_record(
-                                ingest_ref, str(path), offset, "quarantined", processed
-                            )
+                            self._dead_letter_record(ingest_ref, str(path), offset, "quarantined", processed)
                         )
 
                     record = self._bulk._make_raw_event_record(

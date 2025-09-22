@@ -26,9 +26,14 @@ class ElasticsearchPublisher:
         """Bulk index the provided report documents."""
         actions = []
         for report in reports:
-            index_name = f"{self.index_prefix}-{report['report_type']}"
+            report_type = report.get("report_type", "report")
+            index_name = f"{self.index_prefix}.{report_type}-write"
+            sensor = str(report.get("sensor") or "aggregate")
+            date_label = str(report.get("date") or report.get("@timestamp"))
+            doc_id = f"{sensor}:{report_type}:{date_label}"
             action: Dict[str, Any] = {
                 "_index": index_name,
+                "_id": doc_id,
                 "_source": report,
             }
             if self.pipeline:

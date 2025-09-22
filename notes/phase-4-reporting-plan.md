@@ -41,6 +41,12 @@
 - Mocked Elasticsearch publisher tests ensuring retry/backoff logic and proper payload shape.
 - CLI smoke test that runs daily report in dry-run mode and verifies status file updates.
 
+## Rollout Notes
+- `notes/reporting-migration.md` captures the migration steps for operators and the
+  staged removal plan for `es_reports.py`.
+- Automation (`refresh_cache_and_reports.py`, systemd/cron examples) now calls
+  `cowrie-report`; monitor staging until parity is signed off.
+
 ## Migration Plan
 1. Land reporting DAL + builders with parity tests (without ES publishing) and enable CLI dry-run.
 2. Introduce ES publisher & CLI wiring, maintaining old `es_reports.py` as fallback with deprecation warning.
