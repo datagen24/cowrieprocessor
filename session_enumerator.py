@@ -51,6 +51,23 @@ def _coerce_epoch(value: object) -> Optional[int]:
     return None
 
 
+def _parse_duration_seconds(value: object) -> Optional[int]:
+    """Convert Cowrie duration strings (HH:MM:SS) into seconds."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        parts = text.split(':')
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            hours, minutes, seconds = (int(part) for part in parts)
+            return hours * 3600 + minutes * 60 + seconds
+        if text.isdigit():
+            return int(text)
+    return None
+
+
 def _match_full_delimited(entry: SessionEntry) -> Optional[str]:
     raw = entry.get('session')
     if isinstance(raw, str):
@@ -113,6 +130,13 @@ class SessionMetrics:
     login_attempts: int = 0
     total_events: int = 0
     last_source_file: Optional[str] = None
+    protocol: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    src_ip: Optional[str] = None
+    login_time: Optional[int] = None
+    login_timestamp: Optional[str] = None
+    duration_seconds: Optional[int] = None
 
     def update(self, entry: SessionEntry, source_file: Optional[str]) -> None:
         """Update aggregate counters from a single event entry."""
@@ -129,6 +153,32 @@ class SessionMetrics:
                 self.command_count += 1
             if eventid.startswith('cowrie.login'):
                 self.login_attempts += 1
+            if eventid == 'cowrie.session.connect':
+                proto = entry.get('protocol')
+                if isinstance(proto, str):
+                    self.protocol = proto
+                src_ip = entry.get('src_ip')
+                if isinstance(src_ip, str):
+                    self.src_ip = src_ip
+            elif eventid == 'cowrie.login.success':
+                username = entry.get('username')
+                password = entry.get('password')
+                src_ip = entry.get('src_ip')
+                ts_raw = entry.get('timestamp')
+                if isinstance(username, str):
+                    self.username = username
+                if isinstance(password, str):
+                    self.password = password
+                if isinstance(src_ip, str):
+                    self.src_ip = src_ip
+                if isinstance(ts_raw, str):
+                    self.login_timestamp = ts_raw
+                if timestamp is not None:
+                    self.login_time = timestamp
+            elif eventid == 'cowrie.session.closed':
+                duration = _parse_duration_seconds(entry.get('duration'))
+                if duration is not None:
+                    self.duration_seconds = duration
         if source_file:
             self.last_source_file = source_file
 
@@ -257,6 +307,13 @@ def serialize_metrics(metrics: Dict[str, SessionMetrics]) -> List[Dict[str, obje
                 'login_attempts': item.login_attempts,
                 'total_events': item.total_events,
                 'last_source_file': item.last_source_file,
+                'protocol': item.protocol,
+                'username': item.username,
+                'password': item.password,
+                'src_ip': item.src_ip,
+                'login_time': item.login_time,
+                'login_timestamp': item.login_timestamp,
+                'duration_seconds': item.duration_seconds,
             }
         )
     return payload

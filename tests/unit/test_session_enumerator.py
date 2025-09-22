@@ -10,11 +10,27 @@ def test_enumerate_sessions_basic_metrics() -> None:
             'session': 'alpha-01',
             'eventid': 'cowrie.session.connect',
             'timestamp': '2024-01-01T00:00:00Z',
+            'protocol': 'ssh',
+            'src_ip': '203.0.113.10',
+        },
+        {
+            'session': 'alpha-01',
+            'eventid': 'cowrie.login.success',
+            'username': 'root',
+            'password': 'hunter2',
+            'src_ip': '203.0.113.10',
+            'timestamp': '2024-01-01T00:00:01Z',
         },
         {
             'session': 'alpha-01',
             'eventid': 'cowrie.command.input',
             'timestamp': '2024-01-01T00:00:01Z',
+        },
+        {
+            'session': 'alpha-01',
+            'eventid': 'cowrie.session.closed',
+            'duration': '0:00:42',
+            'timestamp': '2024-01-01T00:05:00Z',
         },
         {
             'sessionid': 'bravo-02',
@@ -36,6 +52,12 @@ def test_enumerate_sessions_basic_metrics() -> None:
     assert result.metrics['charlie-03'].match_type == 'event_session'
     assert result.match_counts['session_id_only'] == 1
     assert result.match_counts['event_session'] == 2
+    alpha_metrics = result.metrics['alpha-01']
+    assert alpha_metrics.protocol == 'ssh'
+    assert alpha_metrics.username == 'root'
+    assert alpha_metrics.src_ip == '203.0.113.10'
+    assert alpha_metrics.duration_seconds == 42
+    assert alpha_metrics.login_time is not None
 
 
 def test_enumerate_sessions_callbacks_invoked() -> None:
