@@ -20,7 +20,7 @@ from sqlalchemy.dialects import sqlite as sqlite_dialect
 try:  # pragma: no cover - optional dependency
     from sqlalchemy.dialects import postgresql as postgres_dialect
 except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
-    postgres_dialect = None  # type: ignore[assignment]
+    postgres_dialect = cast(Any, None)
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -254,12 +254,16 @@ class BulkLoader:
 
         if dialect_name == "sqlite":
             stmt = sqlite_dialect.insert(table).values(records)
-            stmt = stmt.on_conflict_do_nothing(index_elements=["source", "source_offset"])
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["source", "source_inode", "source_generation", "source_offset"]
+            )
             result = session.execute(stmt)
             return int(result.rowcount or 0)
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table).values(records)
-            pg_stmt = pg_stmt.on_conflict_do_nothing(index_elements=["source", "source_offset"])
+            pg_stmt = pg_stmt.on_conflict_do_nothing(
+                index_elements=["source", "source_inode", "source_generation", "source_offset"]
+            )
             result = session.execute(pg_stmt)
             return int(result.rowcount or 0)
 
@@ -384,22 +388,26 @@ class BulkLoader:
         source_inode: Optional[int],
         offset: int,
         processed: ProcessedEvent,
+        generation: int = 0,
     ) -> JsonDict:
-        payload_hash = hashlib.blake2b(
-            json.dumps(processed.payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
-            digest_size=32,
-        ).hexdigest()
-
+        payload_hash = self._payload_hash(processed.payload)
         return {
             "ingest_id": ingest_id,
             "source": str(source_path),
             "source_offset": offset,
             "source_inode": str(source_inode) if source_inode is not None else None,
+            "source_generation": generation,
             "payload": processed.payload,
             "payload_hash": payload_hash,
             "risk_score": processed.risk_score,
             "quarantined": processed.quarantined,
         }
+
+    def _payload_hash(self, payload: Mapping[str, Any]) -> str:
+        return hashlib.blake2b(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+            digest_size=32,
+        ).hexdigest()
 
     def _iter_source(self, path: Path) -> Iterator[tuple[int, Any]]:
         opener = self._resolve_opener(path)

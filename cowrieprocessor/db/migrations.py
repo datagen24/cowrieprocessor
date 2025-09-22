@@ -5,14 +5,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator, cast
 
-from sqlalchemy import Table, select, update
+from sqlalchemy import Table, inspect, select, text, update
 from sqlalchemy.engine import Connection, Engine
 
 from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 @contextmanager
@@ -45,13 +45,34 @@ def _set_schema_version(connection: Connection, version: int) -> None:
 
 def apply_migrations(engine: Engine) -> int:
     """Create or upgrade database schema and return the resulting version."""
+    version = 0
     with begin_connection(engine) as connection:
         Base.metadata.create_all(bind=connection)
         version = _get_schema_version(connection)
-        if version < CURRENT_SCHEMA_VERSION:
-            _set_schema_version(connection, CURRENT_SCHEMA_VERSION)
-            version = CURRENT_SCHEMA_VERSION
+
+        if version < 1:
+            _set_schema_version(connection, 1)
+            version = 1
+
+        if version < 2:
+            _upgrade_to_v2(connection)
+            _set_schema_version(connection, 2)
+            version = 2
     return version
+
+
+def _upgrade_to_v2(connection: Connection) -> None:
+    inspector = inspect(connection)
+    columns = {column["name"] for column in inspector.get_columns("raw_events")}
+    if "source_generation" not in columns:
+        connection.execute(text("ALTER TABLE raw_events ADD COLUMN source_generation INTEGER NOT NULL DEFAULT 0"))
+    connection.execute(text("UPDATE raw_events SET source_generation=0 WHERE source_generation IS NULL"))
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_raw_events_source_gen "
+            "ON raw_events(source, source_inode, source_generation, source_offset)"
+        )
+    )
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]
