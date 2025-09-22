@@ -197,6 +197,18 @@ for i in range(7):
 "
 ```
 
+### Status Telemetry
+```bash
+# Aggregate view combining bulk, delta, and reporting phases
+jq '.' /mnt/dshield/data/logs/status/status.json
+
+# Individual phase files still exist for granular inspection
+ls /mnt/dshield/data/logs/status
+
+# Example: tail the reporting phase with derived throughput metrics
+jq '.' /mnt/dshield/data/logs/status/reporting.json
+```
+
 ## Troubleshooting
 
 ### Common Issues

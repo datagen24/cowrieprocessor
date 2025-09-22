@@ -22,7 +22,7 @@ try:  # pragma: no cover - optional dependency
 except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
     postgres_dialect = cast(Any, None)
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import RawEvent, SessionSummary, create_session_maker
@@ -46,6 +46,10 @@ class BulkLoaderConfig:
     batch_risk_threshold: int = 400
     neutralize_commands: bool = True
     telemetry_interval: int = 5  # batches
+    max_flush_retries: int = 3
+    flush_retry_backoff: float = 1.5
+    max_failure_streak: int = 5
+    failure_cooldown_seconds: float = 10.0
 
 
 @dataclass(slots=True)
@@ -86,6 +90,9 @@ class BulkLoaderMetrics:
     last_source: Optional[str] = None
     last_offset: int = 0
     duration_seconds: float = 0.0
+    flush_failures: int = 0
+    circuit_break_active: bool = False
+    cooldowns_applied: int = 0
 
 
 @dataclass(slots=True)
@@ -115,6 +122,10 @@ class ProcessedEvent:
     event_timestamp: Optional[datetime]
 
 
+class LoaderCircuitBreakerError(RuntimeError):
+    """Raised when the loader circuit breaker is triggered."""
+
+
 class BulkLoader:
     """Stream Cowrie JSON lines into the structured database schema."""
 
@@ -123,6 +134,7 @@ class BulkLoader:
         self.engine = engine
         self.config = config or BulkLoaderConfig()
         self._session_factory: sessionmaker[Session] = create_session_maker(engine)
+        self._failure_streak = 0
 
     def load_paths(
         self,
@@ -224,12 +236,38 @@ class BulkLoader:
         if batch_risk >= self.config.batch_risk_threshold:
             metrics.batches_quarantined += 1
 
-        with session.begin():
-            inserted = self._bulk_insert_raw_events(session, raw_event_records)
-            metrics.events_inserted += inserted
-            metrics.duplicates_skipped += len(raw_event_records) - inserted
-            self._upsert_session_summaries(session, session_aggregates)
+        attempt = 0
+        backoff = 1.0
+        while True:
+            try:
+                inserted = self._execute_flush(session, raw_event_records, session_aggregates)
+                break
+            except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
+                session.rollback()
+                metrics.flush_failures += 1
+                attempt += 1
+                if attempt <= self.config.max_flush_retries:
+                    time.sleep(max(0.0, backoff))
+                    backoff *= self.config.flush_retry_backoff
+                    continue
+
+                self._failure_streak += 1
+                if self.config.failure_cooldown_seconds > 0:
+                    metrics.cooldowns_applied += 1
+                    time.sleep(self.config.failure_cooldown_seconds)
+
+                if self._failure_streak >= self.config.max_failure_streak:
+                    metrics.circuit_break_active = True
+                    raise LoaderCircuitBreakerError(
+                        "Loader circuit breaker tripped after repeated flush failures"
+                    ) from exc
+                raise
+
+        self._failure_streak = 0
+        metrics.events_inserted += inserted
+        metrics.duplicates_skipped += len(raw_event_records) - inserted
         metrics.batches_committed += 1
+
         if checkpoint_cb:
             last_record = raw_event_records[-1]
             session_ids = list(session_aggregates.keys())
@@ -244,6 +282,18 @@ class BulkLoader:
                     sessions=session_ids,
                 )
             )
+
+    def _execute_flush(
+        self,
+        session: Session,
+        raw_event_records: List[JsonDict],
+        session_aggregates: Dict[str, SessionAggregate],
+    ) -> int:
+        """Execute a single flush attempt returning inserted event count."""
+        with session.begin():
+            inserted = self._bulk_insert_raw_events(session, raw_event_records)
+            self._upsert_session_summaries(session, session_aggregates)
+        return inserted
 
     def _bulk_insert_raw_events(self, session: Session, records: List[JsonDict]) -> int:
         if not records:
