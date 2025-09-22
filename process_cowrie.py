@@ -23,13 +23,13 @@ import signal
 import socket
 import sqlite3
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Optional
 
 import dropbox
 import requests
-import tempfile
 
 from enrichment_handlers import (
     dshield_query as enrichment_dshield_query,
@@ -2073,7 +2073,11 @@ def print_session_info(
         if len(rows) > 0:
             print("Data for session " + session + " was already stored within database")
         else:
-            session_urlhaus_tags = safe_read_uh_data(src_ip, urlhausapi) if (not skip_enrich and urlhausapi and src_ip) else ""
+            session_urlhaus_tags = (
+                safe_read_uh_data(src_ip, urlhausapi)
+                if (not skip_enrich and urlhausapi and src_ip)
+                else ""
+            )
             sql = (
                 "INSERT INTO sessions( session, session_duration, protocol, username, password, "
                 "timestamp, source_ip, urlhaus_tag, asname, ascountry, total_commands, added, hostname) "
