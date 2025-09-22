@@ -44,6 +44,7 @@
 - Optimize adaptive batching based on memory pressure and I/O throughput, leveraging parallel parsing with controlled write locks and connection pooling.
 - Capture ingest checkpoints (file offsets, session boundaries), hostile-content metrics, telemetry (rows/sec, batch latency, checksum status, JSON failures, injection scores, neutralization cache hits), and distribute OpenTelemetry spans.
 - Seed summary tables, run data quality checks, verify Elastic exporter compatibility, and fail secure on untrusted payloads.
+- **Status:** Completed. Bulk loader in place with neutralization, checkpoints, telemetry metrics, and regression coverage.
 
 ### Phase 3 – Delta Loader Implementation
 - Build a state tracker recording last processed file, timestamp, and session boundaries to ensure idempotent incremental ingest.
@@ -51,6 +52,7 @@
 - Provide restart/recovery logic, configurable backpressure mechanisms, rate limiting, and isolation/locking strategy for concurrent bulk/delta operations.
 - Layer anomaly detection for live traffic (spikes in injection attempts, new exploit signatures, geographic intelligence, velocity shifts) with automated alerts, throttling, and feedback into neutralization rules.
 - Surface telemetry on queue depth, retry counts, DLQ volume, anomaly signals, distributed trace spans, hostile-content statistics, and geographic intelligence; add circuit breakers when downstream systems (Elastic, Postgres) are unavailable.
+- **Status:** Completed. Delta loader implemented with ingest cursors, rotation handling, hostile-content DLQ, and comprehensive tests. Telemetry/alert integration remains outstanding.
 
 ### Phase 4 – Reporting Tool Rewrite
 - Create a reporting CLI/service that queries summary tables (and JSON as needed) via the ORM to produce daily, weekly, and monthly reports without re-reading logs.
@@ -66,6 +68,7 @@
 - Implement automated backpressure/throttling, circuit breakers, rate limiting, health check endpoints, and emergency isolation mode when defenses detect zero-day exploits or downstream outages.
 - Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth, anomaly spikes), and deployment scripts for new modes, telemetry fields, and configuration knobs.
 - Deliver incident-response playbooks covering hostile-content bypass, neutralization failure, supply-chain alerts, and rollback procedures for loader/reporting components.
+- Implement a shared status emitter that writes bulk and delta loader telemetry (phase marker, throughput, checkpoints, DLQ metrics) to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` and other observers expose unified progress.
 
 ### Phase 6 – Validation, Migration & Rollout
 - Develop unit/integration tests for raw event persistence, loader workflows, reporting queries, JSON validation, hostile-content detection, neutralization routines, schema registry flows, compliance-mode behaviors, and geographic intelligence handling.

@@ -27,8 +27,18 @@ def test_apply_migrations_creates_tables(tmp_path):
     assert version == CURRENT_SCHEMA_VERSION
 
     inspector = inspect(engine)
-    for table in ("schema_state", "raw_events", "session_summaries", "command_stats"):
+    for table in (
+        "schema_state",
+        "raw_events",
+        "session_summaries",
+        "command_stats",
+        "ingest_cursors",
+        "dead_letter_events",
+    ):
         assert inspector.has_table(table), f"Expected table {table} to be created"
+
+    raw_event_columns = {col["name"] for col in inspector.get_columns("raw_events")}
+    assert "source_generation" in raw_event_columns
 
 
 def test_raw_event_computed_columns(tmp_path):

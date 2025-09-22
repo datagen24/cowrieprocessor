@@ -3,7 +3,14 @@
 from .base import Base
 from .engine import create_engine_from_settings, create_session_maker
 from .migrations import CURRENT_SCHEMA_VERSION, apply_migrations
-from .models import CommandStat, RawEvent, SchemaState, SessionSummary
+from .models import (
+    CommandStat,
+    DeadLetterEvent,
+    IngestCursor,
+    RawEvent,
+    SchemaState,
+    SessionSummary,
+)
 
 __all__ = [
     "Base",
@@ -15,4 +22,6 @@ __all__ = [
     "SessionSummary",
     "CommandStat",
     "SchemaState",
+    "IngestCursor",
+    "DeadLetterEvent",
 ]

@@ -40,6 +40,7 @@ class RawEvent(Base):
     source = Column(String(512), nullable=False)
     source_offset = Column(BigInteger, nullable=True)
     source_inode = Column(String(128), nullable=True)
+    source_generation = Column(Integer, nullable=False, server_default="0")
     payload = Column(JSON, nullable=False)
     payload_hash = Column(String(64), nullable=True)
     risk_score = Column(Integer, nullable=True)
@@ -59,7 +60,13 @@ class RawEvent(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("source", "source_offset", name="uq_raw_events_source_offset"),
+        UniqueConstraint(
+            "source",
+            "source_inode",
+            "source_generation",
+            "source_offset",
+            name="uq_raw_events_source_offset",
+        ),
         Index("ix_raw_events_session_id", "session_id"),
         Index("ix_raw_events_event_type", "event_type"),
         Index("ix_raw_events_event_timestamp", "event_timestamp"),
@@ -114,4 +121,50 @@ class CommandStat(Base):
     )
 
 
-__all__ = ["SchemaState", "RawEvent", "SessionSummary", "CommandStat"]
+class IngestCursor(Base):
+    """Tracks the last processed offset for delta ingestion per source file."""
+
+    __tablename__ = "ingest_cursors"
+
+    source = Column(String(512), primary_key=True)
+    inode = Column(String(128), nullable=True)
+    last_offset = Column(Integer, nullable=False, server_default="-1")
+    last_ingest_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    last_ingest_id = Column(String(64), nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+
+    __table_args__ = (
+        Index("ix_ingest_cursors_offset", "last_offset"),
+    )
+
+
+class DeadLetterEvent(Base):
+    """Stores hostile or invalid events encountered during ingestion."""
+
+    __tablename__ = "dead_letter_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ingest_id = Column(String(64), nullable=True)
+    source = Column(String(512), nullable=True)
+    source_offset = Column(Integer, nullable=True)
+    reason = Column(String(128), nullable=False)
+    payload = Column(JSON, nullable=False)
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    resolved = Column(Boolean, nullable=False, server_default="0")
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_dead_letter_events_created", "created_at"),
+        Index("ix_dead_letter_events_source", "source"),
+    )
+
+
+__all__ = [
+    "SchemaState",
+    "RawEvent",
+    "SessionSummary",
+    "CommandStat",
+    "IngestCursor",
+    "DeadLetterEvent",
+]
