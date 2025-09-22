@@ -245,9 +245,9 @@ class Refresher:
                 self.refresh_vt(h)
 
         # Seed IPs from sessions/files
-        cur.execute("SELECT DISTINCT source_ip as ip FROM sessions " "WHERE source_ip IS NOT NULL AND source_ip != ''")
+        cur.execute("SELECT DISTINCT source_ip as ip FROM sessions WHERE source_ip IS NOT NULL AND source_ip != ''")
         ips = {row['ip'] for row in cur.fetchall()}
-        cur.execute("SELECT DISTINCT src_ip as ip FROM files " "WHERE src_ip IS NOT NULL AND src_ip != ''")
+        cur.execute("SELECT DISTINCT src_ip as ip FROM files WHERE src_ip IS NOT NULL AND src_ip != ''")
         ips |= {row['ip'] for row in cur.fetchall()}
         for ip in ips:
             if not self.cache_get('dshield_ip', ip):

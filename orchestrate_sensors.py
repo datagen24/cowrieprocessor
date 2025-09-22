@@ -136,7 +136,7 @@ def run_with_retries(
                                     total_sessions = data.get('total_sessions', 0)
                                     status_line = f"[status] {state} {done}/{total} {current}"
                                     if total_sessions > 0:
-                                        status_line = f"{status_line} " f"Sessions: {sessions}/{total_sessions}"
+                                        status_line = f"{status_line} Sessions: {sessions}/{total_sessions}"
                                     print(status_line)
                             except Exception as e:
                                 print(f"[debug] Status read error: {e}")

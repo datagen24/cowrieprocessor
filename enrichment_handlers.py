@@ -29,6 +29,7 @@ SessionFactory = Callable[[], requests.Session]
 # Shared cache helpers
 # ---------------------------------------------------------------------------
 
+
 def _resolve_cache_base(cache_base: Optional[Path]) -> Path:
     return cache_base if cache_base is not None else DEFAULT_CACHE_BASE
 
@@ -67,6 +68,7 @@ def _stringify(value: Any) -> str:
 # Timeout helper (retained for backwards compatibility)
 # ---------------------------------------------------------------------------
 
+
 def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
     """Execute ``func`` with a timeout enforced via SIGALRM."""
 
@@ -86,6 +88,7 @@ def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
 # ---------------------------------------------------------------------------
 # VirusTotal helpers
 # ---------------------------------------------------------------------------
+
 
 def vt_query(
     file_hash: str,
@@ -118,6 +121,7 @@ def vt_query(
 # ---------------------------------------------------------------------------
 # DShield helpers
 # ---------------------------------------------------------------------------
+
 
 def dshield_query(
     ip_address: str,
@@ -166,6 +170,7 @@ def dshield_query(
 # ---------------------------------------------------------------------------
 # URLHaus helpers
 # ---------------------------------------------------------------------------
+
 
 def safe_read_uh_data(
     ip_address: str,
@@ -267,6 +272,7 @@ def _parse_urlhaus_tags(payload: str) -> str:
 # ---------------------------------------------------------------------------
 # SPUR helpers
 # ---------------------------------------------------------------------------
+
 
 def read_spur_data(
     ip_address: str,
