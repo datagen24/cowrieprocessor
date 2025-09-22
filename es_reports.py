@@ -11,6 +11,7 @@ import logging
 import os
 import sqlite3
 import sys
+import warnings
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, cast
@@ -25,6 +26,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
 )
 logger = logging.getLogger(__name__)
+
+warnings.warn(
+    "`es_reports.py` is deprecated and will be removed in a future release. "
+    "Use `cowrie-report` (see notes/reporting-migration.md) instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+logger.warning(
+    "es_reports.py is deprecated; use the cowrie-report CLI instead. "
+    "See notes/reporting-migration.md for migration steps."
+)
 
 
 class CowrieReporter:

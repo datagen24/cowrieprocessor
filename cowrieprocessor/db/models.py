@@ -133,9 +133,7 @@ class IngestCursor(Base):
     last_ingest_id = Column(String(64), nullable=True)
     metadata_json = Column(JSON, nullable=True)
 
-    __table_args__ = (
-        Index("ix_ingest_cursors_offset", "last_offset"),
-    )
+    __table_args__ = (Index("ix_ingest_cursors_offset", "last_offset"),)
 
 
 class DeadLetterEvent(Base):

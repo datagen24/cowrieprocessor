@@ -95,7 +95,12 @@ def test_delta_loader_handles_file_rotation(tmp_path):
         source,
         [
             {"session": "r2", "eventid": "cowrie.session.connect", "timestamp": "2024-02-01T11:00:00Z"},
-            {"session": "r2", "eventid": "cowrie.command.input", "timestamp": "2024-02-01T11:05:00Z", "input": "curl http://x"},
+            {
+                "session": "r2",
+                "eventid": "cowrie.command.input",
+                "timestamp": "2024-02-01T11:05:00Z",
+                "input": "curl http://x",
+            },
         ],
     )
 

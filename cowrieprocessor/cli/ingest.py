@@ -57,8 +57,7 @@ def run_bulk_loader(args: argparse.Namespace, sources: Sequence[str | Path]) -> 
         checkpoint_cb=emitter.record_checkpoint,
     )
     print(
-        f"Bulk ingest complete: files={metrics.files_processed} "
-        f"events={metrics.events_inserted}/{metrics.events_read}"
+        f"Bulk ingest complete: files={metrics.files_processed} events={metrics.events_inserted}/{metrics.events_read}"
     )
     return 0
 

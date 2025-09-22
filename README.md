@@ -236,9 +236,9 @@ Configure environment variables:
 ```bash
 export ES_HOST=https://elasticsearch.example.com:9200
 export ES_USERNAME=elastic
-export ES_PASSWORD=changeme
-# OR use API key
-export ES_API_KEY=base64_encoded_key
+export ES_PASSWORD=file:/run/secrets/es_password
+# OR use API key (also supports secret references such as op:// vault paths)
+export ES_API_KEY=op://Elastic/cowrie-reporting/api_key
 # OR use Elastic Cloud
 export ES_CLOUD_ID=deployment:region:id
 ```
@@ -246,19 +246,20 @@ export ES_CLOUD_ID=deployment:region:id
 ### Generate Reports
 ```bash
 # Daily reports for all sensors
-python es_reports.py daily --all-sensors \
+cowrie-report daily 2025-09-14 \
     --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
-    --date 2025-09-14
+    --all-sensors --publish
 
 # Weekly rollup
-python es_reports.py weekly --week 2025-W37 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+cowrie-report weekly 2025-W37 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --publish
 
-# Backfill historical data
-python es_reports.py backfill \
-    --start 2025-09-01 \
-    --end 2025-09-14 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+# Backfill historical data (loop over days)
+for day in $(seq 0 13); do
+  cowrie-report daily "$(date -u -d "2025-09-14 - ${day} day" +%F)" \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite --all-sensors --publish
+done
 ```
 
 ### Index Lifecycle Management

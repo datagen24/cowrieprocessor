@@ -45,13 +45,14 @@ class BaseReportBuilder:
 
 class DailyReportBuilder(BaseReportBuilder):
     """Construct daily reports from aggregated session data."""
+
     def build(self, context: ReportContext) -> Dict[str, object]:
         """Build a daily report payload."""
         payload = self._base_payload("daily", context)
 
         stats = self.repository.session_stats(context.start, context.end, context.sensor)
         commands = list(self.repository.top_commands(context.start, context.end, self.top_n, context.sensor))
-        downloads = list(self.repository.top_file_downloads(context.start, context.end, self.top_n))
+        downloads = list(self.repository.top_file_downloads(context.start, context.end, self.top_n, context.sensor))
 
         payload["sessions"] = _session_stats_dict(stats)
         payload["commands"] = _top_commands(commands)
@@ -61,6 +62,7 @@ class DailyReportBuilder(BaseReportBuilder):
 
 class WeeklyReportBuilder(BaseReportBuilder):
     """Construct weekly reports from aggregated session data."""
+
     def build(self, context: ReportContext) -> Dict[str, object]:
         """Build a weekly report payload."""
         payload = self._base_payload("weekly", context)
@@ -71,6 +73,7 @@ class WeeklyReportBuilder(BaseReportBuilder):
 
 class MonthlyReportBuilder(BaseReportBuilder):
     """Construct monthly reports from aggregated session data."""
+
     def build(self, context: ReportContext) -> Dict[str, object]:
         """Build a monthly report payload."""
         payload = self._base_payload("monthly", context)
