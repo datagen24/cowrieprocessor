@@ -3,28 +3,49 @@
 [![Lint and Type Check](https://github.com/datagen24/cowrieprocessor/actions/workflows/ci.yml/badge.svg)](https://github.com/datagen24/cowrieprocessor/actions/workflows/ci.yml)
 Note: If you are working in a fork, update the badge URLs to your `owner/repo`.
 
-A Python script for processing and analyzing Cowrie honeypot logs, with integration to various security services.
+A centralized Python framework for processing and analyzing Cowrie honeypot logs from multiple sensors, with integration to various security services and Elasticsearch reporting.
+
+## Project Evolution
+
+This project began as a fork of the original [cowrieprocessor](https://github.com/jslagrew/cowrieprocessor) by Jessie Lagrew, which was designed to process Cowrie logs on individual DShield honeypots. The current implementation has diverged substantially from the original work, evolving into a comprehensive centralized processing framework that:
+
+- Supports multi-sensor deployment with centralized SQLite database
+- Provides orchestration capabilities for managing multiple honeypot sensors
+- Implements sophisticated caching and rate limiting for API integrations
+- Includes Elasticsearch reporting and ILM integration
+- Offers enterprise-grade secret management options
+- Provides reliability features like retries, backoff, and bulk loading
 
 ## Features
 
-- Process Cowrie JSON log files (including bzip2 compressed files)
-- VirusTotal integration for file analysis
-- DShield IP lookup
-- URLhaus integration
-- SPUR.us data enrichment
-- Dropbox upload capability
-- SQLite database storage
-- Session analysis
-- Command tracking
+### Core Processing
+- Process Cowrie JSON log files (including bzip2/gzip compressed files)
+- Multi-sensor support with centralized SQLite database
+- Session analysis and command tracking
 - File download/upload tracking
 - Abnormal attack detection
-- Report generation
+- Configurable TTLs and caching strategies
+
+### Security Service Integrations
+- **VirusTotal**: File hash analysis with intelligent caching
+- **DShield**: IP reputation lookup
+- **URLhaus**: Malware URL detection
+- **SPUR.us**: Enhanced IP intelligence
+- **Dropbox**: Report upload capability
+
+### Enterprise Features
+- **Orchestration**: TOML-based multi-sensor management
+- **Elasticsearch Reporting**: Daily/weekly/monthly aggregations with ILM
+- **Secret Management**: Support for environment variables, files, 1Password, AWS Secrets Manager, HashiCorp Vault, and SOPS
+- **Reliability**: Configurable timeouts, retries with exponential backoff, rate limiting
+- **Performance**: Bulk loading mode, parallel processing support, intelligent caching
 
 ## Requirements
 
 - Python 3.9 or higher
 - Virtual environment (recommended)
-- For Elasticsearch reporting and orchestration:
+- SQLite3
+- For Elasticsearch reporting:
   - `elasticsearch>=8,<9`
   - `tomli` (if Python < 3.11)
 
@@ -49,223 +70,57 @@ source venv/bin/activate  # On Linux/Mac
 pip install -r requirements.txt
 ```
 
-## Secrets Management
+## Architecture Overview
 
-- Avoid passing secrets on the CLI. All scripts now read credentials from environment variables when flags are omitted.
-- The orchestrator resolves secret references and supplies secrets via environment variables to child processes, keeping them out of process lists and logs.
+### Centralized Database Design
+The system uses a central SQLite database to aggregate data from multiple honeypot sensors. Each sensor is identified by a unique name, allowing for both aggregate and per-sensor analysis.
 
-Common environment variables:
-- `VT_API_KEY`, `URLHAUS_API_KEY`, `SPUR_API_KEY`, `DSHIELD_EMAIL`
-- `DROPBOX_ACCESS_TOKEN`, `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`
-- `ES_HOST`, `ES_USERNAME`, `ES_PASSWORD`, `ES_API_KEY`, `ES_CLOUD_ID`
-
-Secret references (for use in `sensors.toml`):
-- `env:NAME` — from environment variable
-- `file:/path/to/secret` — read file contents
-- `op://vault/item/field` — 1Password CLI (`op read`)
-- `aws-sm://[region/]secret_id[#json_key]` — AWS Secrets Manager via AWS CLI
-- `vault://path[#field]` — HashiCorp Vault via `vault` CLI (KV v2 supported)
-- `sops://path[#json.key]` — Decrypt with `sops` CLI (expects JSON)
-
-Example `sensors.toml`:
-```toml
-[[sensor]]
-name = "honeypot-a"
-logpath = "/mnt/dshield/a/NSM/cowrie"
-summarizedays = 1
-vtapi = "op://Security/VirusTotal/api"
-urlhausapi = "aws-sm://us-east-1/urlhaus#api_key"
-spurapi = "env:SPUR_API_KEY"
-email = "file:/run/secrets/dshield_email"
+### Directory Structure
+```
+/mnt/dshield/
+├── data/
+│   ├── db/                    # Central SQLite database
+│   ├── cache/                 # API response caches
+│   ├── temp/                  # Temporary processing files
+│   └── logs/                  # Application logs and status files
+├── reports/
+│   ├── honeypot-a/           # Per-sensor report directories
+│   │   └── 2025-09-14-201530/
+│   └── honeypot-b/
+│       └── 2025-09-14-201530/
+└── [sensor-dirs]/             # Raw Cowrie logs per sensor
+    ├── a/NSM/cowrie/
+    └── b/NSM/cowrie/
 ```
 
-## Usage
+## Usage Guide
 
-## Local Lint & Type Check
-
-Install the pinned tooling and run checks locally:
-
-```bash
-python -m pip install --upgrade pip
-pip install ruff==0.12.11 mypy==1.14.1 types-requests==2.32.0.20240914
-
-# Lint (including import order and docstrings)
-ruff check .
-
-# Static typing
-mypy .
-```
-
-The CI workflow at `.github/workflows/ci.yml` runs these same versions on every push and pull request.
-
-## Pre-commit Hooks
-
-Install and enable pre-commit to run Ruff and MyPy before each commit:
-
-```bash
-pip install pre-commit==3.8.0
-pre-commit install
-
-# Run on all files once
-pre-commit run --all-files
-```
-
-Hook configuration lives in `.pre-commit-config.yaml` and includes:
-- Ruff: linting, import sorting, and formatting (`ruff` + `ruff-format`)
-- MyPy: static type checks (with `types-requests`)
-
-## Testing
-
-The project uses a uv-managed virtual environment. Sync dependencies once and run tests through uv:
-
-```bash
-uv sync                                  # installs runtime + dev deps into .venv
-
-# Basic smoke suite
-uv run pytest
-
-# Coverage target (80% minimum)
-uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80
-```
+### Single Sensor Processing
 
 Basic usage:
 ```bash
-python process_cowrie.py --logpath /path/to/cowrie/logs --email your.email@example.com
+python process_cowrie.py \
+    --logpath /path/to/cowrie/logs \
+    --email your.email@example.com \
+    --sensor honeypot-a
 ```
 
-### Command Line Arguments
-
-- `--logpath`: Path of cowrie json log files (default: '/srv/cowrie/var/log/cowrie')
-- `--ttyfile`: Name of TTY associated TTY log file
-- `--downloadfile`: Name of downloaded file (matches file SHA-256 hash)
-- `--session`: Cowrie session number
-- `--vtapi`: VirusTotal API key (required for VT data lookup)
-- `--email`: Your email address (required for DShield IP lookup)
-- `--summarizedays`: Will summarize all attacks in the given number of days
-- `--dbxapi`: Dropbox access token for use with Dropbox upload of summary text files
-- `--dbxkey`: Dropbox app key to be used to get new short-lived API access key
-- `--dbxsecret`: Dropbox app secret to be used to get new short-lived API access key
-- `--dbxrefreshtoken`: Dropbox refresh token to be used to get new short-lived API access key
-- `--spurapi`: SPUR.us API key to be used for SPUR.us data enrichment
-- `--urlhausapi`: URLhaus API key to be used for URLhaus data enrichment (optional; if omitted, URLhaus lookups are skipped)
-- `--localpath`: Local path for saving reports (default: '/mnt/dshield/reports')
-- `--datapath`: Local path for database and working files (default: '/mnt/dshield/data')
-- `--sensor`: Sensor name/hostname to tag data with; defaults to system hostname
-- `--db`: Path to the central SQLite database (default: '../cowrieprocessor.sqlite')
-- `--api-timeout`: HTTP timeout in seconds for external APIs (default: 15)
-- `--api-retries`: Max retries for transient API failures (default: 3)
-- `--api-backoff`: Exponential backoff base in seconds (default: 2.0)
-- `--hash-ttl-days`: TTL for known file hash lookups (VT) (default: 30)
-- `--hash-unknown-ttl-hours`: TTL to recheck VT for unknown hashes sooner (default: 12)
-- `--ip-ttl-hours`: TTL for IP lookups (DShield/URLhaus/SPUR) (default: 12)
-- `--rate-vt`: Max VirusTotal requests per minute (default: 4)
-- `--rate-dshield`: Max DShield requests per minute (default: 30)
-- `--rate-urlhaus`: Max URLhaus requests per minute (default: 30)
-- `--rate-spur`: Max SPUR requests per minute (default: 30)
-- `--output-dir`: Base directory for reports and caches (default: `<logpath>/../reports`)
-- `--data-dir`: Base path for data (cache/temp/logs) (default: `/mnt/dshield/data`)
-- `--cache-dir`: Cache path override (default: `<data-dir>/cache/cowrieprocessor`)
-- `--temp-dir`: Temp path override (default: `<data-dir>/temp/cowrieprocessor`)
-- `--log-dir`: Logs path override (default: `<data-dir>/logs`)
-- `--bulk-load`: Enable SQLite bulk load mode (relax PRAGMAs, defer commits; final commit at end)
-- `--skip-enrich`: Skip all external enrichments (VT, DShield, URLhaus, SPUR) for faster ingest
-- `--buffer-bytes`: Read buffer size in bytes for compressed log files (default: 1048576)
-
-### Example
-
-Process logs for the last 90 days with all integrations:
+With full enrichment:
 ```bash
 python process_cowrie.py \
-    --logpath /mnt/dshield/aws-eastus-dshield/NSM/cowrie \
+    --logpath /mnt/dshield/a/NSM/cowrie \
     --email your.email@example.com \
-    --summarizedays 90 \
-    --vtapi your_vt_api_key \
-    --urlhausapi your_urlhaus_api_key \
-    --spurapi your_spur_api_key \
-    --dbxapi your_dropbox_api_key
+    --sensor honeypot-a \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --summarizedays 1 \
+    --vtapi $VT_API_KEY \
+    --urlhausapi $URLHAUS_API_KEY \
+    --spurapi $SPUR_API_KEY
 ```
 
-## Directory Structure
+### Multi-Sensor Orchestration
 
-The processor writes reports and API cache files to a configurable output base directory:
-
-- Default output base: `<logpath>/../reports`
-- Override with: `--output-dir /desired/path` or `report_dir` in `sensors.toml`
-- Final layout: `<output-base>/<sensor>/<timestamp>/`
-  - Examples:
-    - `/mnt/dshield/reports/honeypot-a/2025-09-14-201530/`
-    - `/custom/reports/aws-eastus-dshield/2025-09-14-201530/`
-
-Database and other data directories remain unchanged unless configured otherwise:
-- `/mnt/dshield/data/db/` - SQLite database storage (e.g., `--db`)
-- `/mnt/dshield/data/temp/` - Temporary processing files (optional use)
-
-## Multi-Sensor Central Database
-
-To aggregate statistics across multiple sensors, you can point all processors to a single central SQLite database and tag events with a sensor name via `--sensor`.
-
-Example:
-```
-# Sensor A
-python process_cowrie.py --sensor honeypot-a --logpath /mnt/dshield/a/NSM/cowrie --db /mnt/dshield/data/db/cowrieprocessor.sqlite --summarizedays 1
-
-# Sensor B
-python process_cowrie.py --sensor honeypot-b --logpath /mnt/dshield/b/NSM/cowrie --db /mnt/dshield/data/db/cowrieprocessor.sqlite --summarizedays 1
-```
-
-Notes:
-- The database schema now includes a `hostname` field on `sessions`, `commands`, and `files` to disambiguate per-sensor data.
-- Runtime change: SQLite now uses WAL and a busy timeout to improve central DB concurrency.
-- If you are migrating existing per-sensor databases, run each sensor once with the new version and `--sensor` against the central DB to backfill going forward. Historical consolidation can be rebuilt from retained raw logs.
-
-## API Request Handling (timeouts, retries, rate limits)
-
-- All external API requests (VirusTotal, DShield, URLhaus, SPUR) use:
-  - Timeouts (`--api-timeout`), retries (`--api-retries`) with exponential backoff (`--api-backoff`).
-  - Simple per-service rate limiting with configurable requests-per-minute flags.
-- The processor maintains an `indicator_cache` table to record last fetch time and cache payloads per service/key:
-  - Services: `vt_file` (hash), `dshield_ip` (ip), `urlhaus_ip` (ip), `spur_ip` (ip)
-  - TTLs governed by `--hash-ttl-days`, `--hash-unknown-ttl-hours`, and `--ip-ttl-hours`.
-  - If cached and fresh, the processor uses the cached response and avoids network calls.
-
-## Elasticsearch Reporting
-
-Use `es_reports.py` to generate reports from the central SQLite database and index them into Elasticsearch.
-
-Environment variables:
-- `ES_HOST`, `ES_USERNAME`, `ES_PASSWORD` or `ES_API_KEY` / `ES_CLOUD_ID`
-- `ES_VERIFY_SSL=false` to disable certificate verification (or pass `--no-ssl-verify`)
-
-Write targets (ILM write aliases):
-- Daily: `cowrie.reports.daily-write`
-- Weekly: `cowrie.reports.weekly-write`
-- Monthly: `cowrie.reports.monthly-write`
-
-Examples:
-```bash
-# Aggregate and per-sensor daily
-python es_reports.py daily --all-sensors --db /mnt/dshield/data/db/cowrieprocessor.sqlite --date 2025-09-14
-
-# Single sensor
-python es_reports.py daily --sensor honeypot-a --db /mnt/dshield/data/db/cowrieprocessor.sqlite --date 2025-09-14
-
-# Backfill range
-python es_reports.py backfill --start 2025-09-01 --end 2025-09-14 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
-
-# Weekly and monthly rollups
-python es_reports.py weekly --week 2025-W37 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
-python es_reports.py monthly --month 2025-09 --db /mnt/dshield/data/db/cowrieprocessor.sqlite
-```
-
-ILM/Template notes:
-- Policies are configured to never delete, only move to cold: daily after 7d, weekly after 30d, monthly after 90d.
-- Ensure initial indices exist with the write aliases as rollover aliases, e.g. `cowrie.reports.daily-000001` with alias `cowrie.reports.daily-write`.
-- The reporter writes to the `*-write` alias; searches can use `cowrie.reports.daily-*`.
-
-## Orchestrating Multiple Sensors (TOML)
-
-Use `orchestrate_sensors.py` with a TOML file to run multiple sensors sequentially.
-
+Create a `sensors.toml` configuration:
 ```toml
 [global]
 db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
@@ -275,182 +130,210 @@ report_dir = "/mnt/dshield/reports"
 name = "honeypot-a"
 logpath = "/mnt/dshield/a/NSM/cowrie"
 summarizedays = 1
-email = "you@example.com"
-## Optional per-sensor report directory override
-# report_dir = "/mnt/dshield/reports/honeypot-a"
+vtapi = "env:VT_API_KEY"
+urlhausapi = "op://Security/URLhaus/api"
+spurapi = "aws-sm://us-east-1/spur#api_key"
+email = "file:/run/secrets/dshield_email"
 
 [[sensor]]
 name = "honeypot-b"
 logpath = "/mnt/dshield/b/NSM/cowrie"
 summarizedays = 1
+# Inherits global settings
 ```
 
-Run:
+Run the orchestrator:
 ```bash
-python orchestrate_sensors.py --config sensors.toml --max-retries 3 --pause-seconds 10 --status-poll-seconds 60
+python orchestrate_sensors.py --config sensors.toml
 ```
 
-Reliability:
-- The orchestrator retries each sensor with exponential backoff to handle transient API timeouts (URLhaus, DShield, VT, SPUR).
-- For large backfills, run processing off-hours and generate ES reports afterwards.
+### Performance Optimization
 
-Output locations:
-- If `[global].report_dir` is set, each sensor run writes to `<report_dir>/<sensor>/<timestamp>/`.
-- If not set, the processor derives the base from the sensor’s `logpath` (`<logpath>/../reports`).
-
-Data locations:
-- Caches (VT, URLhaus, SPUR, etc.) and temp files are written under `<data-dir>`
-  - Defaults: `/mnt/dshield/data/cache/cowrieprocessor` and `/mnt/dshield/data/temp/cowrieprocessor`
-  - Override with `--cache-dir` and `--temp-dir`
-
-Performance tips for backfill:
-- Use `--bulk-load` to speed DB writes (synchronous=OFF, in-memory temp store, larger cache) and commit once at end.
-- Use `--skip-enrich` to skip API calls on the initial ingest, then run `refresh_cache_and_reports.py` to backfill caches and ES reports.
-- Increase `--buffer-bytes` (e.g., 4–16 MB) to speed bz2/gz streaming.
-- Consider disabling enrichments on the initial pass, then run the refresh utility.
-
-## Refreshing Cache and Recent Reports
-
-Use `refresh_cache_and_reports.py` to refresh the indicator cache and reindex recent daily/weekly/monthly reports within their hot windows.
-
-Examples:
+For large backfills or initial imports:
 ```bash
-# Refresh indicators and reports using defaults (daily 7d, weekly 30d, monthly 90d)
-python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
-  --vtapi $VT_API --email you@example.com --urlhausapi $URLHAUS_API --spurapi $SPUR_API
+# Fast initial ingest without enrichment
+python process_cowrie.py \
+    --sensor honeypot-a \
+    --logpath /mnt/dshield/a/NSM/cowrie \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --bulk-load \
+    --skip-enrich \
+    --buffer-bytes 8388608 \
+    --summarizedays 90
 
-# Only refresh indicators, no reports
-python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite --refresh-reports none \
-  --vtapi $VT_API --email you@example.com --urlhausapi $URLHAUS_API --spurapi $SPUR_API
-
-# Only refresh daily reports for last 7 days
-python refresh_cache_and_reports.py --db /mnt/dshield/data/db/cowrieprocessor.sqlite --refresh-indicators none --refresh-reports daily
+# Later, refresh cache and generate reports
+python refresh_cache_and_reports.py \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --vtapi $VT_API_KEY \
+    --email your.email@example.com
 ```
 
-Notes:
-- VT unknown hashes are rechecked sooner (default 12 hours) via `--hash-unknown-ttl-hours`.
-- IP lookups default TTL is 12 hours; hashes default 30 days.
-- Rate limits are enforced per service; adjust via flags.
-- Reports and API caches are written under `--output-dir` (or `<logpath>/../reports` by default), in subfolders by `sensor/date`.
+## Command Line Reference
+
+### Core Arguments
+- `--logpath`: Path to Cowrie JSON logs
+- `--sensor`: Sensor identifier (defaults to hostname)
+- `--db`: Central SQLite database path
+- `--email`: Email for DShield lookups
+- `--summarizedays`: Number of days to analyze
+
+### API Keys (use environment variables when possible)
+- `--vtapi`: VirusTotal API key
+- `--urlhausapi`: URLhaus API key  
+- `--spurapi`: SPUR.us API key
+- `--dbxapi`, `--dbxkey`, `--dbxsecret`, `--dbxrefreshtoken`: Dropbox credentials
+
+### Performance Tuning
+- `--bulk-load`: Enable bulk loading mode
+- `--skip-enrich`: Skip API enrichments
+- `--buffer-bytes`: Read buffer size (default: 1MB)
+- `--api-timeout`: HTTP timeout (default: 15s)
+- `--api-retries`: Max retry attempts (default: 3)
+- `--api-backoff`: Exponential backoff base (default: 2.0)
+
+### Cache Management
+- `--hash-ttl-days`: TTL for file hash lookups (default: 30)
+- `--hash-unknown-ttl-hours`: Recheck unknown hashes (default: 12)
+- `--ip-ttl-hours`: TTL for IP lookups (default: 12)
+
+### Rate Limiting
+- `--rate-vt`: VirusTotal requests/minute (default: 4)
+- `--rate-dshield`: DShield requests/minute (default: 30)
+- `--rate-urlhaus`: URLhaus requests/minute (default: 30)
+- `--rate-spur`: SPUR requests/minute (default: 30)
+
+## Elasticsearch Integration
+
+### Setup
+Configure environment variables:
+```bash
+export ES_HOST=https://elasticsearch.example.com:9200
+export ES_USERNAME=elastic
+export ES_PASSWORD=changeme
+# OR use API key
+export ES_API_KEY=base64_encoded_key
+# OR use Elastic Cloud
+export ES_CLOUD_ID=deployment:region:id
+```
+
+### Generate Reports
+```bash
+# Daily reports for all sensors
+python es_reports.py daily --all-sensors \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --date 2025-09-14
+
+# Weekly rollup
+python es_reports.py weekly --week 2025-W37 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+
+# Backfill historical data
+python es_reports.py backfill \
+    --start 2025-09-01 \
+    --end 2025-09-14 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+```
+
+### Index Lifecycle Management
+Reports are written to ILM-managed indices:
+- Daily: `cowrie.reports.daily-write` (cold after 7 days)
+- Weekly: `cowrie.reports.weekly-write` (cold after 30 days)
+- Monthly: `cowrie.reports.monthly-write` (cold after 90 days)
+
+## Secret Management
+
+### Supported Backends
+Secrets can be sourced from multiple backends using URI notation:
+- `env:VARIABLE_NAME` - Environment variable
+- `file:/path/to/secret` - File contents
+- `op://vault/item/field` - 1Password CLI
+- `aws-sm://[region/]secret_id[#json_key]` - AWS Secrets Manager
+- `vault://path[#field]` - HashiCorp Vault (KV v2)
+- `sops://path[#json.key]` - SOPS-encrypted files
+
+### Environment Variables
+Common environment variables used:
+```bash
+VT_API_KEY          # VirusTotal
+URLHAUS_API_KEY     # URLhaus
+SPUR_API_KEY        # SPUR.us
+DSHIELD_EMAIL       # DShield
+DROPBOX_ACCESS_TOKEN, DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN
+ES_HOST, ES_USERNAME, ES_PASSWORD, ES_API_KEY, ES_CLOUD_ID
+```
+
+## Monitoring
+
+### Status Dashboard
+Monitor processing progress in real-time:
+```bash
+# One-shot view
+python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --oneshot
+
+# Live updates
+python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --refresh 2
+```
+
+## Development
+
+### Code Quality
+The project uses Ruff for linting and MyPy for type checking:
+```bash
+# Install tools
+pip install ruff==0.12.11 mypy==1.14.1 types-requests==2.32.0.20240914
+
+# Run checks
+ruff check .
+mypy .
+```
+
+### Pre-commit Hooks
+```bash
+pip install pre-commit==3.8.0
+pre-commit install
+pre-commit run --all-files
+```
+
+### Testing
+```bash
+uv sync  # Install dependencies
+uv run pytest  # Run tests
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80  # With coverage
+```
+
+## Output Files
+
+### Reports
+- `<sensor>/<timestamp>/<datetime>_<days>_report.txt` - Full attack summary
+- `<sensor>/<timestamp>/<datetime>_abnormal_<days>_report.txt` - Unusual attacks
+
+### Cache Files  
+- `cache/vt/<hash>` - VirusTotal results
+- `cache/uh/<ip>` - URLhaus results
+- `cache/spur/<ip>` - SPUR.us results
+
+### Database
+Central SQLite database contains:
+- `sessions` - Attack session metadata
+- `commands` - Commands executed per session
+- `files` - Files downloaded/uploaded
+- `indicator_cache` - API response cache
 
 ## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Run tests and linting
+4. Commit your changes (`git commit -m 'Add some amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ## License
 
 This project is licensed under the BSD 4-Clause License - see the LICENSE file for details.
 
-This is a fork of the original project by Jessie Lagrew (https://github.com/jslagrew/cowrieprocessor). The original author's work is not covered by this license. This license only applies to modifications made by Steven Peterson.
+## Attribution
 
-# cowrieprocessor
-The initial purpose of this application is helps simplify command input and file download data from DShield Honeypots (https://github.com/DShield-ISC/dshield). This Python applications is designed to process and summarize Cowrie logs (https://github.com/cowrie/cowrie). 
+This is a fork of the original [cowrieprocessor](https://github.com/jslagrew/cowrieprocessor) project by Jessie Lagrew. The original author's work focused on processing Cowrie logs for individual DShield honeypots. The original author's work is not covered by this license. This license only applies to modifications made by Steven Peterson.
 
-![Snag_1690ca6](https://user-images.githubusercontent.com/82918323/169907140-5a53eb8d-26ae-4fa5-82a2-2bf7782311fa.png)
-
-**Prerequisites**
-
-The script requires the Dropbox python module to be installed, even if not being used. To install the necessary module(s):
-
-```
-sudo apt-get install python3-dropbox
-```
-
-**Using the script - arguments**
-
-By default, the script will look for any Cowrie JSON logs in the /srv/cowrie/var/log/cowrie path (current default for DShield honeypot if setting is enabled to locally store these files). At least one argument to search for relevant data is needed and all other arguments are optional, but may allow for additional data enrichment. 
-
-- Required Search Term (one required)
-  - --download <hash / file name) --> hash of file downloaded or otherwise created by honeypot (matches file download names in /srv/cowrie/var/lib/cowrie/downloads)
-  - --ttyfile <file name> --> file name of a tty file in /srv/cowrie/var/lib/cowrie/tty/
-  - --session <cowrie session number> --> session number that ties cowrie logs for a session together (found in logs)
-  - --summarizedays <number of days> --> Outline all attacks and summarize for period of days specified. For example, a value of '1' will reivew only attacks from teh current day. 
-    - This will create two different report text files within the destination folder. One will be the summary for every attack seen in that time period. Another file will contain only attacks that appeared more unique (low or absent virustotal hit count for malware or less than 5 instances of attacks comprised of the same number of commands executed during the attack.  
-- Optional Search Term
-  - --vtapi <VT API Key> --> VirusTotal API Key to enrich data with VT (will also download a local copy in working path with full JSON output)
-  - --urlhausapi <URLhaus API Key> --> URLhaus API key for authenticated URLhaus lookups; if omitted, URLhaus tags are skipped
-  - --email <email address> --> Your email address, which will be used to register query with DShield when querying for additional IP address data
-  - --logpath <path to cowrie JSON logs> --> Enter an alernate path where cowrie logs may be stored
-  - --dbxapi <Dropbox API Key> --> If included, summary data text reports will be uploaded to Dropbox account within 'cowriesummaries' folder
-  - --dbxkey <Dropbox access token> --> short-lived API access key for Dropbox account
-  - --dbxsecret <Dropbox access secret> --> secret used with associated short-lived API access key
-  - --dbxrefreshtoken <Dropbox refresh token> --> refresh token used to get new short-lived API access key
-  - --spurapi <SPUR.us API key> --> If included, IP address data will be enriched with SPUR.us data for summary, upload and download data
-
-**Locally created files**
-
-(script working path)/cowrieprocessor.sqlite - SQLite database with attack summary data that's been processed
-  
-(script working path)/\<datetime processor run\>_\<summary request\>_report.txt - summary of all attacks during requested timespan
-  
-(script working path)/\<datetime processor run\>\_abnormal\_\<summary request\>_report.txt - summary of unusual attacks during requested timespan
-  
-(script working path)/\<datetime processor run\>/(filehash) - VirusTotal results for filehash in JSON format (searhed by file hash)
-
-(script working path)/\<datetime processor run\>/uh_(ipaddress) - URLhaus locally cached lookup results in JSON format (searched by IP)
-
-(script working path)/\<datetime processor run\>/files_(filehash) - VirusTotal response for files uploaded to VirusTotal
-  
-![Snag_29dea69c](https://user-images.githubusercontent.com/82918323/185350726-4b84a14f-bbca-4e23-ab50-85fc14973049.png)
-  
-This data is currently stored for troubleshooting and potential analysis in the future. Not all data received from URLHaus or VirusTotal is found in the summarized data and this raw JSON data can be reviewed for additional context. 
-  
-**Abnormal/unusual Attack Reports**
-
-When performing summary reviews of data, the script will also try to summarize the attacks and highlight any attack sessions that meet the following criteria
-  - Unusual number of commands (when comparing against other attacks during the summary time period)
-  - Malware submitted that is a recent additional to VirusTotal
-  
-![Snag_1684520](https://user-images.githubusercontent.com/82918323/169907013-e4235d4a-022b-43e3-addd-2538394dae93.png)
-
-**Dropbox Upload**
-
-Uploading to Dropbox required creating a Dropbox app associated with an account. Additional information on how to do this can be found within [Dropbox documentation](https://www.dropbox.com/developers/reference/getting-started#app%20console). 
-
-![Snag_29f91fd4](https://user-images.githubusercontent.com/82918323/185356936-fe9cb10f-9158-480e-a7c0-bb2782881254.png)
-
-# Command Examples
-
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --summarizedays 2
-```
-
-_Will output a summary of the last two days of attacks (today and yesterday)._
-
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --downloadfile a8460f446be540410004b1a8db4083773fa46f7fe76fa84219c93daa1669f8f2
-```
-  
-_Will output attacks seen with the file hash given._
-
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxapi <dropbox api key> --summarizedays 2
-```
-  
-_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using the Access Token (short-term API for testing)._
-
-```
-python3 process_cowrie.py --email <my email address> --vtapi <vt api key> --dbxkey <dropbox access token> --dbxsecret <dropbox secret> --dbxrefreshtoken <dropbox refresh token> --summarizedays 2
-```
-  
-_Will process the last two days of cowrie data, enrich with URLHaus and VirusTotal data and upload to Dropbox using OAuth workflow and Refresh Token for full automation._
-- Orchestrator bulk control:
-  - `--days N` to override summarizedays across sensors (process last N files/days)
-  - `--date-range YYYY-MM-DD YYYY-MM-DD` to stage a subset of files into a temporary directory and run only that range
-  - `--bulk-load` to enable processor bulk-load mode for the run
-  - `--skip-enrich` to instruct the processor to skip enrichments during orchestrated runs
-  - `--buffer-bytes` to increase compressed read buffers
-  - `--status-poll-seconds` to print progress from status files during the run
-
-Status dashboard:
-```bash
-# One-shot view
-python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --oneshot
-
-# Live dashboard (refresh every 2s)
-python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --refresh 2
-```
+The current implementation represents a substantial evolution from the original codebase, transforming it from a single-honeypot processor into a comprehensive multi-sensor framework with centralized processing, orchestration, and enterprise-grade features.
