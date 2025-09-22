@@ -21,12 +21,13 @@
 - Evaluate ORM adoption (SQLAlchemy) for schema management, migrations, dual-target support (SQLite + Postgres), connection pooling, and raw-SQL escape hatches for hot paths.
 - Define data retention, partitioning, indexing strategy, privacy requirements, hostile-content mitigation expectations, and observability targets (metrics, tracing, logging, alerting).
 - Document operational constraints (dataset sizes, deployment environments, concurrency expectations) and initial Postgres migration considerations/mapping needs.
+- Introduce supply-chain safeguards: dependency/SBOM inventory, vulnerability scanning requirements, and library pinning strategy for ORM and security tooling.
 
 ### Phase 1 – Raw Event Storage Layer
 - Design a `raw_events` table with JSON payload, canonical event metadata (session ID, timestamps, eventid, source file), generated/virtual columns for indexed JSON paths, and uniqueness constraints.
 - Add supporting summary tables (e.g., `sessions`, `command_stats`) maintained via ingest-time processing or triggers and compatible with Elastic exporter expectations.
 - Incorporate PRAGMA defaults (`journal_mode=WAL`, `synchronous=NORMAL`, `cache_size=-64000`) with configuration and fallback to `journal_mode=DELETE` where required.
-- Define schema migrations, versioning, and rollback strategy, including ORM migration scripts, JSON schema validation before inserts, schema registry/version tracking for event evolution, and database triggers to audit access to sensitive columns.
+- Define schema migrations, versioning, and rollback strategy, including ORM migration scripts, JSON schema validation before inserts, schema registry/version tracking for event evolution, multi-stage decoding prior to neutralization, and database triggers to audit access to sensitive columns.
 
 ### Phase 1.5 – Security & Data Integrity Layer
 - Implement cryptographic integrity checksums (BLAKE3) per raw event batch and store verification metadata for tamper detection.
@@ -37,47 +38,52 @@
 ### Phase 2 – Bulk Loader Implementation
 - Implement a streaming bulk loader that reads historical Cowrie logs, normalizes events, validates JSON, neutralizes hostile inputs, and batches inserts into `raw_events` using prepared statements and ORM sessions.
 - Provide an optional raw-SQL bypass mode for bulk ingest when ORM overhead is prohibitive; document optimization patterns for JSON path operations.
-- Build a hostile input pipeline: schema validation, prompt-injection scoring, command neutralization (store sanitized command plus hashed original), exploit signature detection, and quarantine handling with DLQ metadata.
+- Build a hostile input pipeline: schema validation, prompt-injection scoring, multi-stage decoding, command neutralization (store sanitized command plus hashed original), exploit signature detection, and quarantine handling with DLQ metadata.
+- Add batched quarantine workflows: when a batch risk threshold is exceeded, isolate the batch in a guarded transaction, emit a structured risk report, and require manual approval or escalation before commit.
 - Optimize adaptive batching based on memory pressure and I/O throughput, leveraging parallel parsing with controlled write locks and connection pooling.
-- Capture ingest checkpoints (file offsets, session boundaries), hostile-content metrics, telemetry (rows/sec, batch latency, checksum status, JSON failures, injection scores), and distribute OpenTelemetry spans.
+- Capture ingest checkpoints (file offsets, session boundaries), hostile-content metrics, telemetry (rows/sec, batch latency, checksum status, JSON failures, injection scores, neutralization cache hits), and distribute OpenTelemetry spans.
 - Seed summary tables, run data quality checks, verify Elastic exporter compatibility, and fail secure on untrusted payloads.
 
 ### Phase 3 – Delta Loader Implementation
 - Build a state tracker recording last processed file, timestamp, and session boundaries to ensure idempotent incremental ingest.
 - Implement validation and deduplication using unique constraints plus ORM transactions; add a dead letter queue for malformed/rejected events and alternate review workflows.
 - Provide restart/recovery logic, configurable backpressure mechanisms, rate limiting, and isolation/locking strategy for concurrent bulk/delta operations.
-- Surface telemetry on queue depth, retry counts, DLQ volume, distributed trace spans, and hostile-content statistics; add circuit breakers when downstream systems (Elastic, Postgres) are unavailable.
+- Layer anomaly detection for live traffic (spikes in injection attempts, new exploit signatures, geographic anomalies, velocity shifts) with automated alerts and throttling.
+- Surface telemetry on queue depth, retry counts, DLQ volume, anomaly signals, distributed trace spans, and hostile-content statistics; add circuit breakers when downstream systems (Elastic, Postgres) are unavailable.
 
 ### Phase 4 – Reporting Tool Rewrite
 - Create a reporting CLI/service that queries summary tables (and JSON as needed) via the ORM to produce daily, weekly, and monthly reports without re-reading logs.
-- Deliver safe reporting outputs: neutralize or redact hostile commands, annotate risk levels, and maintain a sandboxed export pipeline; never expose raw attacker payloads by default.
+- Deliver safe reporting outputs: neutralize or redact hostile commands, annotate risk levels, maintain a sandboxed export pipeline, and never expose raw attacker payloads by default.
+- Add compliance/evidence modes with chain-of-custody support: cryptographically seal original commands for legal retention, expose configurable redaction levels per consumer, and log access attempts.
 - Support streaming pagination for large result sets, configurable output formats, and a compatibility layer for legacy report consumers including the Elastic exporter.
 - Validate report outputs against the legacy implementation to guarantee parity; document ORM optimization strategies or raw SQL usage for heavy aggregations.
 - Add health-check endpoints, graceful shutdown hooks ensuring report jobs flush checkpoints on termination, and content-security policies for any HTML outputs.
 
 ### Phase 5 – Telemetry & Operational Hardening
-- Extend status telemetry to include phase markers (bulk ingest, delta ingest, reporting), timestamps, throughput, resource usage, hostile-content scores, JSON parsing failures, index hit ratios, WAL checkpoint intervals/durations, and queue saturation.
-- Integrate OpenTelemetry tracing for loader and reporting workflows, with guidance on cardinality management; capture logs for neutralization/quarantine decisions.
-- Implement automated backpressure/throttling, circuit breakers, rate limiting, and health check endpoints when approaching resource limits or downstream outages.
-- Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth), and deployment scripts for new modes and telemetry fields.
+- Extend status telemetry to include phase markers (bulk ingest, delta ingest, reporting), timestamps, throughput, resource usage, hostile-content scores, neutralization cache hit rate, time-to-detection metrics, JSON parsing failures, index hit ratios, WAL checkpoint intervals/durations, and queue saturation.
+- Integrate OpenTelemetry tracing for loader and reporting workflows, with guidance on cardinality management; capture logs for neutralization/quarantine decisions and compliance mode accesses.
+- Implement automated backpressure/throttling, circuit breakers, rate limiting, health check endpoints, and emergency isolation mode when defenses detect zero-day exploits or downstream outages.
+- Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth, anomaly spikes), and deployment scripts for new modes, telemetry fields, and configuration knobs.
+- Deliver incident-response playbooks covering hostile-content bypass, neutralization failure, and rollback procedures for loader/reporting components.
 
 ### Phase 6 – Validation, Migration & Rollout
-- Develop unit/integration tests for raw event persistence, loader workflows, reporting queries, JSON validation, hostile-content detection, neutralization routines, and schema registry flows.
-- Add performance regression suites covering 180-day bulk loads (>10K events/sec target plus neutralization overhead), delta ingest latency (<5s log-to-query target), report generation (<30s monthly target), and JSON lookup latency (<100ms).
+- Develop unit/integration tests for raw event persistence, loader workflows, reporting queries, JSON validation, hostile-content detection, neutralization routines, schema registry flows, and compliance-mode behaviors.
+- Add performance regression suites covering 180-day bulk loads (>10K events/sec target plus neutralization overhead), delta ingest latency (<5s log-to-query target), report generation (<30s monthly target), JSON lookup latency (<100ms), and worst-case hostile payload scenarios.
 - Run chaos tests (e.g., `kill -9` during writes) to validate recovery, plus data consistency checks comparing bulk vs delta results and SQLite vs Postgres reconciliations.
-- Execute prompt-injection red team exercises, command neutralization verification, and exploitation replay tests to validate the hostile-content posture.
+- Execute prompt-injection red team exercises, command neutralization verification, exploitation replay tests, fuzzing campaigns targeting neutralization bypass, and regression suites for previously observed exploits.
 - Ship feature flags, backward compatibility layers, A/B testing hooks, and Elastic exporter schema version locks for phased rollout.
 - Provide a migration command to hydrate Postgres from existing SQLite databases, mapping JSON1 columns to JSONB, generated columns to computed columns, PRAGMAs to Postgres configs, and ensuring safety features port cleanly; document rollback procedures (bidirectional sync, pg_dump strategies).
-- Finalize retention/archival strategy (compression, cold storage) with configurable policies, cascade deletes, privacy/PII redaction options, and encryption for at-rest hostile payloads.
+- Finalize retention/archival strategy (compression, cold storage) with configurable policies, cascade deletes, privacy/PII redaction options, encryption for at-rest hostile payloads, and compliance audit trails.
 
 ## Cross-Cutting Concerns
-- Data lifecycle management: implement configurable retention, archival/compression, cascade deletes for expired raw events, automated reconciliation jobs, and encrypted cold storage.
+- Data lifecycle management: implement configurable retention, archival/compression, cascade deletes for expired raw events, automated reconciliation jobs, encrypted cold storage, and evidence preservation options.
 - Privacy compliance: add optional PII detection/redaction hooks prior to persistence; document regulatory considerations for long-term event storage and encrypted payload handling.
-- Schema evolution: leverage schema registry/versioning, ORM migrations, compatibility validation, and automated migration generation when adding JSON fields or summary tables.
+- Schema evolution: leverage schema registry/versioning, ORM migrations, compatibility validation, automated migration generation, and version-locked consumers when adding JSON fields or summary tables.
 - Concurrency control: document isolation levels, lock management, connection pooling, and ORM vs raw-SQL usage for mixed workloads while maintaining hostile-content checks in every path.
-- Observability: define metrics, traces, logs, dashboards, and alert thresholds; ensure log aggregation strategy covers migration windows and hostile-content events.
+- Observability: define metrics, traces, logs, dashboards, alert thresholds, and log aggregation coverage for migration windows and hostile-content events.
 - Elastic exporter alignment: ensure schema changes and summary tables remain compatible, with regression tests, versioned contracts, and circuit breakers to prevent runaway exports.
 - AI/LLM safety: deliver sanitized data feeds for any ML/LLM consumers, hardened prompt templates, output validation, and guardrails preventing model-assisted command execution or leakage of raw payloads.
+- Incident response: maintain runbooks, escalation trees, and emergency isolation controls for hostile-content breakthroughs and neutralization failures.
 
 ## Open Questions & Risks
 - Which environments lack WAL support, and how should the system auto-negotiate alternative journal modes?
@@ -85,15 +91,24 @@
 - How will privacy/PII detection and hostile-content neutralization integrate with existing enrichment workflows without impacting throughput beyond acceptable limits?
 - What level of Postgres support (managed vs self-hosted) do downstream teams expect, and how do we validate ORM abstractions, safety features, and performance across engines?
 - How do we manage ORM lock-in while retaining flexibility for performance-critical raw SQL paths and ensuring security logic is not bypassed?
-- How do we monitor and mitigate JSON index bloat, Elastic schema drift, migration rollback complexity, and hostile-content false negatives during rollout?
+- How do we monitor and mitigate JSON index bloat, Elastic schema drift, migration rollback complexity, hostile-content false negatives, and neutralization bypass via encoding/obfuscation during rollout?
+- What processes govern supply-chain security (dependency scanning cadence, SBOM updates) to keep ORM and security libraries patched?
 
 ## Deliverables
-- ORM-based schema definitions, migration scripts, schema registry tooling, validation utilities, and hostile-content enforcement modules for SQLite and Postgres.
-- `raw_events`, summary tables, security/audit layers, anomaly detection routines, neutralization/quarantine services, and retention management documentation.
-- Bulk and delta loader implementations with checkpoints, DLQ, telemetry, circuit breakers, input-neutralization pipelines, and operator runbooks.
-- Reporting CLI/service plus updated Elastic exporter integrations, health checks, hostile-content safe rendering, and compatibility notes.
-- Telemetry dashboards, OpenTelemetry instrumentation samples, hostile-content alerting guides, and logging/metrics configuration references.
-- Comprehensive test suites (unit, integration, performance, chaos, hostile-content), baseline benchmarks, reconciliation scripts, and rollout checklist with feature flags and rollback steps.
+- ORM-based schema definitions, migration scripts, schema registry tooling, validation utilities, safety enforcement modules, and SBOM/dependency documentation for SQLite and Postgres.
+- `raw_events`, summary tables, security/audit layers, anomaly detection routines, neutralization/quarantine services, batch risk reporting, and retention management documentation.
+- Bulk and delta loader implementations with checkpoints, DLQ, telemetry, circuit breakers, hostile-input pipelines, anomaly detection, and operator runbooks.
+- Reporting CLI/service plus updated Elastic exporter integrations, health checks, compliance/evidence modes, hostile-content safe rendering, and compatibility notes.
+- Telemetry dashboards, OpenTelemetry instrumentation samples, hostile-content alerting guides, metrics specifications (neutralization cache hit rate, detection latency), and logging configuration references.
+- Comprehensive test suites (unit, integration, performance, chaos, hostile-content, fuzzing, regression), baseline benchmarks, reconciliation scripts, and rollout checklist with feature flags and rollback steps.
 - Migration utility for seeding Postgres from SQLite, including JSON1→JSONB mappings, safety feature parity, and guidance for long-term archival/storage strategies.
 - Data quality assurance artifacts (referential integrity checks, anomaly detectors, reconciliation reports) covering SQLite/Postgres parity and hostile-content detection efficacy.
-- Risk matrix, hostile-content performance impact assessment, and continuous improvement plan for defensive controls.
+- Security playbook outlining common attack patterns, neutralization examples, escalation procedures, and compliance reporting guidance.
+- Risk matrix and continuous improvement plan tracking neutralization bypass, supply-chain vulnerabilities, and emergent threats.
+
+## Implementation Timeline (Draft)
+- Phases 0–1.5 (foundation + security hardening): ~3 weeks
+- Phase 2 (bulk loader with hostile-content pipeline): ~3 weeks
+- Phase 3 (delta loader with anomaly detection): ~2 weeks
+- Phases 4–5 (reporting, telemetry, incident response tooling): ~3 weeks
+- Phase 6 (validation, red teaming, rollout prep): ~3 weeks
