@@ -12,6 +12,7 @@ import argparse
 import bz2
 import collections
 import datetime
+import faulthandler
 import gzip
 import io
 import json
@@ -38,6 +39,13 @@ from enrichment_handlers import (
     safe_read_uh_data as enrichment_safe_read_uh_data,
 )
 from secrets_resolver import is_reference, resolve_secret
+
+faulthandler.enable()
+if hasattr(signal, "SIGUSR1"):
+    try:
+        faulthandler.register(signal.SIGUSR1, chain=False, all_threads=True)
+    except (AttributeError, ValueError):
+        pass
 
 # Default logs directory (can be overridden later via --log-dir)
 default_logs_dir = Path('/mnt/dshield/data/logs')
@@ -1092,7 +1100,6 @@ def read_spur_data(ip_address):
     )
 
 
-
 def print_session_info(data, sessions, attack_type, data_by_session=None):
     """Render and persist details for the provided sessions.
 
@@ -1128,7 +1135,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         attack_count += 1
         # Use pre-indexed data if available, otherwise fall back to full data
         session_data = data_by_session.get(session, data) if data_by_session else data
-        
+
         logging.info(f"Session {session} - Getting protocol and duration")
         protocol = get_protocol_login(session, session_data)
         session_duration = get_session_duration(session, session_data)
@@ -1329,14 +1336,10 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                     if re.search('[a-zA-Z]', each_download[2]):
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address", each_download[2]) + "\n"
                         urlhaus_tags = (
-                            safe_read_uh_data(each_download[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if urlhaus_tags:
-                            attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus Source Tags", urlhaus_tags) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags", urlhaus_tags) + "\n"
                         sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(
                             sql,
@@ -1360,14 +1363,10 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             json_data = {'ip': {'asname': '', 'ascountry': ''}}
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address", each_download[2]) + "\n"
                         urlhaus_ip_tags = (
-                            safe_read_uh_data(each_download[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if urlhaus_ip_tags:
-                            attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus IP Tags", urlhaus_ip_tags) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", urlhaus_ip_tags) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME", json_data['ip']['asname']) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", json_data['ip']['ascountry']) + "\n"
 
@@ -1382,23 +1381,15 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         if spur_data[0] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                         if spur_data[1] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
                         if spur_data[2] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"
                         if spur_data[3] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
                         if spur_data[4] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
                         if spur_data[5] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
                         if spur_data[6] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"
                         if spur_data[7] != "":
@@ -1408,9 +1399,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"
                             )
                         if spur_data[9] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
                         if spur_data[10] != "":
                             attackstring += (
                                 "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"
@@ -1426,13 +1415,9 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"
                             )
                         if spur_data[15] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
                         if spur_data[16] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
                         if spur_data[17] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"
 
@@ -1542,9 +1527,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                     if re.search('[a-zA-Z]', each_upload[2]):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         upload_tags = (
-                            safe_read_uh_data(each_upload[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if upload_tags:
                             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", upload_tags) + "\n"
@@ -1573,9 +1556,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             json_data = {'ip': {'asname': '', 'ascountry': ''}}
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         upload_ip_tags = (
-                            safe_read_uh_data(each_upload[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if upload_ip_tags:
                             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", upload_ip_tags) + "\n"
@@ -1593,21 +1574,15 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         if spur_data[0] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                         if spur_data[1] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
                         if spur_data[2] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"
                         if spur_data[3] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
                         if spur_data[4] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
                         if spur_data[5] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
                         if spur_data[6] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"
                         if spur_data[7] != "":
@@ -1617,9 +1592,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"
                             )
                         if spur_data[9] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
                         if spur_data[10] != "":
                             attackstring += (
                                 "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"
@@ -1639,13 +1612,9 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 + "\n"
                             )
                         if spur_data[15] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
                         if spur_data[16] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
                         if spur_data[17] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"
 
@@ -1702,11 +1671,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         if len(rows) > 0:
             print("Data for session " + session + " was already stored within database")
         else:
-            session_urlhaus_tags = (
-                safe_read_uh_data(src_ip, urlhausapi)
-                if not skip_enrich and urlhausapi
-                else ""
-            )
+            session_urlhaus_tags = safe_read_uh_data(src_ip, urlhausapi) if not skip_enrich and urlhausapi else ""
             sql = (
                 "INSERT INTO sessions( session, session_duration, protocol, username, password, "
                 "timestamp, source_ip, urlhaus_tag, asname, ascountry, total_commands, added, hostname) "
@@ -1885,6 +1850,7 @@ for filename in list_of_files:
     logging.info(f"Starting to process file {filename} ({processed_files + 1}/{total_files})")
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
+        file_started_at = time.time()
         # Optional normalization pass: attempt to read entire file and parse non-JSONL formats
         if jq_normalize:
             with open_json_lines(filepath_str) as file:
@@ -1898,13 +1864,14 @@ for filename in list_of_files:
                         if isinstance(rec, dict):
                             data.append(rec)
                         emit_count += 1
-                        if (time.time() - t_last) >= max(5, status_interval):
+                        if emit_count % 100 == 0 or (time.time() - t_last) >= max(5, status_interval):
                             write_status(
-                                state='reading',
+                                state='normalizing',
                                 total_files=total_files,
                                 processed_files=processed_files,
                                 current_file=filename,
                                 file_lines=emit_count,
+                                elapsed_secs=round(time.time() - file_started_at, 2),
                             )
                             t_last = time.time()
                 elif isinstance(obj, dict):
@@ -1935,7 +1902,7 @@ for filename in list_of_files:
         with open_json_lines(filepath_str) as file:
             line_count = 0
             t_last = time.time()
-            started_at = time.time()
+            started_at = file_started_at
             for each_line in file:
                 # Bail out if a single file exceeds processing time budget
                 if file_timeout and (time.time() - started_at) > file_timeout:
@@ -1964,13 +1931,21 @@ for filename in list_of_files:
                     continue
                 line_count += 1
                 # heartbeat during large files
-                if (time.time() - t_last) >= max(5, status_interval):
+                if line_count % 5000 == 0:
+                    logging.info(
+                        "Read %s lines from %s after %.2fs",
+                        line_count,
+                        filename,
+                        time.time() - file_started_at,
+                    )
+                if line_count % 100 == 0 or (time.time() - t_last) >= max(5, status_interval):
                     write_status(
                         state='reading',
                         total_files=total_files,
                         processed_files=processed_files,
                         current_file=filename,
                         file_lines=line_count,
+                        elapsed_secs=round(time.time() - file_started_at, 2),
                     )
                     t_last = time.time()
     except EOFError:
@@ -1983,9 +1958,23 @@ for filename in list_of_files:
         processed_files += 1
         write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
+    file_elapsed = time.time() - file_started_at
+    write_status(
+        state='file_complete',
+        total_files=total_files,
+        processed_files=processed_files + 1,
+        current_file=filename,
+        file_lines=(line_count if 'line_count' in locals() else len(data)),
+        elapsed_secs=round(file_elapsed, 2),
+    )
     processed_files += 1
-    logging.info(f"Completed processing file {filename} - found {len(data)} log entries")
-    
+    logging.info(
+        "Completed processing file %s - %s log entries in %.2fs",
+        filename,
+        len(data),
+        file_elapsed,
+    )
+
     # Check database size periodically
     if processed_files % 10 == 0:  # Every 10 files
         try:
@@ -1993,11 +1982,32 @@ for filename in list_of_files:
             logging.info(f"Database size after {processed_files} files: {db_size / (1024*1024):.1f} MB")
         except Exception:
             pass
-    
-    write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
+
+    write_status(
+        state='reading',
+        total_files=total_files,
+        processed_files=processed_files,
+        current_file='',
+    )
 
 # File processing complete - update status
 write_status(state='files_complete', total_files=total_files, processed_files=processed_files, current_file='')
+
+
+def update_stage_status(state, **extra):
+    """Helper to emit status updates for post-file phases."""
+    write_status(
+        state=state,
+        total_files=total_files,
+        processed_files=processed_files,
+        current_file='',
+        **extra,
+    )
+
+
+total_log_entries = len(data)
+index_stage_started = time.time()
+update_stage_status('indexing_sessions', log_entries=total_log_entries, log_entries_indexed=0, elapsed_secs=0)
 
 vt_session = requests.session()
 
@@ -2007,32 +2017,57 @@ write_status(state='generating_reports', total_files=total_files, processed_file
 # Pre-index data by session for much better performance
 logging.info("Pre-indexing data by session for better performance...")
 data_by_session: dict[str, list[dict]] = {}
-for entry in data:
+for idx, entry in enumerate(data, start=1):
     session = entry.get('session')
     if session:
         if session not in data_by_session:
             data_by_session[session] = []
         data_by_session[session].append(entry)
+    if idx % 100 == 0:
+        update_stage_status(
+            'indexing_sessions',
+            log_entries=total_log_entries,
+            log_entries_indexed=idx,
+            elapsed_secs=round(time.time() - index_stage_started, 2),
+        )
+
+total_sessions_indexed = len(data_by_session)
+update_stage_status(
+    'indexing_sessions',
+    log_entries=total_log_entries,
+    log_entries_indexed=total_log_entries,
+    total_sessions=total_sessions_indexed,
+    elapsed_secs=round(time.time() - index_stage_started, 2),
+)
+
+selected_sessions: list[str] = []
 
 if summarizedays:
     session_id = get_session_id(data, "all", "unnecessary")
+    selected_sessions = list(session_id)
     print_session_info(data, session_id, "standard", data_by_session)
 
 elif session_id:
     sessions = [session_id]
+    selected_sessions = list(sessions)
     print_session_info(data, sessions, "standard", data_by_session)
 
 elif tty_file:
     session_id = get_session_id(data, "tty", tty_file)
+    selected_sessions = list(session_id)
     print_session_info(data, session_id, "standard", data_by_session)
 
 elif download_file:
     session_id = get_session_id(data, "download", download_file)
+    selected_sessions = list(session_id)
     print_session_info(data, session_id, "standard", data_by_session)
 
 else:
     session_id = get_session_id(data, "all", "unnecessary")
+    selected_sessions = list(session_id)
     print_session_info(data, session_id, "standard", data_by_session)
+
+update_stage_status('session_selection', total_sessions=len(selected_sessions))
 
 
 counts = collections.Counter(number_of_commands)
@@ -2055,6 +2090,41 @@ for key, value in sorted_command_counts:
 abnormal_command_counts = abnormal_command_counts[0 : int(len(abnormal_command_counts) * (2 / 3))]
 
 
+def evaluate_sessions(target_sessions):
+    """Inspect selected sessions and update abnormal/command-count sets."""
+    total_sessions_local = len(target_sessions)
+    sessions_processed_local = 0
+    stage_started = time.time()
+    update_stage_status(
+        'session_metrics',
+        total_sessions=total_sessions_local,
+        sessions_processed=sessions_processed_local,
+        elapsed_secs=0,
+    )
+    if not total_sessions_local:
+        return
+    for session_key in target_sessions:
+        session_data = data_by_session.get(session_key, data) if data_by_session else data
+        command_count = get_command_total(session_key, session_data)
+        if command_count in abnormal_command_counts:
+            abnormal_attacks.add(session_key)
+            uncommon_command_counts.add(session_key)
+        sessions_processed_local += 1
+        if sessions_processed_local % 50 == 0:
+            update_stage_status(
+                'session_metrics',
+                total_sessions=total_sessions_local,
+                sessions_processed=sessions_processed_local,
+                elapsed_secs=round(time.time() - stage_started, 2),
+            )
+    update_stage_status(
+        'session_metrics',
+        total_sessions=total_sessions_local,
+        sessions_processed=sessions_processed_local,
+        elapsed_secs=round(time.time() - stage_started, 2),
+    )
+
+
 vt_counts = collections.Counter(vt_classifications)
 vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
 vt_class = set()
@@ -2062,56 +2132,39 @@ for classification in vt_classifications:
     vt_class.add(classification)
 
 
-if summarizedays:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-
-elif session_id:
-    sessions = [session_id]
-    for each_session in sessions:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-elif tty_file:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-
-elif download_file:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
+evaluate_sessions(selected_sessions)
 
 vt_session.close()
 
 # Final commit if bulk-load deferred commits
 try:
     if bulk_load:
+        commit_stage_started = time.time()
+        update_stage_status(
+            'final_commit',
+            total_sessions=len(selected_sessions),
+            sessions_processed=len(selected_sessions),
+            elapsed_secs=0,
+        )
         logging.info("Performing final bulk-load commit to database")
         con.commit()
         logging.info("Bulk-load commit completed")
+        update_stage_status(
+            'final_commit',
+            total_sessions=len(selected_sessions),
+            sessions_processed=len(selected_sessions),
+            elapsed_secs=round(time.time() - commit_stage_started, 2),
+        )
 except Exception:
     logging.error("Final commit failed in bulk-load mode", exc_info=True)
+
+report_stage_started = time.time()
+update_stage_status(
+    'report_generation',
+    total_sessions=len(selected_sessions),
+    sessions_processed=len(selected_sessions),
+    elapsed_secs=0,
+)
 
 summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
 if number_of_commands:
@@ -2165,6 +2218,13 @@ else:
 report_file.write(summarystring)
 report_file.close()
 print_session_info(data, abnormal_attacks, "abnormal")
+
+update_stage_status(
+    'report_generation',
+    total_sessions=len(selected_sessions),
+    sessions_processed=len(selected_sessions),
+    elapsed_secs=round(time.time() - report_stage_started, 2),
+)
 
 if dbxapi:
     dbx = dropbox.Dropbox(dbxapi)
