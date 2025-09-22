@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,10 @@ from datetime import datetime as dt
 from pathlib import Path
 from typing import Dict, Optional
 
-import tomli as tomllib
+if sys.version_info >= (3, 11):  # Python 3.11+ includes tomllib
+    import tomllib
+else:  # pragma: no cover - exercised on older Python
+    import tomli as tomllib
 
 from secrets_resolver import set_env_if_ref
 
@@ -80,6 +84,31 @@ def run_with_retries(
     child_env = dict(os.environ)
     if extra_env:
         child_env.update(extra_env)
+
+    def drain_streams(proc: subprocess.Popen[str]) -> None:
+        streams = []
+        if proc.stdout:
+            streams.append(proc.stdout)
+        if proc.stderr:
+            streams.append(proc.stderr)
+        if not streams:
+            return
+        try:
+            ready, _, _ = select.select(streams, [], [], 0)
+        except Exception:
+            return
+        for stream in ready:
+            try:
+                chunk = stream.readline()
+            except Exception:
+                continue
+            if not chunk:
+                continue
+            if stream is proc.stderr:
+                print(chunk, end="", file=sys.stderr)
+            else:
+                print(chunk, end="")
+
     while True:
         attempt += 1
         print(f"[orchestrate] Running: {' '.join(cmd)} (attempt {attempt})")
@@ -94,6 +123,7 @@ def run_with_retries(
                 ) as proc:
                     try:
                         while proc.poll() is None:
+                            drain_streams(proc)
                             time.sleep(poll_seconds)
                             try:
                                 if status_file.exists():
@@ -104,14 +134,9 @@ def run_with_retries(
                                     state = data.get('state', '')
                                     sessions = data.get('sessions_processed', 0)
                                     total_sessions = data.get('total_sessions', 0)
-                                    status_line = (
-                                        f"[status] {state} {done}/{total} {current}"
-                                    )
+                                    status_line = f"[status] {state} {done}/{total} {current}"
                                     if total_sessions > 0:
-                                        status_line = (
-                                            f"{status_line} "
-                                            f"Sessions: {sessions}/{total_sessions}"
-                                        )
+                                        status_line = f"{status_line} " f"Sessions: {sessions}/{total_sessions}"
                                     print(status_line)
                             except Exception as e:
                                 print(f"[debug] Status read error: {e}")

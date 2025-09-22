@@ -12,6 +12,7 @@ import argparse
 import bz2
 import collections
 import datetime
+import faulthandler
 import gzip
 import io
 import json
@@ -22,8 +23,10 @@ import signal
 import socket
 import sqlite3
 import sys
+import tempfile
 import time
 from pathlib import Path
+from typing import Dict, Optional
 
 import dropbox
 import requests
@@ -38,25 +41,45 @@ from enrichment_handlers import (
     safe_read_uh_data as enrichment_safe_read_uh_data,
 )
 from secrets_resolver import is_reference, resolve_secret
+from session_enumerator import SessionMetrics, enumerate_sessions
+
+faulthandler.enable()
+if hasattr(signal, "SIGUSR1"):
+    try:
+        faulthandler.register(signal.SIGUSR1, chain=False, all_threads=True)
+    except (AttributeError, ValueError):
+        pass
 
 # Default logs directory (can be overridden later via --log-dir)
 default_logs_dir = Path('/mnt/dshield/data/logs')
 try:
     default_logs_dir.mkdir(parents=True, exist_ok=True)
 except Exception:
-    pass
-logging_fhandler = logging.FileHandler(default_logs_dir / "cowrieprocessor.err")
-logging.root.addHandler(logging_fhandler)
+    fallback_logs_dir = Path(tempfile.gettempdir()) / 'cowrieprocessor-logs'
+    try:
+        fallback_logs_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        fallback_logs_dir = Path.cwd()
+    default_logs_dir = fallback_logs_dir
+
 basic_with_time_format = '%(asctime)s:%(levelname)s:%(name)s:%(filename)s:%(funcName)s:%(message)s'
-logging_fhandler.setFormatter(logging.Formatter(basic_with_time_format))
-logging_fhandler.setLevel(logging.ERROR)
+handlers: list[logging.Handler] = []
+
+try:
+    file_handler = logging.FileHandler(default_logs_dir / 'cowrieprocessor.err')
+    file_handler.setFormatter(logging.Formatter(basic_with_time_format))
+    file_handler.setLevel(logging.ERROR)
+    handlers.append(file_handler)
+except Exception:
+    logging.getLogger(__name__).warning("File logging disabled; falling back to stdout-only handler", exc_info=True)
 
 stdout_handler = logging.StreamHandler(stream=sys.stdout)
 stdout_handler.setFormatter(logging.Formatter(basic_with_time_format))
 stdout_handler.setLevel(logging.DEBUG)
+handlers.append(stdout_handler)
 
-logging.root.addHandler(logging_fhandler)
-logging.root.addHandler(stdout_handler)
+for handler in handlers:
+    logging.root.addHandler(handler)
 logging.root.setLevel(logging.DEBUG)
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
@@ -420,6 +443,8 @@ status_interval = max(5, int(getattr(args, 'status_interval', 30)))
 _last_status_ts = 0.0
 _last_state = ""
 _last_file = ""
+RUN_STARTED_AT = time.time()
+STATUS_PAYLOAD_VERSION = 2
 
 
 def write_status(state: str, total_files: int, processed_files: int, current_file: str = "", **extra):
@@ -436,7 +461,46 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
     _last_status_ts = now
     _last_state = state
     _last_file = current_file
-    payload = {
+    details = dict(extra)
+    iso_timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+    phase_elapsed = details.get('elapsed_secs')
+    progress_current = details.get('sessions_processed')
+    if progress_current is None:
+        progress_current = details.get('log_entries_indexed')
+    if progress_current is None:
+        progress_current = processed_files
+    progress_current = _safe_int(progress_current, processed_files)
+
+    progress_total = details.get('total_sessions')
+    if progress_total is None:
+        progress_total = details.get('log_entries')
+    if progress_total is None:
+        progress_total = total_files
+    progress_total = _safe_int(progress_total, total_files)
+
+    progress: Dict[str, object] = {'current': progress_current, 'total': progress_total}
+    if progress_total > 0:
+        progress['percent'] = round((progress_current / progress_total) * 100, 2)
+
+    if isinstance(phase_elapsed, (int, float)) and phase_elapsed > 0:
+        rate = progress_current / phase_elapsed if phase_elapsed else 0.0
+        progress['rate_per_sec'] = round(rate, 2)
+        if progress_total > 0 and rate > 0:
+            remaining = max(progress_total - progress_current, 0)
+            progress['eta_seconds'] = int(remaining / rate)
+
+    elapsed = {
+        'phase_seconds': phase_elapsed if isinstance(phase_elapsed, (int, float)) else None,
+        'total_seconds': round(now - RUN_STARTED_AT, 2),
+    }
+
+    files_block = {
+        'total': total_files,
+        'processed': processed_files,
+        'current': current_file,
+    }
+
+    legacy = {
         'sensor': hostname,
         'pid': os.getpid(),
         'state': state,
@@ -447,7 +511,22 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
         'run_dir': os.fspath(run_dir),
         'timestamp': int(now),
     }
-    payload.update(extra)
+    legacy.update(details)
+
+    payload = {
+        'version': STATUS_PAYLOAD_VERSION,
+        'timestamp_iso': iso_timestamp,
+        'timestamp': int(now),
+        'hostname': hostname,
+        'pid': os.getpid(),
+        'phase': state,
+        'progress': progress,
+        'elapsed': elapsed,
+        'files': files_block,
+        'details': details,
+        'legacy_format': legacy,
+    }
+    payload.update(legacy)
     try:
         tmp = status_file.with_suffix('.tmp')
         with open(tmp, 'w', encoding='utf-8') as f:
@@ -456,6 +535,202 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
     except Exception:
         # Non-fatal
         pass
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    """Best-effort conversion from arbitrary objects to ``int``."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _safe_match_counts(value: object) -> Dict[str, int]:
+    """Normalize match-count dictionaries from enumeration callbacks."""
+    if isinstance(value, dict):
+        result: Dict[str, int] = {}
+        for key, raw in value.items():
+            result[str(key)] = _safe_int(raw)
+        return result
+    return {}
+
+
+def _safe_optional_str(value: object) -> Optional[str]:
+    """Return value when it is a string, otherwise ``None``."""
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _parse_timestamp_to_epoch(value: str) -> Optional[int]:
+    """Convert common Cowrie timestamp formats to epoch seconds."""
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            dt = datetime.datetime.strptime(value, fmt)
+            return int(dt.replace(tzinfo=datetime.timezone.utc).timestamp())
+        except ValueError:
+            continue
+    return None
+
+
+SCHEMA_META_TABLE = 'cp_metadata'
+SCHEMA_VERSION = 2
+
+
+def configure_database(connection: sqlite3.Connection) -> None:
+    """Attempt to enable WAL mode with sane fallbacks."""
+    wal_enabled = False
+    try:
+        result = connection.execute('PRAGMA journal_mode=WAL').fetchone()
+        wal_enabled = bool(result and str(result[0]).lower() == 'wal')
+        if wal_enabled:
+            connection.execute('PRAGMA synchronous=NORMAL')
+    except sqlite3.OperationalError:
+        wal_enabled = False
+    except Exception:
+        logging.warning("Unexpected error enabling WAL; falling back to TRUNCATE", exc_info=True)
+        wal_enabled = False
+    if not wal_enabled:
+        try:
+            connection.execute('PRAGMA journal_mode=TRUNCATE')
+            logging.warning("WAL mode unavailable, using TRUNCATE journal")
+        except Exception:
+            logging.error("Failed to set TRUNCATE journal mode", exc_info=True)
+    try:
+        connection.execute('PRAGMA busy_timeout=30000')
+    except Exception:
+        logging.warning("Failed to set busy timeout on SQLite connection", exc_info=True)
+    try:
+        connection.execute('PRAGMA wal_autocheckpoint=1000')
+    except sqlite3.OperationalError:
+        # Older SQLite or non-WAL mode – safe to ignore
+        pass
+
+
+def ensure_metadata_table(cursor: sqlite3.Cursor) -> None:
+    """Create metadata table if missing."""
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {SCHEMA_META_TABLE}(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+
+def get_schema_version(cursor: sqlite3.Cursor) -> int:
+    """Return current schema version stored in metadata."""
+    ensure_metadata_table(cursor)
+    cursor.execute(f"SELECT value FROM {SCHEMA_META_TABLE} WHERE key='schema_version'")
+    row = cursor.fetchone()
+    if not row:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_schema_version(cursor: sqlite3.Cursor, version: int) -> None:
+    """Persist the schema version in metadata."""
+    cursor.execute(
+        f"INSERT INTO {SCHEMA_META_TABLE}(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(version),),
+    )
+
+
+def ensure_session_metrics_schema(cursor: sqlite3.Cursor) -> None:
+    """Ensure the session_metrics table and indexes exist."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_metrics (
+            session_id TEXT PRIMARY KEY,
+            match_type TEXT NOT NULL,
+            first_seen INTEGER,
+            last_seen INTEGER,
+            command_count INTEGER DEFAULT 0,
+            login_attempts INTEGER DEFAULT 0,
+            total_events INTEGER DEFAULT 0,
+            vt_flagged INTEGER DEFAULT 0,
+            dshield_flagged INTEGER DEFAULT 0,
+            last_source_file TEXT,
+            hostname TEXT,
+            created_at INTEGER DEFAULT (strftime('%s','now')),
+            updated_at INTEGER DEFAULT (strftime('%s','now')),
+            protocol TEXT,
+            username TEXT,
+            password TEXT,
+            src_ip TEXT,
+            login_time INTEGER,
+            login_timestamp TEXT,
+            duration_seconds INTEGER
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_metrics_time ON session_metrics(first_seen, last_seen)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_metrics_flags ON session_metrics(vt_flagged, dshield_flagged) "
+        "WHERE vt_flagged=1 OR dshield_flagged=1"
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_metrics_hostname ON session_metrics(hostname)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_metrics_login_time ON session_metrics(login_time)")
+
+    cursor.execute("PRAGMA table_info(session_metrics)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    for column, ddl in (
+        ('protocol', "ALTER TABLE session_metrics ADD COLUMN protocol TEXT"),
+        ('username', "ALTER TABLE session_metrics ADD COLUMN username TEXT"),
+        ('password', "ALTER TABLE session_metrics ADD COLUMN password TEXT"),
+        ('src_ip', "ALTER TABLE session_metrics ADD COLUMN src_ip TEXT"),
+        ('login_time', "ALTER TABLE session_metrics ADD COLUMN login_time INTEGER"),
+        ('login_timestamp', "ALTER TABLE session_metrics ADD COLUMN login_timestamp TEXT"),
+        ('duration_seconds', "ALTER TABLE session_metrics ADD COLUMN duration_seconds INTEGER"),
+    ):
+        if column not in existing_cols:
+            try:
+                cursor.execute(ddl)
+            except Exception:
+                logging.warning("Failed adding %s column to session_metrics", column, exc_info=True)
+
+
+def ensure_ingest_checkpoints_schema(cursor: sqlite3.Cursor) -> None:
+    """Ensure checkpoint table exists to store ingest restart data."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_checkpoints (
+            checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            last_session TEXT,
+            file_offset INTEGER,
+            events_processed INTEGER NOT NULL,
+            payload TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ingest_checkpoints_ts ON ingest_checkpoints(timestamp)")
+
+
+def run_schema_migrations() -> None:
+    """Run idempotent schema migrations for session metric storage."""
+    cursor = con.cursor()
+    ensure_metadata_table(cursor)
+    db_commit(force=True)
+    version = get_schema_version(cursor)
+    if version < 1:
+        ensure_session_metrics_schema(cursor)
+        ensure_ingest_checkpoints_schema(cursor)
+        set_schema_version(cursor, 1)
+        db_commit(force=True)
+        version = 1
+    if version < SCHEMA_VERSION:
+        # Future migrations can hook here. For now ensure objects exist and bump version.
+        ensure_session_metrics_schema(cursor)
+        ensure_ingest_checkpoints_schema(cursor)
+        set_schema_version(cursor, SCHEMA_VERSION)
+        db_commit(force=True)
 
 
 data = []
@@ -491,13 +766,7 @@ processed_files = 0
 write_status(state='starting', total_files=total_files, processed_files=processed_files)
 
 con = sqlite3.connect(args.db)
-# Improve concurrency for central DB usage
-try:
-    con.execute('PRAGMA journal_mode=WAL')
-    con.execute('PRAGMA busy_timeout=30000')  # Increased to 30 seconds for better concurrency
-    con.execute('PRAGMA wal_autocheckpoint=1000')  # Reduce checkpoint frequency
-except Exception:
-    pass
+configure_database(con)
 
 # Bulk load mode: relax PRAGMAs and gate commits
 bulk_load = bool(getattr(args, 'bulk_load', False))
@@ -511,14 +780,17 @@ if bulk_load:
         logging.warning("Failed to set some bulk-load PRAGMAs", exc_info=True)
 
 
-def db_commit():
-    """Commit the SQLite transaction unless in bulk-load mode.
+def db_commit(force: bool = False) -> None:
+    """Commit the SQLite transaction unless bulk-load is active.
 
-    In ``--bulk-load`` mode, intermediate commits are skipped for performance
-    and a single commit is issued at the end of processing.
+    Args:
+        force: When ``True`` the commit executes even in bulk-load mode.
+
+    In ``--bulk-load`` mode, intermediate commits are normally skipped for
+    performance and a single commit is issued at the end of processing.
     """
     try:
-        if not bulk_load:
+        if force or not bulk_load:
             con.commit()
             logging.debug("Database transaction committed")
     except Exception:
@@ -707,6 +979,115 @@ def initialize_database():
         db_commit()
     except Exception:
         logging.error("Failure creating indicator_cache table")
+
+    run_schema_migrations()
+
+
+def persist_session_metrics(metrics: Dict[str, SessionMetrics], *, hostname: str) -> None:
+    """Upsert per-session metrics into the SQLite session_metrics table."""
+    if not metrics:
+        return
+    cur = con.cursor()
+    now = int(time.time())
+    rows = []
+    for metric in metrics.values():
+        first_seen = int(metric.first_seen) if metric.first_seen is not None else None
+        last_seen = int(metric.last_seen) if metric.last_seen is not None else None
+        duration_seconds = int(metric.duration_seconds) if metric.duration_seconds is not None else None
+        login_time = int(metric.login_time) if metric.login_time is not None else None
+        rows.append(
+            (
+                metric.session_id,
+                metric.match_type or 'unknown',
+                first_seen,
+                last_seen,
+                int(metric.command_count),
+                int(metric.login_attempts),
+                int(metric.total_events),
+                metric.last_source_file,
+                hostname,
+                now,
+                metric.protocol,
+                metric.username,
+                metric.password,
+                metric.src_ip,
+                login_time,
+                metric.login_timestamp,
+                duration_seconds,
+            )
+        )
+    cur.executemany(
+        """
+        INSERT INTO session_metrics(
+            session_id,
+            match_type,
+            first_seen,
+            last_seen,
+            command_count,
+            login_attempts,
+            total_events,
+            last_source_file,
+            hostname,
+            updated_at,
+            protocol,
+            username,
+            password,
+            src_ip,
+            login_time,
+            login_timestamp,
+            duration_seconds
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(session_id) DO UPDATE SET
+            match_type=excluded.match_type,
+            first_seen=CASE
+                WHEN session_metrics.first_seen IS NULL THEN excluded.first_seen
+                WHEN excluded.first_seen IS NULL THEN session_metrics.first_seen
+                WHEN excluded.first_seen < session_metrics.first_seen THEN excluded.first_seen
+                ELSE session_metrics.first_seen
+            END,
+            last_seen=CASE
+                WHEN session_metrics.last_seen IS NULL THEN excluded.last_seen
+                WHEN excluded.last_seen IS NULL THEN session_metrics.last_seen
+                WHEN excluded.last_seen > session_metrics.last_seen THEN excluded.last_seen
+                ELSE session_metrics.last_seen
+            END,
+            command_count=excluded.command_count,
+            login_attempts=excluded.login_attempts,
+            total_events=excluded.total_events,
+            last_source_file=COALESCE(excluded.last_source_file, session_metrics.last_source_file),
+            hostname=COALESCE(excluded.hostname, session_metrics.hostname),
+            updated_at=excluded.updated_at,
+            protocol=COALESCE(excluded.protocol, session_metrics.protocol),
+            username=COALESCE(excluded.username, session_metrics.username),
+            password=COALESCE(excluded.password, session_metrics.password),
+            src_ip=COALESCE(excluded.src_ip, session_metrics.src_ip),
+            login_time=COALESCE(excluded.login_time, session_metrics.login_time),
+            login_timestamp=COALESCE(excluded.login_timestamp, session_metrics.login_timestamp),
+            duration_seconds=COALESCE(excluded.duration_seconds, session_metrics.duration_seconds)
+        """,
+        rows,
+    )
+    db_commit()
+
+
+def save_checkpoint(last_session: Optional[str], events_processed: int, match_counts: Dict[str, int]) -> None:
+    """Persist ingest progress checkpoints for restart resilience."""
+    payload = json.dumps({'match_counts': match_counts, 'version': SCHEMA_VERSION})
+    cur = con.cursor()
+    cur.execute(
+        """
+        INSERT INTO ingest_checkpoints(timestamp, last_session, file_offset, events_processed, payload)
+        VALUES (?,?,?,?,?)
+        """,
+        (int(time.time()), last_session, None, int(events_processed), payload),
+    )
+    db_commit(force=True)
+
+
+def _source_file_from_entry(entry: Dict[str, object]) -> Optional[str]:
+    """Extract the source file name from the injected entry metadata."""
+    value = entry.get('__source_file')
+    return value if isinstance(value, str) else None
 
 
 def get_connected_sessions(data):
@@ -1092,8 +1473,13 @@ def read_spur_data(ip_address):
     )
 
 
-
-def print_session_info(data, sessions, attack_type, data_by_session=None):
+def print_session_info(
+    data,
+    sessions,
+    attack_type,
+    data_by_session=None,
+    metrics_map: Optional[Dict[str, SessionMetrics]] = None,
+):
     """Render and persist details for the provided sessions.
 
     For each session, prints a formatted report, enriches from external
@@ -1105,6 +1491,8 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         attack_type: Either ``"standard"`` or ``"abnormal"`` controlling
             which report file the output is appended to.
         data_by_session: Optional pre-indexed data by session for better performance.
+        metrics_map: Optional mapping of session_id to SessionMetrics populated
+            by the enumerator for fast lookup without re-scanning events.
 
     Returns:
         None.
@@ -1128,21 +1516,36 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         attack_count += 1
         # Use pre-indexed data if available, otherwise fall back to full data
         session_data = data_by_session.get(session, data) if data_by_session else data
-        
+        metric = metrics_map.get(session) if metrics_map else None
+
         logging.info(f"Session {session} - Getting protocol and duration")
-        protocol = get_protocol_login(session, session_data)
-        session_duration = get_session_duration(session, session_data)
+        protocol = metric.protocol if metric and metric.protocol else get_protocol_login(session, session_data)
+        duration_seconds = metric.duration_seconds if metric and metric.duration_seconds is not None else None
+        session_duration = (
+            str(datetime.timedelta(seconds=duration_seconds))
+            if duration_seconds is not None
+            else get_session_duration(session, session_data)
+        )
         logging.info(f"Session {session} - Protocol: {protocol}, Duration: {session_duration}")
 
-        # try block for partially available data
-        # this is usually needed due to an attack spanning multiple log files not included for processing
-        try:
-            logging.info(f"Session {session} - Getting login data")
-            username, password, timestamp, src_ip = get_login_data(session, session_data)
-            logging.info(f"Session {session} - Login data retrieved: {username}, {src_ip}")
-        except Exception:
-            continue
-        command_count = get_command_total(session, session_data)
+        username = metric.username if metric and metric.username else None
+        password = metric.password if metric and metric.password else None
+        src_ip = metric.src_ip if metric and metric.src_ip else None
+        timestamp = metric.login_timestamp if metric and metric.login_timestamp else None
+        login_epoch = metric.login_time if metric and metric.login_time is not None else None
+
+        if not username or not password or not timestamp or not src_ip:
+            try:
+                logging.info(f"Session {session} - Getting login data from raw entries")
+                username, password, timestamp, src_ip = get_login_data(session, session_data)
+                if login_epoch is None and timestamp:
+                    parsed = _parse_timestamp_to_epoch(timestamp)
+                    if parsed is not None:
+                        login_epoch = parsed
+            except Exception:
+                continue
+
+        command_count = metric.command_count if metric else get_command_total(session, session_data)
         print("Command Count: " + str(command_count))
         number_of_commands.append(command_count)
 
@@ -1151,20 +1554,21 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         uploaddata = get_file_upload(session, session_data)
         logging.info(f"Found {len(downloaddata)} downloads, {len(uploaddata)} uploads for session {session}")
 
+        duration_label = session_duration if session_duration else 'unknown'
         attackstring = "{:>30s}  {:50s}".format("Session", str(session)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Session Duration", str(session_duration)[0:5] + " seconds") + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Protocol", str(protocol)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Username", str(username)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Password", str(password)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Timestamp", str(timestamp)) + "\n"
-        attackstring += "{:>30s}  {:50s}".format("Source IP Address", str(src_ip)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Session Duration", str(duration_label)) + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Protocol", str(protocol) if protocol else "unknown") + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Username", str(username) if username else "unknown") + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Password", str(password) if password else "unknown") + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Timestamp", str(timestamp) if timestamp else "unknown") + "\n"
+        attackstring += "{:>30s}  {:50s}".format("Source IP Address", str(src_ip) if src_ip else "unknown") + "\n"
 
-        if not skip_enrich and urlhausapi:
+        if not skip_enrich and urlhausapi and src_ip:
             logging.info(f"Querying URLHaus for IP {src_ip}")
             uh_data = safe_read_uh_data(src_ip, urlhausapi)
             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", str(uh_data)) + "\n"
 
-        if not skip_enrich and email:
+        if not skip_enrich and email and src_ip:
             logging.info(f"Querying DShield for IP {src_ip}")
             try:
                 json_data = with_timeout(30, dshield_query, src_ip)
@@ -1177,7 +1581,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                 attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", "TIMEOUT") + "\n"
                 attackstring += "{:>30s}  {:<6d}".format("Total Commands Run", command_count) + "\n"
 
-        if not skip_enrich and spurapi:
+        if not skip_enrich and spurapi and src_ip:
             logging.info(f"Querying SPUR for IP {src_ip}")
             try:
                 spur_session_data = with_timeout(30, read_spur_data, src_ip)
@@ -1329,14 +1733,10 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                     if re.search('[a-zA-Z]', each_download[2]):
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address", each_download[2]) + "\n"
                         urlhaus_tags = (
-                            safe_read_uh_data(each_download[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if urlhaus_tags:
-                            attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus Source Tags", urlhaus_tags) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus Source Tags", urlhaus_tags) + "\n"
                         sql = '''UPDATE files SET src_ip=?, urlhaus_tag=? WHERE session=? and hash=? and hostname=?'''
                         cur.execute(
                             sql,
@@ -1360,14 +1760,10 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             json_data = {'ip': {'asname': '', 'ascountry': ''}}
                         attackstring += "{:>30s}  {:50s}".format("Download Source Address", each_download[2]) + "\n"
                         urlhaus_ip_tags = (
-                            safe_read_uh_data(each_download[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_download[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if urlhaus_ip_tags:
-                            attackstring += (
-                                "{:>30s}  {:50s}".format("URLhaus IP Tags", urlhaus_ip_tags) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", urlhaus_ip_tags) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASNAME", json_data['ip']['asname']) + "\n"
                         attackstring += "{:>30s}  {:50s}".format("ASCOUNTRY", json_data['ip']['ascountry']) + "\n"
 
@@ -1382,23 +1778,15 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         if spur_data[0] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                         if spur_data[1] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
                         if spur_data[2] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"
                         if spur_data[3] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
                         if spur_data[4] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
                         if spur_data[5] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
                         if spur_data[6] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"
                         if spur_data[7] != "":
@@ -1408,9 +1796,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"
                             )
                         if spur_data[9] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
                         if spur_data[10] != "":
                             attackstring += (
                                 "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"
@@ -1426,13 +1812,9 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Anonymous Tunnel", str(spur_data[14])) + "\n"
                             )
                         if spur_data[15] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
                         if spur_data[16] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
                         if spur_data[17] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"
 
@@ -1542,9 +1924,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                     if re.search('[a-zA-Z]', each_upload[2]):
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         upload_tags = (
-                            safe_read_uh_data(each_upload[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if upload_tags:
                             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", upload_tags) + "\n"
@@ -1573,9 +1953,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                             json_data = {'ip': {'asname': '', 'ascountry': ''}}
                         attackstring += "{:>30s}  {:50s}".format("Upload Source Address", each_upload[2]) + "\n"
                         upload_ip_tags = (
-                            safe_read_uh_data(each_upload[2], urlhausapi)
-                            if not skip_enrich and urlhausapi
-                            else ""
+                            safe_read_uh_data(each_upload[2], urlhausapi) if not skip_enrich and urlhausapi else ""
                         )
                         if upload_ip_tags:
                             attackstring += "{:>30s}  {:50s}".format("URLhaus IP Tags", upload_ip_tags) + "\n"
@@ -1593,21 +1971,15 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                         if spur_data[0] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR ASN", str(spur_data[0])) + "\n"
                         if spur_data[1] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR ASN Organization", str(spur_data[1])) + "\n"
                         if spur_data[2] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Organization", str(spur_data[2])) + "\n"
                         if spur_data[3] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Infrastructure", str(spur_data[3])) + "\n"
                         if spur_data[4] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Behaviors", str(spur_data[4])) + "\n"
                         if spur_data[5] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Proxies", str(spur_data[5])) + "\n"
                         if spur_data[6] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Client Types", str(spur_data[6])) + "\n"
                         if spur_data[7] != "":
@@ -1617,9 +1989,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 "{:>30s}  {:<50s}".format("SPUR Client Concentration", str(spur_data[8])) + "\n"
                             )
                         if spur_data[9] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Client Countries", str(spur_data[9])) + "\n"
                         if spur_data[10] != "":
                             attackstring += (
                                 "{:>30s}  {:<50s}".format("SPUR Client Geo-spread", str(spur_data[10])) + "\n"
@@ -1639,13 +2009,9 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
                                 + "\n"
                             )
                         if spur_data[15] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Entries", str(spur_data[15])) + "\n"
                         if spur_data[16] != "":
-                            attackstring += (
-                                "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
-                            )
+                            attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Operator", str(spur_data[16])) + "\n"
                         if spur_data[17] != "":
                             attackstring += "{:>30s}  {:<50s}".format("SPUR Tunnel Type", str(spur_data[17])) + "\n"
 
@@ -1693,8 +2059,13 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         )
         print(attackstring)
 
-        utc_time = datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ")
-        epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
+        epoch_time = login_epoch
+        if epoch_time is None and timestamp:
+            parsed_epoch = _parse_timestamp_to_epoch(str(timestamp))
+            if parsed_epoch is not None:
+                epoch_time = parsed_epoch
+        if epoch_time is None:
+            epoch_time = int(time.time())
         sql = '''SELECT * FROM sessions WHERE session=? and timestamp=? and hostname=?'''
         cur.execute(sql, (session, epoch_time, hostname))
 
@@ -1704,7 +2075,7 @@ def print_session_info(data, sessions, attack_type, data_by_session=None):
         else:
             session_urlhaus_tags = (
                 safe_read_uh_data(src_ip, urlhausapi)
-                if not skip_enrich and urlhausapi
+                if (not skip_enrich and urlhausapi and src_ip)
                 else ""
             )
             sql = (
@@ -1885,6 +2256,7 @@ for filename in list_of_files:
     logging.info(f"Starting to process file {filename} ({processed_files + 1}/{total_files})")
     write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
     try:
+        file_started_at = time.time()
         # Optional normalization pass: attempt to read entire file and parse non-JSONL formats
         if jq_normalize:
             with open_json_lines(filepath_str) as file:
@@ -1898,13 +2270,14 @@ for filename in list_of_files:
                         if isinstance(rec, dict):
                             data.append(rec)
                         emit_count += 1
-                        if (time.time() - t_last) >= max(5, status_interval):
+                        if emit_count % 100 == 0 or (time.time() - t_last) >= max(5, status_interval):
                             write_status(
-                                state='reading',
+                                state='normalizing',
                                 total_files=total_files,
                                 processed_files=processed_files,
                                 current_file=filename,
                                 file_lines=emit_count,
+                                elapsed_secs=round(time.time() - file_started_at, 2),
                             )
                             t_last = time.time()
                 elif isinstance(obj, dict):
@@ -1935,7 +2308,7 @@ for filename in list_of_files:
         with open_json_lines(filepath_str) as file:
             line_count = 0
             t_last = time.time()
-            started_at = time.time()
+            started_at = file_started_at
             for each_line in file:
                 # Bail out if a single file exceeds processing time budget
                 if file_timeout and (time.time() - started_at) > file_timeout:
@@ -1958,19 +2331,28 @@ for filename in list_of_files:
                         continue
                     json_file = json.loads(each_line.replace('\0', ''))
                     if isinstance(json_file, dict):
+                        json_file['__source_file'] = filename
                         data.append(json_file)
                 except Exception:
                     # Skip malformed JSON lines
                     continue
                 line_count += 1
                 # heartbeat during large files
-                if (time.time() - t_last) >= max(5, status_interval):
+                if line_count % 5000 == 0:
+                    logging.info(
+                        "Read %s lines from %s after %.2fs",
+                        line_count,
+                        filename,
+                        time.time() - file_started_at,
+                    )
+                if line_count % 100 == 0 or (time.time() - t_last) >= max(5, status_interval):
                     write_status(
                         state='reading',
                         total_files=total_files,
                         processed_files=processed_files,
                         current_file=filename,
                         file_lines=line_count,
+                        elapsed_secs=round(time.time() - file_started_at, 2),
                     )
                     t_last = time.time()
     except EOFError:
@@ -1983,56 +2365,159 @@ for filename in list_of_files:
         processed_files += 1
         write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
         continue
+    file_elapsed = time.time() - file_started_at
+    write_status(
+        state='file_complete',
+        total_files=total_files,
+        processed_files=processed_files + 1,
+        current_file=filename,
+        file_lines=(line_count if 'line_count' in locals() else len(data)),
+        elapsed_secs=round(file_elapsed, 2),
+    )
     processed_files += 1
-    logging.info(f"Completed processing file {filename} - found {len(data)} log entries")
-    
+    logging.info(
+        "Completed processing file %s - %s log entries in %.2fs",
+        filename,
+        len(data),
+        file_elapsed,
+    )
+
     # Check database size periodically
     if processed_files % 10 == 0:  # Every 10 files
         try:
             db_size = os.path.getsize(args.db)
-            logging.info(f"Database size after {processed_files} files: {db_size / (1024*1024):.1f} MB")
+            logging.info(f"Database size after {processed_files} files: {db_size / (1024 * 1024):.1f} MB")
         except Exception:
             pass
-    
-    write_status(state='reading', total_files=total_files, processed_files=processed_files, current_file=filename)
+
+    write_status(
+        state='reading',
+        total_files=total_files,
+        processed_files=processed_files,
+        current_file='',
+    )
 
 # File processing complete - update status
 write_status(state='files_complete', total_files=total_files, processed_files=processed_files, current_file='')
+
+
+def update_stage_status(state, **extra):
+    """Helper to emit status updates for post-file phases."""
+    write_status(
+        state=state,
+        total_files=total_files,
+        processed_files=processed_files,
+        current_file='',
+        **extra,
+    )
+
+
+total_log_entries = len(data)
+index_stage_started = time.time()
+update_stage_status('indexing_sessions', log_entries=total_log_entries, log_entries_indexed=0, elapsed_secs=0)
 
 vt_session = requests.session()
 
 # Report generation starting - update status
 write_status(state='generating_reports', total_files=total_files, processed_files=processed_files, current_file='')
 
-# Pre-index data by session for much better performance
-logging.info("Pre-indexing data by session for better performance...")
-data_by_session: dict[str, list[dict]] = {}
-for entry in data:
-    session = entry.get('session')
-    if session:
-        if session not in data_by_session:
-            data_by_session[session] = []
-        data_by_session[session].append(entry)
+# Enumerate sessions and capture metrics using the new matcher pipeline
+logging.info("Enumerating sessions and gathering metrics...")
+
+
+def _enum_progress(stats: Dict[str, object]) -> None:
+    events_processed = _safe_int(stats.get('events_processed'))
+    session_count = _safe_int(stats.get('session_count'))
+    match_counts_payload = _safe_match_counts(stats.get('match_counts'))
+    update_stage_status(
+        'indexing_sessions',
+        log_entries=total_log_entries,
+        log_entries_indexed=events_processed,
+        total_sessions=session_count,
+        elapsed_secs=round(time.time() - index_stage_started, 2),
+        match_type_counts=match_counts_payload,
+    )
+
+
+def _enum_checkpoint(snapshot: Dict[str, object]) -> None:
+    events_processed = _safe_int(snapshot.get('events_processed'))
+    session_count = _safe_int(snapshot.get('session_count'))
+    match_counts_payload = _safe_match_counts(snapshot.get('match_counts'))
+    last_session = _safe_optional_str(snapshot.get('last_session'))
+    save_checkpoint(
+        last_session=last_session,
+        events_processed=events_processed,
+        match_counts=match_counts_payload,
+    )
+    update_stage_status(
+        'indexing_sessions',
+        log_entries=total_log_entries,
+        log_entries_indexed=events_processed,
+        total_sessions=session_count,
+        elapsed_secs=round(time.time() - index_stage_started, 2),
+        match_type_counts=match_counts_payload,
+        checkpoint=True,
+    )
+
+
+enumeration_result = enumerate_sessions(
+    data,
+    progress_callback=_enum_progress,
+    checkpoint_callback=_enum_checkpoint,
+    progress_interval=1000,
+    checkpoint_interval=10000,
+    source_getter=_source_file_from_entry,
+)
+
+data_by_session = enumeration_result.by_session
+match_counts = enumeration_result.match_counts
+persist_session_metrics(enumeration_result.metrics, hostname=hostname)
+
+if enumeration_result.events_processed:
+    save_checkpoint(
+        last_session=None,
+        events_processed=enumeration_result.events_processed,
+        match_counts=match_counts,
+    )
+
+total_sessions_indexed = len(data_by_session)
+update_stage_status(
+    'indexing_sessions',
+    log_entries=total_log_entries,
+    log_entries_indexed=enumeration_result.events_processed,
+    total_sessions=total_sessions_indexed,
+    elapsed_secs=round(time.time() - index_stage_started, 2),
+    match_type_counts=match_counts,
+)
+
+selected_sessions: list[str] = []
 
 if summarizedays:
     session_id = get_session_id(data, "all", "unnecessary")
-    print_session_info(data, session_id, "standard", data_by_session)
+    selected_sessions = list(session_id)
+    print_session_info(data, session_id, "standard", data_by_session, metrics_map=enumeration_result.metrics)
 
 elif session_id:
     sessions = [session_id]
-    print_session_info(data, sessions, "standard", data_by_session)
+    selected_sessions = list(sessions)
+    print_session_info(data, sessions, "standard", data_by_session, metrics_map=enumeration_result.metrics)
 
 elif tty_file:
     session_id = get_session_id(data, "tty", tty_file)
-    print_session_info(data, session_id, "standard", data_by_session)
+    selected_sessions = list(session_id)
+    print_session_info(data, session_id, "standard", data_by_session, metrics_map=enumeration_result.metrics)
 
 elif download_file:
     session_id = get_session_id(data, "download", download_file)
-    print_session_info(data, session_id, "standard", data_by_session)
+    selected_sessions = list(session_id)
+    print_session_info(data, session_id, "standard", data_by_session, metrics_map=enumeration_result.metrics)
 
 else:
     session_id = get_session_id(data, "all", "unnecessary")
-    print_session_info(data, session_id, "standard", data_by_session)
+    selected_sessions = list(session_id)
+    print_session_info(data, session_id, "standard", data_by_session, metrics_map=enumeration_result.metrics)
+
+update_stage_status('session_selection', total_sessions=len(selected_sessions))
 
 
 counts = collections.Counter(number_of_commands)
@@ -2055,6 +2540,41 @@ for key, value in sorted_command_counts:
 abnormal_command_counts = abnormal_command_counts[0 : int(len(abnormal_command_counts) * (2 / 3))]
 
 
+def evaluate_sessions(target_sessions):
+    """Inspect selected sessions and update abnormal/command-count sets."""
+    total_sessions_local = len(target_sessions)
+    sessions_processed_local = 0
+    stage_started = time.time()
+    update_stage_status(
+        'session_metrics',
+        total_sessions=total_sessions_local,
+        sessions_processed=sessions_processed_local,
+        elapsed_secs=0,
+    )
+    if not total_sessions_local:
+        return
+    for session_key in target_sessions:
+        session_data = data_by_session.get(session_key, data) if data_by_session else data
+        command_count = get_command_total(session_key, session_data)
+        if command_count in abnormal_command_counts:
+            abnormal_attacks.add(session_key)
+            uncommon_command_counts.add(session_key)
+        sessions_processed_local += 1
+        if sessions_processed_local % 50 == 0:
+            update_stage_status(
+                'session_metrics',
+                total_sessions=total_sessions_local,
+                sessions_processed=sessions_processed_local,
+                elapsed_secs=round(time.time() - stage_started, 2),
+            )
+    update_stage_status(
+        'session_metrics',
+        total_sessions=total_sessions_local,
+        sessions_processed=sessions_processed_local,
+        elapsed_secs=round(time.time() - stage_started, 2),
+    )
+
+
 vt_counts = collections.Counter(vt_classifications)
 vt_classifications = sorted(vt_classifications, key=lambda x: -vt_counts[x])
 vt_class = set()
@@ -2062,56 +2582,39 @@ for classification in vt_classifications:
     vt_class.add(classification)
 
 
-if summarizedays:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-
-elif session_id:
-    sessions = [session_id]
-    for each_session in sessions:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-elif tty_file:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
-
-elif download_file:
-    for each_session in session_id:
-        session_data = data_by_session.get(each_session, data) if data_by_session else data
-        command_count = get_command_total(each_session, session_data)
-        # if command_count != number_of_commands[0]:
-        if command_count in abnormal_command_counts:
-            abnormal_attacks.add(each_session)
-            uncommon_command_counts.add(each_session)
-
+evaluate_sessions(selected_sessions)
 
 vt_session.close()
 
 # Final commit if bulk-load deferred commits
 try:
     if bulk_load:
+        commit_stage_started = time.time()
+        update_stage_status(
+            'final_commit',
+            total_sessions=len(selected_sessions),
+            sessions_processed=len(selected_sessions),
+            elapsed_secs=0,
+        )
         logging.info("Performing final bulk-load commit to database")
         con.commit()
         logging.info("Bulk-load commit completed")
+        update_stage_status(
+            'final_commit',
+            total_sessions=len(selected_sessions),
+            sessions_processed=len(selected_sessions),
+            elapsed_secs=round(time.time() - commit_stage_started, 2),
+        )
 except Exception:
     logging.error("Final commit failed in bulk-load mode", exc_info=True)
+
+report_stage_started = time.time()
+update_stage_status(
+    'report_generation',
+    total_sessions=len(selected_sessions),
+    sessions_processed=len(selected_sessions),
+    elapsed_secs=0,
+)
 
 summarystring = "{:>40s}  {:10s}".format("Total Number of Attacks:", str(attack_count)) + "\n"
 if number_of_commands:
@@ -2164,7 +2667,20 @@ else:
     report_file = open(date + "_abnormal_report.txt", "a")
 report_file.write(summarystring)
 report_file.close()
-print_session_info(data, abnormal_attacks, "abnormal")
+print_session_info(
+    data,
+    abnormal_attacks,
+    "abnormal",
+    data_by_session,
+    metrics_map=enumeration_result.metrics,
+)
+
+update_stage_status(
+    'report_generation',
+    total_sessions=len(selected_sessions),
+    sessions_processed=len(selected_sessions),
+    elapsed_secs=round(time.time() - report_stage_started, 2),
+)
 
 if dbxapi:
     dbx = dropbox.Dropbox(dbxapi)
