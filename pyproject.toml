@@ -65,3 +65,6 @@ py-modules = [
   "cowrie_malware_enrichment",
   "submit_vtfiles",
 ]
+
+[project.scripts]
+cowrie-loader = "cowrieprocessor.cli.ingest:main"
