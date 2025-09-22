@@ -38,3 +38,10 @@ def test_status_emitter_writes_metrics_and_checkpoint(tmp_path):
     assert payload["dead_letter"]["total"] == 2
     assert "last_updated" in payload
     datetime.fromisoformat(payload["last_updated"])
+
+    aggregate_file = status_dir / "status.json"
+    assert aggregate_file.exists()
+    aggregate = json.loads(aggregate_file.read_text(encoding="utf-8"))
+    assert "phases" in aggregate
+    delta_phase = aggregate["phases"]["delta"]
+    assert delta_phase["metrics"]["events_inserted"] == 5

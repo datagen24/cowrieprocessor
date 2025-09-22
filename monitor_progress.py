@@ -8,6 +8,32 @@ from pathlib import Path
 
 
 def _render_status(name: str, data: dict) -> None:
+    if "phases" in data:
+        last_updated = data.get("last_updated")
+        print(f"[{name}] aggregate last_updated={last_updated}")
+        for phase_name, snapshot in sorted(data["phases"].items()):
+            metrics = snapshot.get("metrics", {})
+            ingest_id = snapshot.get("ingest_id")
+            phase_label = snapshot.get("phase", phase_name)
+            line = f"  - {phase_label}"
+            if ingest_id:
+                line += f" ingest={ingest_id}"
+            if metrics:
+                files = metrics.get("files_processed")
+                events = metrics.get("events_inserted")
+                reports = metrics.get("reports_generated")
+                if files is not None:
+                    line += f" files={files}"
+                if events is not None:
+                    line += f" events={events}"
+                if reports is not None:
+                    line += f" reports={reports}"
+                throughput = metrics.get("events_per_second") or metrics.get("reports_per_second")
+                if throughput:
+                    line += f" rate={throughput}"  # Already rounded
+            print(line)
+        return
+
     phase = data.get('phase') or data.get('state', 'unknown')
     ingest_id = data.get('ingest_id')
     metrics = data.get('metrics')
