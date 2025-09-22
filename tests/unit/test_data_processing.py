@@ -193,9 +193,11 @@ def test_get_file_upload(sample_cowrie_events: list[dict[str, str]]) -> None:
     """
     uploads = get_file_upload("facade-02", sample_cowrie_events)
 
-    assert uploads == [[
-        "http[://]203[.]0[.]113[.]50/upload[.]sh",
-        "feedface",
-        "203.0.113.50",
-        "upload.sh",
-    ]]
+    assert uploads == [
+        [
+            "http[://]203[.]0[.]113[.]50/upload[.]sh",
+            "feedface",
+            "203.0.113.50",
+            "upload.sh",
+        ]
+    ]
