@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+from typing import Dict, Optional
 
 import dropbox
 import requests
@@ -39,6 +40,7 @@ from enrichment_handlers import (
     safe_read_uh_data as enrichment_safe_read_uh_data,
 )
 from secrets_resolver import is_reference, resolve_secret
+from session_enumerator import SessionMetrics, enumerate_sessions
 
 faulthandler.enable()
 if hasattr(signal, "SIGUSR1"):
@@ -466,6 +468,164 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
         pass
 
 
+def _safe_int(value: object, default: int = 0) -> int:
+    """Best-effort conversion from arbitrary objects to ``int``."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _safe_match_counts(value: object) -> Dict[str, int]:
+    """Normalize match-count dictionaries from enumeration callbacks."""
+    if isinstance(value, dict):
+        result: Dict[str, int] = {}
+        for key, raw in value.items():
+            result[str(key)] = _safe_int(raw)
+        return result
+    return {}
+
+
+def _safe_optional_str(value: object) -> Optional[str]:
+    """Return value when it is a string, otherwise ``None``."""
+    if isinstance(value, str):
+        return value
+    return None
+
+
+SCHEMA_META_TABLE = 'cp_metadata'
+SCHEMA_VERSION = 2
+
+
+def configure_database(connection: sqlite3.Connection) -> None:
+    """Attempt to enable WAL mode with sane fallbacks."""
+    wal_enabled = False
+    try:
+        result = connection.execute('PRAGMA journal_mode=WAL').fetchone()
+        wal_enabled = bool(result and str(result[0]).lower() == 'wal')
+        if wal_enabled:
+            connection.execute('PRAGMA synchronous=NORMAL')
+    except sqlite3.OperationalError:
+        wal_enabled = False
+    except Exception:
+        logging.warning("Unexpected error enabling WAL; falling back to TRUNCATE", exc_info=True)
+        wal_enabled = False
+    if not wal_enabled:
+        try:
+            connection.execute('PRAGMA journal_mode=TRUNCATE')
+            logging.warning("WAL mode unavailable, using TRUNCATE journal")
+        except Exception:
+            logging.error("Failed to set TRUNCATE journal mode", exc_info=True)
+    try:
+        connection.execute('PRAGMA busy_timeout=30000')
+    except Exception:
+        logging.warning("Failed to set busy timeout on SQLite connection", exc_info=True)
+    try:
+        connection.execute('PRAGMA wal_autocheckpoint=1000')
+    except sqlite3.OperationalError:
+        # Older SQLite or non-WAL mode – safe to ignore
+        pass
+
+
+def ensure_metadata_table(cursor: sqlite3.Cursor) -> None:
+    """Create metadata table if missing."""
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {SCHEMA_META_TABLE}(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+
+def get_schema_version(cursor: sqlite3.Cursor) -> int:
+    """Return current schema version stored in metadata."""
+    ensure_metadata_table(cursor)
+    cursor.execute(f"SELECT value FROM {SCHEMA_META_TABLE} WHERE key='schema_version'")
+    row = cursor.fetchone()
+    if not row:
+        return 0
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_schema_version(cursor: sqlite3.Cursor, version: int) -> None:
+    """Persist the schema version in metadata."""
+    cursor.execute(
+        f"INSERT INTO {SCHEMA_META_TABLE}(key, value) VALUES ('schema_version', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(version),),
+    )
+
+
+def ensure_session_metrics_schema(cursor: sqlite3.Cursor) -> None:
+    """Ensure the session_metrics table and indexes exist."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_metrics (
+            session_id TEXT PRIMARY KEY,
+            match_type TEXT NOT NULL,
+            first_seen INTEGER,
+            last_seen INTEGER,
+            command_count INTEGER DEFAULT 0,
+            login_attempts INTEGER DEFAULT 0,
+            total_events INTEGER DEFAULT 0,
+            vt_flagged INTEGER DEFAULT 0,
+            dshield_flagged INTEGER DEFAULT 0,
+            last_source_file TEXT,
+            hostname TEXT,
+            created_at INTEGER DEFAULT (strftime('%s','now')),
+            updated_at INTEGER DEFAULT (strftime('%s','now'))
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_metrics_time ON session_metrics(first_seen, last_seen)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_metrics_flags ON session_metrics(vt_flagged, dshield_flagged) "
+        "WHERE vt_flagged=1 OR dshield_flagged=1"
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_metrics_hostname ON session_metrics(hostname)")
+
+
+def ensure_ingest_checkpoints_schema(cursor: sqlite3.Cursor) -> None:
+    """Ensure checkpoint table exists to store ingest restart data."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_checkpoints (
+            checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp INTEGER NOT NULL,
+            last_session TEXT,
+            file_offset INTEGER,
+            events_processed INTEGER NOT NULL,
+            payload TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_ingest_checkpoints_ts ON ingest_checkpoints(timestamp)")
+
+
+def run_schema_migrations() -> None:
+    """Run idempotent schema migrations for session metric storage."""
+    cursor = con.cursor()
+    ensure_metadata_table(cursor)
+    db_commit(force=True)
+    version = get_schema_version(cursor)
+    if version < 1:
+        ensure_session_metrics_schema(cursor)
+        ensure_ingest_checkpoints_schema(cursor)
+        set_schema_version(cursor, 1)
+        db_commit(force=True)
+        version = 1
+    if version < SCHEMA_VERSION:
+        # Future migrations can hook here. For now ensure objects exist and bump version.
+        ensure_session_metrics_schema(cursor)
+        ensure_ingest_checkpoints_schema(cursor)
+        set_schema_version(cursor, SCHEMA_VERSION)
+        db_commit(force=True)
+
+
 data = []
 attack_count = 0
 number_of_commands = []
@@ -499,13 +659,7 @@ processed_files = 0
 write_status(state='starting', total_files=total_files, processed_files=processed_files)
 
 con = sqlite3.connect(args.db)
-# Improve concurrency for central DB usage
-try:
-    con.execute('PRAGMA journal_mode=WAL')
-    con.execute('PRAGMA busy_timeout=30000')  # Increased to 30 seconds for better concurrency
-    con.execute('PRAGMA wal_autocheckpoint=1000')  # Reduce checkpoint frequency
-except Exception:
-    pass
+configure_database(con)
 
 # Bulk load mode: relax PRAGMAs and gate commits
 bulk_load = bool(getattr(args, 'bulk_load', False))
@@ -519,14 +673,17 @@ if bulk_load:
         logging.warning("Failed to set some bulk-load PRAGMAs", exc_info=True)
 
 
-def db_commit():
-    """Commit the SQLite transaction unless in bulk-load mode.
+def db_commit(force: bool = False) -> None:
+    """Commit the SQLite transaction unless bulk-load is active.
 
-    In ``--bulk-load`` mode, intermediate commits are skipped for performance
-    and a single commit is issued at the end of processing.
+    Args:
+        force: When ``True`` the commit executes even in bulk-load mode.
+
+    In ``--bulk-load`` mode, intermediate commits are normally skipped for
+    performance and a single commit is issued at the end of processing.
     """
     try:
-        if not bulk_load:
+        if force or not bulk_load:
             con.commit()
             logging.debug("Database transaction committed")
     except Exception:
@@ -715,6 +872,92 @@ def initialize_database():
         db_commit()
     except Exception:
         logging.error("Failure creating indicator_cache table")
+
+    run_schema_migrations()
+
+
+def persist_session_metrics(metrics: Dict[str, SessionMetrics], *, hostname: str) -> None:
+    """Upsert per-session metrics into the SQLite session_metrics table."""
+    if not metrics:
+        return
+    cur = con.cursor()
+    now = int(time.time())
+    rows = []
+    for metric in metrics.values():
+        first_seen = int(metric.first_seen) if metric.first_seen is not None else None
+        last_seen = int(metric.last_seen) if metric.last_seen is not None else None
+        rows.append(
+            (
+                metric.session_id,
+                metric.match_type or 'unknown',
+                first_seen,
+                last_seen,
+                int(metric.command_count),
+                int(metric.login_attempts),
+                int(metric.total_events),
+                metric.last_source_file,
+                hostname,
+                now,
+            )
+        )
+    cur.executemany(
+        """
+        INSERT INTO session_metrics(
+            session_id,
+            match_type,
+            first_seen,
+            last_seen,
+            command_count,
+            login_attempts,
+            total_events,
+            last_source_file,
+            hostname,
+            updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(session_id) DO UPDATE SET
+            match_type=excluded.match_type,
+            first_seen=CASE
+                WHEN session_metrics.first_seen IS NULL THEN excluded.first_seen
+                WHEN excluded.first_seen IS NULL THEN session_metrics.first_seen
+                WHEN excluded.first_seen < session_metrics.first_seen THEN excluded.first_seen
+                ELSE session_metrics.first_seen
+            END,
+            last_seen=CASE
+                WHEN session_metrics.last_seen IS NULL THEN excluded.last_seen
+                WHEN excluded.last_seen IS NULL THEN session_metrics.last_seen
+                WHEN excluded.last_seen > session_metrics.last_seen THEN excluded.last_seen
+                ELSE session_metrics.last_seen
+            END,
+            command_count=excluded.command_count,
+            login_attempts=excluded.login_attempts,
+            total_events=excluded.total_events,
+            last_source_file=COALESCE(excluded.last_source_file, session_metrics.last_source_file),
+            hostname=COALESCE(excluded.hostname, session_metrics.hostname),
+            updated_at=excluded.updated_at
+        """,
+        rows,
+    )
+    db_commit()
+
+
+def save_checkpoint(last_session: Optional[str], events_processed: int, match_counts: Dict[str, int]) -> None:
+    """Persist ingest progress checkpoints for restart resilience."""
+    payload = json.dumps({'match_counts': match_counts, 'version': SCHEMA_VERSION})
+    cur = con.cursor()
+    cur.execute(
+        """
+        INSERT INTO ingest_checkpoints(timestamp, last_session, file_offset, events_processed, payload)
+        VALUES (?,?,?,?,?)
+        """,
+        (int(time.time()), last_session, None, int(events_processed), payload),
+    )
+    db_commit(force=True)
+
+
+def _source_file_from_entry(entry: Dict[str, object]) -> Optional[str]:
+    """Extract the source file name from the injected entry metadata."""
+    value = entry.get('__source_file')
+    return value if isinstance(value, str) else None
 
 
 def get_connected_sessions(data):
@@ -1925,6 +2168,7 @@ for filename in list_of_files:
                         continue
                     json_file = json.loads(each_line.replace('\0', ''))
                     if isinstance(json_file, dict):
+                        json_file['__source_file'] = filename
                         data.append(json_file)
                 except Exception:
                     # Skip malformed JSON lines
@@ -1979,7 +2223,7 @@ for filename in list_of_files:
     if processed_files % 10 == 0:  # Every 10 files
         try:
             db_size = os.path.getsize(args.db)
-            logging.info(f"Database size after {processed_files} files: {db_size / (1024*1024):.1f} MB")
+            logging.info(f"Database size after {processed_files} files: {db_size / (1024 * 1024):.1f} MB")
         except Exception:
             pass
 
@@ -2014,30 +2258,73 @@ vt_session = requests.session()
 # Report generation starting - update status
 write_status(state='generating_reports', total_files=total_files, processed_files=processed_files, current_file='')
 
-# Pre-index data by session for much better performance
-logging.info("Pre-indexing data by session for better performance...")
-data_by_session: dict[str, list[dict]] = {}
-for idx, entry in enumerate(data, start=1):
-    session = entry.get('session')
-    if session:
-        if session not in data_by_session:
-            data_by_session[session] = []
-        data_by_session[session].append(entry)
-    if idx % 100 == 0:
-        update_stage_status(
-            'indexing_sessions',
-            log_entries=total_log_entries,
-            log_entries_indexed=idx,
-            elapsed_secs=round(time.time() - index_stage_started, 2),
-        )
+# Enumerate sessions and capture metrics using the new matcher pipeline
+logging.info("Enumerating sessions and gathering metrics...")
+
+
+def _enum_progress(stats: Dict[str, object]) -> None:
+    events_processed = _safe_int(stats.get('events_processed'))
+    session_count = _safe_int(stats.get('session_count'))
+    match_counts_payload = _safe_match_counts(stats.get('match_counts'))
+    update_stage_status(
+        'indexing_sessions',
+        log_entries=total_log_entries,
+        log_entries_indexed=events_processed,
+        total_sessions=session_count,
+        elapsed_secs=round(time.time() - index_stage_started, 2),
+        match_type_counts=match_counts_payload,
+    )
+
+
+def _enum_checkpoint(snapshot: Dict[str, object]) -> None:
+    events_processed = _safe_int(snapshot.get('events_processed'))
+    session_count = _safe_int(snapshot.get('session_count'))
+    match_counts_payload = _safe_match_counts(snapshot.get('match_counts'))
+    last_session = _safe_optional_str(snapshot.get('last_session'))
+    save_checkpoint(
+        last_session=last_session,
+        events_processed=events_processed,
+        match_counts=match_counts_payload,
+    )
+    update_stage_status(
+        'indexing_sessions',
+        log_entries=total_log_entries,
+        log_entries_indexed=events_processed,
+        total_sessions=session_count,
+        elapsed_secs=round(time.time() - index_stage_started, 2),
+        match_type_counts=match_counts_payload,
+        checkpoint=True,
+    )
+
+
+enumeration_result = enumerate_sessions(
+    data,
+    progress_callback=_enum_progress,
+    checkpoint_callback=_enum_checkpoint,
+    progress_interval=1000,
+    checkpoint_interval=10000,
+    source_getter=_source_file_from_entry,
+)
+
+data_by_session = enumeration_result.by_session
+match_counts = enumeration_result.match_counts
+persist_session_metrics(enumeration_result.metrics, hostname=hostname)
+
+if enumeration_result.events_processed:
+    save_checkpoint(
+        last_session=None,
+        events_processed=enumeration_result.events_processed,
+        match_counts=match_counts,
+    )
 
 total_sessions_indexed = len(data_by_session)
 update_stage_status(
     'indexing_sessions',
     log_entries=total_log_entries,
-    log_entries_indexed=total_log_entries,
+    log_entries_indexed=enumeration_result.events_processed,
     total_sessions=total_sessions_indexed,
     elapsed_secs=round(time.time() - index_stage_started, 2),
+    match_type_counts=match_counts,
 )
 
 selected_sessions: list[str] = []
