@@ -8,10 +8,17 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, cast
 
 from sqlalchemy import Table, func, select
+from sqlalchemy.dialects import sqlite as sqlite_dialect
+
+try:  # pragma: no cover - optional dependency
+    from sqlalchemy.dialects import postgresql as postgres_dialect
+except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
+    postgres_dialect = cast(Any, None)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import DeadLetterEvent, IngestCursor, RawEvent
+from ..telemetry import start_span
 from .bulk import (
     COMMAND_EVENT_HINTS,
     FILE_EVENT_HINTS,
@@ -55,93 +62,135 @@ class DeltaLoader:
         ingest_ref = ingest_id or uuid.uuid4().hex
         metrics = BulkLoaderMetrics(ingest_id=ingest_ref)
 
+        source_paths = [Path(src) for src in sources]
+
         pending_records: List[dict] = []
         session_aggregates: Dict[str, SessionAggregate] = {}
         telemetry_counter = 0
         dead_letters: List[dict] = []
 
-        with self._session_factory() as session:
-            cursor_map = self._load_cursors(session)
-            for source in sources:
-                path = Path(source)
-                cursor = cursor_map.get(str(path))
-                if cursor is None:
-                    cursor = self._bootstrap_cursor(session, cursor_map, str(path), ingest_ref)
-                generation = self._cursor_generation(cursor)
-                inode = self._bulk._source_inode(path)
-                inode_str = str(inode) if inode is not None else None
-                cursor_inode = self._get_cursor_inode(cursor)
-                last_offset = self._get_cursor_last_offset(cursor)
-                cursor_changed = False
-                first_hash_value = self._cursor_first_hash(cursor)
-                metrics.files_processed += 1
+        with start_span("cowrie.delta.load", {"ingest.id": ingest_ref, "sources": len(source_paths)}):
+            with self._session_factory() as session:
+                cursor_map = self._load_cursors(session)
+                for path in source_paths:
+                    cursor = cursor_map.get(str(path))
+                    if cursor is None:
+                        cursor = self._bootstrap_cursor(session, cursor_map, str(path), ingest_ref)
+                    generation = self._cursor_generation(cursor)
+                    inode = self._bulk._source_inode(path)
+                    inode_str = str(inode) if inode is not None else None
+                    cursor_inode = self._get_cursor_inode(cursor)
+                    last_offset = self._get_cursor_last_offset(cursor)
+                    cursor_changed = False
+                    first_hash_value = self._cursor_first_hash(cursor)
+                    metrics.files_processed += 1
 
-                for offset, payload in self._bulk._iter_source(path):
-                    inode_changed = (
-                        cursor is not None
-                        and cursor_inode is not None
-                        and inode_str is not None
-                        and cursor_inode != inode_str
-                    )
+                    with start_span(
+                        "cowrie.delta.file",
+                        {"ingest.id": ingest_ref, "source": str(path)},
+                    ):
+                        for offset, payload in self._bulk._iter_source(path):
+                            inode_changed = (
+                                cursor is not None
+                                and cursor_inode is not None
+                                and inode_str is not None
+                                and cursor_inode != inode_str
+                            )
 
-                    processed = self._bulk._process_event(payload)
-                    event_hash = self._bulk._payload_hash(processed.payload)
-                    reset_generation = inode_changed or (
-                        cursor is not None and offset == 0 and first_hash_value and event_hash != first_hash_value
-                    )
-                    if reset_generation:
-                        self._set_cursor_last_offset(cursor, -1)
-                    if not self._should_process(offset, inode, cursor):
-                        continue
-                    if reset_generation:
-                        generation += 1
-                    metrics.events_read += 1
-                    if processed.validation_errors:
-                        metrics.events_invalid += 1
-                        dead_letters.append(
-                            self._dead_letter_record(ingest_ref, str(path), offset, "validation", processed)
-                        )
-                        metrics.last_source = str(path)
-                        metrics.last_offset = offset
-                        last_offset = max(last_offset, offset)
-                        continue
-                    if processed.quarantined:
-                        metrics.events_quarantined += 1
-                        dead_letters.append(
-                            self._dead_letter_record(ingest_ref, str(path), offset, "quarantined", processed)
-                        )
+                            processed = self._bulk._process_event(payload)
+                            event_hash = self._bulk._payload_hash(processed.payload)
+                            reset_generation = inode_changed or (
+                                cursor is not None
+                                and offset == 0
+                                and first_hash_value
+                                and event_hash != first_hash_value
+                            )
+                            if reset_generation:
+                                self._set_cursor_last_offset(cursor, -1)
+                            if not self._should_process(offset, inode, cursor):
+                                continue
+                            if reset_generation:
+                                generation += 1
+                            metrics.events_read += 1
+                            if processed.validation_errors:
+                                metrics.events_invalid += 1
+                                dead_letters.append(
+                                    self._dead_letter_record(ingest_ref, str(path), offset, "validation", processed)
+                                )
+                                metrics.last_source = str(path)
+                                metrics.last_offset = offset
+                                last_offset = max(last_offset, offset)
+                                continue
+                            if processed.quarantined:
+                                metrics.events_quarantined += 1
+                                dead_letters.append(
+                                    self._dead_letter_record(ingest_ref, str(path), offset, "quarantined", processed)
+                                )
 
-                    record = self._bulk._make_raw_event_record(
-                        ingest_ref,
-                        path,
-                        inode,
-                        offset,
-                        processed,
-                        generation,
-                    )
-                    pending_records.append(record)
-                    if offset == 0:
-                        first_hash_value = record["payload_hash"]
+                            record = self._bulk._make_raw_event_record(
+                                ingest_ref,
+                                path,
+                                inode,
+                                offset,
+                                processed,
+                                generation,
+                            )
+                            pending_records.append(record)
+                            if offset == 0:
+                                first_hash_value = record["payload_hash"]
 
-                    if processed.session_id:
-                        aggregate = session_aggregates.setdefault(processed.session_id, SessionAggregate())
-                        aggregate.event_count += 1
-                        if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
-                            aggregate.command_count += 1
-                        if processed.event_type and any(h in processed.event_type for h in FILE_EVENT_HINTS):
-                            aggregate.file_downloads += 1
-                        if processed.event_type and any(h in processed.event_type for h in LOGIN_EVENT_HINTS):
-                            aggregate.login_attempts += 1
-                        if processed.event_timestamp:
-                            aggregate.update_timestamp(processed.event_timestamp)
-                        aggregate.highest_risk = max(aggregate.highest_risk, processed.risk_score)
-                        aggregate.source_files.add(str(path))
+                            if processed.session_id:
+                                aggregate = session_aggregates.setdefault(processed.session_id, SessionAggregate())
+                                aggregate.event_count += 1
+                                if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
+                                    aggregate.command_count += 1
+                                if processed.event_type and any(h in processed.event_type for h in FILE_EVENT_HINTS):
+                                    aggregate.file_downloads += 1
+                                if processed.event_type and any(h in processed.event_type for h in LOGIN_EVENT_HINTS):
+                                    aggregate.login_attempts += 1
+                                if processed.event_timestamp:
+                                    aggregate.update_timestamp(processed.event_timestamp)
+                                aggregate.highest_risk = max(aggregate.highest_risk, processed.risk_score)
+                                aggregate.source_files.add(str(path))
 
-                    metrics.last_source = str(path)
-                    metrics.last_offset = offset
-                    last_offset = max(last_offset, offset)
+                            metrics.last_source = str(path)
+                            metrics.last_offset = offset
+                            last_offset = max(last_offset, offset)
 
-                    if len(pending_records) >= self.config.bulk.batch_size:
+                            if len(pending_records) >= self.config.bulk.batch_size:
+                                self._flush(
+                                    session,
+                                    ingest_ref,
+                                    pending_records,
+                                    session_aggregates,
+                                    metrics,
+                                    checkpoint_cb,
+                                    dead_letters,
+                                    str(path),
+                                    last_offset,
+                                    inode,
+                                    dead_letter_cb,
+                                )
+                                pending_records = []
+                                session_aggregates = {}
+                                dead_letters = []
+                                cursor = self._update_cursor(
+                                    cursor_map,
+                                    str(path),
+                                    inode,
+                                    last_offset,
+                                    ingest_ref,
+                                    generation,
+                                    first_hash_value,
+                                )
+                                self._save_cursor(session, cursor)
+                                cursor_inode = self._get_cursor_inode(cursor)
+                                cursor_changed = True
+                                telemetry_counter += 1
+                                if telemetry_cb and telemetry_counter % self.config.bulk.telemetry_interval == 0:
+                                    telemetry_cb(metrics)
+
+                    if pending_records:
                         self._flush(
                             session,
                             ingest_ref,
@@ -168,63 +217,30 @@ class DeltaLoader:
                             first_hash_value,
                         )
                         self._save_cursor(session, cursor)
-                        cursor_inode = self._get_cursor_inode(cursor)
                         cursor_changed = True
-                        telemetry_counter += 1
-                        if telemetry_cb and telemetry_counter % self.config.bulk.telemetry_interval == 0:
-                            telemetry_cb(metrics)
+                        cursor_inode = self._get_cursor_inode(cursor)
 
-                if pending_records:
-                    self._flush(
-                        session,
-                        ingest_ref,
-                        pending_records,
-                        session_aggregates,
-                        metrics,
-                        checkpoint_cb,
-                        dead_letters,
-                        str(path),
-                        last_offset,
-                        inode,
-                        dead_letter_cb,
-                    )
-                    pending_records = []
-                    session_aggregates = {}
-                    dead_letters = []
-                    cursor = self._update_cursor(
-                        cursor_map,
-                        str(path),
-                        inode,
-                        last_offset,
-                        ingest_ref,
-                        generation,
-                        first_hash_value,
-                    )
-                    self._save_cursor(session, cursor)
-                    cursor_changed = True
-                    cursor_inode = self._get_cursor_inode(cursor)
+                    if dead_letters:
+                        inserted = self._persist_dead_letters(session, dead_letters)
+                        if dead_letter_cb and inserted:
+                            last = dead_letters[-1]
+                            dead_letter_cb(inserted, last.get("reason"), last.get("source"))
+                        dead_letters = []
 
-                if dead_letters:
-                    inserted = self._persist_dead_letters(session, dead_letters)
-                    if dead_letter_cb and inserted:
-                        last = dead_letters[-1]
-                        dead_letter_cb(inserted, last.get("reason"), last.get("source"))
-                    dead_letters = []
+                    if last_offset > (cursor.last_offset if cursor else -1) and not cursor_changed:
+                        cursor = self._update_cursor(
+                            cursor_map,
+                            str(path),
+                            inode,
+                            last_offset,
+                            ingest_ref,
+                            generation,
+                            first_hash_value,
+                        )
+                        self._save_cursor(session, cursor)
+                        cursor_inode = self._get_cursor_inode(cursor)
 
-                if last_offset > (cursor.last_offset if cursor else -1) and not cursor_changed:
-                    cursor = self._update_cursor(
-                        cursor_map,
-                        str(path),
-                        inode,
-                        last_offset,
-                        ingest_ref,
-                        generation,
-                        first_hash_value,
-                    )
-                    self._save_cursor(session, cursor)
-                    cursor_inode = self._get_cursor_inode(cursor)
-
-            session.commit()
+                session.commit()
 
         if telemetry_cb:
             telemetry_cb(metrics)
@@ -246,15 +262,23 @@ class DeltaLoader:
     ) -> None:
         if session.in_transaction():
             session.commit()
-        self._bulk._flush(
-            session,
-            raw_event_records,
-            session_aggregates,
-            metrics,
-            ingest_id,
-            metrics.batches_committed + 1,
-            checkpoint_cb,
-        )
+        with start_span(
+            "cowrie.delta.flush",
+            {
+                "ingest.id": ingest_id,
+                "records": len(raw_event_records),
+                "source": source,
+            },
+        ):
+            self._bulk._flush(
+                session,
+                raw_event_records,
+                session_aggregates,
+                metrics,
+                ingest_id,
+                metrics.batches_committed + 1,
+                checkpoint_cb,
+            )
         if dead_letters:
             inserted = self._persist_dead_letters(session, dead_letters)
             if dead_letter_cb and inserted:
@@ -335,6 +359,53 @@ class DeltaLoader:
         return cursor
 
     def _save_cursor(self, session: Session, cursor: IngestCursor) -> None:
+        table = cast(Table, IngestCursor.__table__)
+        metadata_obj = getattr(cursor, "metadata_json", None)
+        metadata_json = (
+            dict(metadata_obj)
+            if isinstance(metadata_obj, dict)
+            else metadata_obj
+        )
+        values = {
+            "source": getattr(cursor, "source"),
+            "inode": getattr(cursor, "inode", None),
+            "last_offset": getattr(cursor, "last_offset", -1),
+            "last_ingest_id": getattr(cursor, "last_ingest_id", None),
+            "metadata_json": metadata_json,
+        }
+
+        dialect_name = session.bind.dialect.name if session.bind else ""
+
+        if dialect_name == "sqlite":
+            stmt = sqlite_dialect.insert(table).values(**values)
+            stmt = stmt.on_conflict_do_update(  # type: ignore[attr-defined]
+                index_elements=["source"],
+                set_={
+                    "inode": values["inode"],
+                    "last_offset": values["last_offset"],
+                    "last_ingest_id": values["last_ingest_id"],
+                    "metadata_json": values["metadata_json"],
+                    "last_ingest_at": func.now(),
+                },
+            )
+            session.execute(stmt)
+            return
+
+        if dialect_name == "postgresql" and postgres_dialect is not None:
+            stmt = postgres_dialect.insert(table).values(**values)
+            stmt = stmt.on_conflict_do_update(  # type: ignore[attr-defined]
+                index_elements=["source"],
+                set_={
+                    "inode": values["inode"],
+                    "last_offset": values["last_offset"],
+                    "last_ingest_id": values["last_ingest_id"],
+                    "metadata_json": values["metadata_json"],
+                    "last_ingest_at": func.now(),
+                },
+            )
+            session.execute(stmt)
+            return
+
         session.merge(cursor)
 
     def _should_process(self, offset: int, inode: Optional[int], cursor: Optional[IngestCursor]) -> bool:

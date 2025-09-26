@@ -26,6 +26,7 @@ from ..reporting import (
 from ..reporting.builders import BaseReportBuilder, ReportContext
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
+from ..telemetry import start_span
 
 
 @dataclass(slots=True)
@@ -225,53 +226,76 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     start_time = time.perf_counter()
 
-    reports = []
-    for idx, context in enumerate(contexts):
-        report = builder.build(context)
-        reports.append(report)
-        payload = json.dumps(report, indent=2)
+    with start_span(
+        "cowrie.reporting.run",
+        {
+            "ingest.id": ingest_id,
+            "mode": args.mode,
+            "reports.requested": len(contexts),
+        },
+    ):
+        reports = []
+        for idx, context in enumerate(contexts):
+            with start_span(
+                "cowrie.reporting.build",
+                {
+                    "ingest.id": ingest_id,
+                    "sensor": context.sensor or "aggregate",
+                    "date": context.date_label,
+                },
+            ):
+                report = builder.build(context)
+                reports.append(report)
+                payload = json.dumps(report, indent=2)
 
-        metrics.reports_generated = len(reports)
-        metrics.duration_seconds = time.perf_counter() - start_time
-        emitter.record_metrics(metrics)
-
-        if args.output:
-            output_path = Path(args.output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(payload, encoding="utf-8")
-        elif not args.all_sensors:
-            print(payload)
-
-        sensor_label = context.sensor or "aggregate"
-        emitter.record_checkpoint(
-            LoaderCheckpoint(
-                ingest_id=ingest_id,
-                source=f"{args.mode}:{context.date_label}",
-                offset=idx,
-                batch_index=idx,
-                events_inserted=1,
-                events_quarantined=0,
-                sessions=[sensor_label],
-            )
-        )
-
-    try:
-        publisher = _create_publisher(args)
-    except RuntimeError as exc:
-        parser.error(str(exc))
-        return 2
-
-    if publisher and reports:
-        try:
-            publisher.publish(reports)
-            metrics.published_reports = len(reports)
-        except Exception:
-            metrics.errors = len(reports)
+            metrics.reports_generated = len(reports)
             metrics.duration_seconds = time.perf_counter() - start_time
             emitter.record_metrics(metrics)
-            raise
-    metrics.duration_seconds = time.perf_counter() - start_time
-    emitter.record_metrics(metrics)
+
+            if args.output:
+                output_path = Path(args.output)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(payload, encoding="utf-8")
+            elif not args.all_sensors:
+                print(payload)
+
+            sensor_label = context.sensor or "aggregate"
+            emitter.record_checkpoint(
+                LoaderCheckpoint(
+                    ingest_id=ingest_id,
+                    source=f"{args.mode}:{context.date_label}",
+                    offset=idx,
+                    batch_index=idx,
+                    events_inserted=1,
+                    events_quarantined=0,
+                    sessions=[sensor_label],
+                )
+            )
+
+        try:
+            publisher = _create_publisher(args)
+        except RuntimeError as exc:
+            parser.error(str(exc))
+            return 2
+
+        if publisher and reports:
+            with start_span(
+                "cowrie.reporting.publish",
+                {
+                    "ingest.id": ingest_id,
+                    "reports": len(reports),
+                },
+            ):
+                try:
+                    publisher.publish(reports)
+                    metrics.published_reports = len(reports)
+                except Exception:
+                    metrics.errors = len(reports)
+                    metrics.duration_seconds = time.perf_counter() - start_time
+                    emitter.record_metrics(metrics)
+                    raise
+        metrics.duration_seconds = time.perf_counter() - start_time
+        emitter.record_metrics(metrics)
 
     return 0
 

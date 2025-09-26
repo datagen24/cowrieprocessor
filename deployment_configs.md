@@ -198,6 +198,16 @@ ES_HOST=localhost:9200
 ES_USERNAME=elastic
 # Use secret references where possible
 ES_PASSWORD=file:/run/secrets/es_password
+
+# Telemetry / Observability
+STATUS_EMITTER_DIR=/mnt/dshield/data/logs/status
+# Point at your OTLP collector (optional)
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# Service name is used for span grouping in dashboards
+OTEL_SERVICE_NAME=cowrieprocessor
+
+# See docs/telemetry-operations.md for recommended dashboards, alert thresholds, and incident-response drills tied to these settings.
 # Or use API key instead:
 # ES_API_KEY=your_api_key_here
 

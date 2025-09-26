@@ -209,6 +209,19 @@ ls /mnt/dshield/data/logs/status
 jq '.' /mnt/dshield/data/logs/status/reporting.json
 ```
 
+### OpenTelemetry Tracing (Optional)
+```bash
+pip install opentelemetry-api opentelemetry-sdk
+
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Run loaders/reporters with tracing enabled
+cowrie-loader delta /mnt/dshield/data/logs/cowrie.json --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+cowrie-report daily "$(date -u +%F)" --db /mnt/dshield/data/db/cowrieprocessor.sqlite --all-sensors
+```
+Spans land under `cowrie.bulk.*`, `cowrie.delta.*`, and `cowrie.reporting.*` to highlight slow files, batches, and queries. See `docs/telemetry-operations.md` for dashboards, alert thresholds, and incident-response runbooks tied to those traces and the status emitter output.
+
 ## Troubleshooting
 
 ### Common Issues

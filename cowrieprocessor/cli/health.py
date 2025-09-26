@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from dataclasses import dataclass
@@ -23,6 +22,7 @@ class HealthReport:
     latest_status: dict
 
     def to_dict(self) -> dict:
+        """Return this report as a plain dictionary for JSON/text output."""
         return {
             "status": self.status,
             "summary": self.summary,
@@ -71,6 +71,7 @@ def _load_status(status_dir: Optional[str]) -> tuple[bool, dict]:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
+    """Run the health check CLI and return an exit status."""
     parser = argparse.ArgumentParser(description="Cowrie processor health check")
     parser.add_argument("--db", help="Path to SQLite database")
     parser.add_argument("--status-dir", help="Directory containing status JSON")
