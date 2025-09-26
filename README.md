@@ -209,6 +209,59 @@ The status output now includes phase (`bulk_ingest`/`delta_ingest`), event throu
 
 To forward traces, export standard OTEL variables (for example `OTEL_EXPORTER_OTLP_ENDPOINT`) before running loaders or the reporting CLI. Spans are emitted under the `cowrie.bulk.*`, `cowrie.delta.*`, and `cowrie.reporting.*` namespaces so slow batches and SQL calls surface in your APM tooling. Dashboards, alert thresholds, and incident-response drills are captured in `docs/telemetry-operations.md`.
 
+### Multiline JSON Support
+
+For historical Cowrie logs that are pretty-printed (formatted with indentation across multiple lines), use the `--multiline-json` flag to enable proper parsing:
+
+```bash
+# Process pretty-printed JSON files (2025-02 to 2025-03 range)
+cowrie-loader bulk \
+    /mnt/dshield/aws-eastus-dshield/NSM/cowrie/cowrie.json.2025-02-25.bz2 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status \
+    --multiline-json
+
+# Delta processing with multiline JSON support
+cowrie-loader delta \
+    /mnt/dshield/aws-eastus-dshield/NSM/cowrie/cowrie.json.2025-03-*.bz2 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status \
+    --multiline-json
+```
+
+**When to use `--multiline-json`:**
+- Historical Cowrie logs from 2025-02 to 2025-03 that were pretty-printed
+- Files that produce large numbers of validation DLQ entries when processed normally
+- Any JSON files where objects span multiple lines with indentation
+
+**DLQ Reprocessing:**
+If you have existing dead letter queue entries from pretty-printed files, you can reprocess them:
+
+```bash
+# 1. Identify files with validation DLQ entries
+sqlite3 /mnt/dshield/data/db/cowrieprocessor.sqlite "
+SELECT DISTINCT source, COUNT(*) as dlq_count 
+FROM dead_letter_events 
+WHERE reason='validation' 
+AND (source LIKE '%.2025-02%' OR source LIKE '%.2025-03%')
+GROUP BY source 
+ORDER BY dlq_count DESC;
+"
+
+# 2. Clear DLQ entries for a specific file
+sqlite3 /mnt/dshield/data/db/cowrieprocessor.sqlite "
+DELETE FROM dead_letter_events 
+WHERE source='/path/to/file.json.bz2' AND reason='validation';
+"
+
+# 3. Reprocess with multiline JSON support
+cowrie-loader bulk /path/to/file.json.bz2 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --multiline-json
+```
+
+This feature can eliminate millions of validation DLQ entries and recover valid Cowrie events from previously malformed pretty-printed JSON files.
+
 ## Command Line Reference
 
 ### Core Arguments
@@ -231,6 +284,11 @@ To forward traces, export standard OTEL variables (for example `OTEL_EXPORTER_OT
 - `--api-timeout`: HTTP timeout (default: 15s)
 - `--api-retries`: Max retry attempts (default: 3)
 - `--api-backoff`: Exponential backoff base (default: 2.0)
+
+### Loader Options
+- `--multiline-json`: Enable multiline JSON parsing for pretty-printed Cowrie logs
+- `--batch-size`: Number of events to process per batch (default: 500)
+- `--quarantine-threshold`: Risk score above which events are quarantined (default: 80)
 
 ### Cache Management
 - `--hash-ttl-days`: TTL for file hash lookups (default: 30)

@@ -388,7 +388,7 @@ class DeltaLoader:
             return
 
         if dialect_name == "postgresql" and postgres_dialect is not None:
-            stmt = postgres_dialect.insert(table).values(**values)
+            stmt = cast(Any, postgres_dialect.insert(table).values(**values))
             stmt = stmt.on_conflict_do_update(
                 index_elements=["source"],
                 set_={
