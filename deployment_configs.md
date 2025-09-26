@@ -94,8 +94,8 @@ Group=cowrie
 WorkingDirectory=/home/cowrie/dshield
 Environment="ES_HOST=localhost:9200"
 Environment="ES_USERNAME=elastic"
-Environment="ES_PASSWORD=changeme"
-ExecStart=/usr/bin/python3 /home/cowrie/dshield/es_reports.py daily --all-sensors
+Environment="ES_PASSWORD=file:/run/secrets/es_password"
+ExecStart=/usr/bin/env bash -lc 'cowrie-report daily "$(date -u +%F)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --all-sensors --publish'
 StandardOutput=journal
 StandardError=journal
 
@@ -133,7 +133,7 @@ WorkingDirectory=/home/cowrie/dshield
 Environment="ES_HOST=localhost:9200"
 Environment="ES_USERNAME=elastic"
 Environment="ES_PASSWORD=changeme"
-ExecStart=/usr/bin/python3 /home/cowrie/dshield/es_reports.py weekly
+ExecStart=/usr/bin/env bash -lc 'cowrie-report weekly "$(date -u +%G-W%V)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish'
 StandardOutput=journal
 StandardError=journal
 
@@ -179,13 +179,13 @@ crontab -e
 
 # Add these lines:
 # Daily reports at 04:30 UTC
-30 4 * * * cd /home/cowrie/dshield && python3 es_reports.py daily --all-sensors >> /var/log/cowrie-reports.log 2>&1
+30 4 * * * cd /home/cowrie/dshield && cowrie-report daily "$(date -u +\\%F)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --all-sensors --publish >> /var/log/cowrie-reports.log 2>&1
 
 # Weekly reports on Mondays at 05:00 UTC
-0 5 * * 1 cd /home/cowrie/dshield && python3 es_reports.py weekly >> /var/log/cowrie-reports.log 2>&1
+0 5 * * 1 cowrie-report weekly "$(date -u +\\%G-W\\%V)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish >> /var/log/cowrie-reports.log 2>&1
 
 # Monthly reports on 1st of month at 05:30 UTC
-30 5 1 * * cd /home/cowrie/dshield && python3 es_reports.py monthly >> /var/log/cowrie-reports.log 2>&1
+30 5 1 * * cowrie-report monthly "$(date -u +\\%Y-\\%m)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish >> /var/log/cowrie-reports.log 2>&1
 ```
 
 ## 5. Environment Variables Configuration
@@ -196,7 +196,18 @@ Create `/home/cowrie/dshield/.env`:
 # Elasticsearch Configuration
 ES_HOST=localhost:9200
 ES_USERNAME=elastic
-ES_PASSWORD=your_secure_password
+# Use secret references where possible
+ES_PASSWORD=file:/run/secrets/es_password
+
+# Telemetry / Observability
+STATUS_EMITTER_DIR=/mnt/dshield/data/logs/status
+# Point at your OTLP collector (optional)
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+# Service name is used for span grouping in dashboards
+OTEL_SERVICE_NAME=cowrieprocessor
+
+# See docs/telemetry-operations.md for recommended dashboards, alert thresholds, and incident-response drills tied to these settings.
 # Or use API key instead:
 # ES_API_KEY=your_api_key_here
 
@@ -216,16 +227,19 @@ VT_RECENT_DAYS=5
 
 ```bash
 # Test daily report generation (dry run - just prints)
-python3 es_reports.py daily --date 2024-12-20
+cowrie-report daily 2024-12-20 --db /home/cowrie/dshield/cowrieprocessor.sqlite
 
 # Generate report for specific sensor
-python3 es_reports.py daily --sensor honeypot1 --date 2024-12-20
+cowrie-report daily 2024-12-20 --db /home/cowrie/dshield/cowrieprocessor.sqlite --sensor honeypot1 --publish
 
-# Backfill last 7 days
-python3 es_reports.py backfill --start 2024-12-14 --end 2024-12-20
+# Backfill last 7 days (loop)
+for day in $(seq 0 6); do
+  cowrie-report daily "$(date -u -d "2024-12-20 - ${day} day" +%F)" \
+    --db /home/cowrie/dshield/cowrieprocessor.sqlite --all-sensors --publish
+done
 
 # Generate weekly rollup
-python3 es_reports.py weekly --week 2024-W51
+cowrie-report weekly 2024-W51 --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish
 
 # Check if reports are being indexed
 curl -X GET "localhost:9200/cowrie.reports.daily-*/_search?size=1&pretty"
@@ -242,15 +256,15 @@ Example queries for visualizations:
     "bool": {
       "filter": [
         {"term": {"report_type": "daily"}},
-        {"term": {"sensor": "aggregate"}},
-        {"range": {"date_utc": {"gte": "now-30d"}}}
+        {"term": {"sensor.keyword": "aggregate"}},
+        {"range": {"date": {"gte": "now-30d/d"}}}
       ]
     }
   },
   "aggs": {
     "sessions_over_time": {
       "date_histogram": {
-        "field": "date_utc",
+        "field": "date",
         "calendar_interval": "day"
       },
       "aggs": {
@@ -262,6 +276,8 @@ Example queries for visualizations:
   }
 }
 ```
+
+> **Legacy field:** The legacy `es_reports.py` output included an `alerts` array. The ORM rewrite will restore structured alerts in a later phase; the following query/watchers depend on that future update.
 
 ### Alert Monitor
 ```json
@@ -275,7 +291,7 @@ Example queries for visualizations:
             "term": {"alerts.severity": "high"}
           }
         }},
-        {"range": {"date_utc": {"gte": "now-7d"}}}
+        {"range": {"date": {"gte": "now-7d/d"}}}
       ]
     }
   }

