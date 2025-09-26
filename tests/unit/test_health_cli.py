@@ -21,14 +21,16 @@ def test_health_cli_json(tmp_path, capsys):
     status_dir.mkdir()
     _write_status(status_dir, "status", {"last_updated": "2025-01-01T00:00:00Z"})
 
-    exit_code = health_cli.main([
-        "--db",
-        str(db_path),
-        "--status-dir",
-        str(status_dir),
-        "--output",
-        "json",
-    ])
+    exit_code = health_cli.main(
+        [
+            "--db",
+            str(db_path),
+            "--status-dir",
+            str(status_dir),
+            "--output",
+            "json",
+        ]
+    )
 
     assert exit_code == 0
     output = json.loads(capsys.readouterr().out)
@@ -41,12 +43,14 @@ def test_health_cli_missing_status(tmp_path, capsys):
     """Health CLI should warn when status files are missing."""
     db_path = tmp_path / "db.sqlite"
     db_path.write_text("", encoding="utf-8")
-    exit_code = health_cli.main([
-        "--db",
-        str(db_path),
-        "--status-dir",
-        str(tmp_path / "missing"),
-    ])
+    exit_code = health_cli.main(
+        [
+            "--db",
+            str(db_path),
+            "--status-dir",
+            str(tmp_path / "missing"),
+        ]
+    )
 
     assert exit_code == 1
     text_out = capsys.readouterr().out
