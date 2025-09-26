@@ -1,0 +1,386 @@
+---
+description: Python-specific development rules and patterns for Cowrie Processor
+globs: **/*.py
+alwaysApply: false
+---
+# Python-Specific Development Rules
+
+## Type System Enforcement
+
+### Required Type Imports
+```python
+from __future__ import annotations  # ALWAYS at top of file
+
+from typing import (
+    Any,           # Only with justification comment
+    Dict,          # Prefer dict[K, V] in Python 3.9+
+    List,          # Prefer list[T] in Python 3.9+
+    Optional,      # Prefer T | None in Python 3.10+
+    Union,         # Prefer X | Y in Python 3.10+
+    Callable,
+    Protocol,
+    TypeVar,
+    Generic,
+)
+from pathlib import Path
+from dataclasses import dataclass
+from enum import Enum, auto
+```
+
+### Type Annotation Patterns
+```python
+# Correct patterns
+def process_data(
+    file_path: Path,
+    options: dict[str, Any],
+    timeout: float = 30.0,
+) -> dict[str, list[str]]:
+    """Process data with proper typing."""
+
+# For complex nested types, use type aliases
+LogEntry = dict[str, str | int | float]
+SessionData = dict[str, list[LogEntry]]
+
+# Use Protocol for structural typing
+class LogProcessor(Protocol):
+    def process(self, data: LogEntry) -> SessionData: ...
+```
+
+### Dataclass Usage
+```python
+@dataclass(frozen=True)  # Prefer immutable when possible
+class CowrieSession:
+    """Represents a Cowrie honeypot session."""
+    session_id: str
+    src_ip: str
+    start_time: datetime
+    commands: list[str] = field(default_factory=list)
+    
+    def add_command(self, command: str) -> CowrieSession:
+        """Return new session with added command (immutable pattern)."""
+        return CowrieSession(
+            session_id=self.session_id,
+            src_ip=self.src_ip,
+            start_time=self.start_time,
+            commands=[*self.commands, command],
+        )
+```
+
+## Error Handling Patterns
+
+### Exception Hierarchy
+```python
+class CowrieProcessorError(Exception):
+    """Base exception for cowrieprocessor."""
+
+class LogParsingError(CowrieProcessorError):
+    """Raised when log parsing fails."""
+
+class EnrichmentError(CowrieProcessorError):
+    """Raised when data enrichment fails."""
+
+class DatabaseError(CowrieProcessorError):
+    """Raised when database operations fail."""
+```
+
+### Context Manager Usage
+```python
+from contextlib import contextmanager
+from typing import Generator
+
+@contextmanager
+def database_transaction() -> Generator[DatabaseConnection, None, None]:
+    """Provide database transaction context."""
+    conn = get_connection()
+    trans = conn.begin()
+    try:
+        yield conn
+        trans.commit()
+    except Exception:
+        trans.rollback()
+        raise
+    finally:
+        conn.close()
+```
+
+## Async Patterns (if used)
+
+### Async Function Signatures
+```python
+async def process_logs_async(
+    log_files: list[Path],
+    enrichment_enabled: bool = True,
+) -> list[SessionData]:
+    """Process multiple log files asynchronously."""
+    
+async def enrich_ip_data(
+    ip_address: str,
+    session: aiohttp.ClientSession,
+) -> dict[str, Any]:
+    """Enrich IP address with external API data."""
+```
+
+### Resource Management
+```python
+import asyncio
+import aiofiles
+from aiohttp import ClientSession
+
+async def process_file_async(file_path: Path) -> dict[str, Any]:
+    """Process file asynchronously with proper resource management."""
+    async with aiofiles.open(file_path, mode='r') as file:
+        content = await file.read()
+        
+    async with ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+        # Process with session
+        pass
+```
+
+## File Processing Patterns
+
+### Path Handling
+```python
+from pathlib import Path
+
+def process_log_directory(log_dir: Path) -> list[dict[str, Any]]:
+    """Process all log files in directory."""
+    if not log_dir.exists():
+        raise FileNotFoundError(f"Directory not found: {log_dir}")
+    
+    if not log_dir.is_dir():
+        raise ValueError(f"Path is not a directory: {log_dir}")
+    
+    results = []
+    for log_file in log_dir.glob("*.json"):
+        if log_file.is_file():
+            results.append(process_single_log(log_file))
+    
+    return results
+
+def process_single_log(log_file: Path) -> dict[str, Any]:
+    """Process a single log file safely."""
+    try:
+        with log_file.open('r', encoding='utf-8') as f:
+            return json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error(f"Failed to process {log_file}: {e}")
+        raise LogParsingError(f"Cannot parse {log_file.name}") from e
+```
+
+### Large File Processing
+```python
+def process_large_log_file(file_path: Path, chunk_size: int = 8192) -> Generator[dict, None, None]:
+    """Process large log files in chunks."""
+    with file_path.open('r', encoding='utf-8') as f:
+        buffer = ""
+        while True:
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            
+            buffer += chunk
+            lines = buffer.split('\n')
+            buffer = lines[-1]  # Keep incomplete line
+            
+            for line in lines[:-1]:
+                if line.strip():
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Skipping invalid JSON line: {line[:100]}")
+        
+        # Process final line
+        if buffer.strip():
+            try:
+                yield json.loads(buffer)
+            except json.JSONDecodeError:
+                logger.warning(f"Skipping invalid final JSON: {buffer[:100]}")
+```
+
+## Configuration Patterns
+
+### Environment Variable Handling
+```python
+import os
+from typing import Any
+
+def get_config_value(key: str, default: Any = None, required: bool = False) -> Any:
+    """Get configuration value from environment."""
+    value = os.getenv(key, default)
+    
+    if required and value is None:
+        raise ValueError(f"Required environment variable not set: {key}")
+    
+    return value
+
+def get_bool_config(key: str, default: bool = False) -> bool:
+    """Get boolean configuration value."""
+    value = os.getenv(key, str(default)).lower()
+    return value in ('true', '1', 'yes', 'on')
+
+def get_int_config(key: str, default: int = 0) -> int:
+    """Get integer configuration value."""
+    try:
+        return int(os.getenv(key, str(default)))
+    except ValueError as e:
+        raise ValueError(f"Invalid integer for {key}: {os.getenv(key)}") from e
+```
+
+### Settings Class Pattern
+```python
+@dataclass(frozen=True)
+class Settings:
+    """Application settings."""
+    database_url: str
+    api_timeout: float
+    log_level: str
+    enrichment_enabled: bool
+    max_workers: int
+    
+    @classmethod
+    def from_env(cls) -> Settings:
+        """Create settings from environment variables."""
+        return cls(
+            database_url=get_config_value("DATABASE_URL", required=True),
+            api_timeout=float(get_config_value("API_TIMEOUT", "30.0")),
+            log_level=get_config_value("LOG_LEVEL", "INFO"),
+            enrichment_enabled=get_bool_config("ENRICHMENT_ENABLED", True),
+            max_workers=get_int_config("MAX_WORKERS", 4),
+        )
+```
+
+## Logging Patterns
+
+### Structured Logging Setup
+```python
+import logging
+import json
+from typing import Any
+
+class JSONFormatter(logging.Formatter):
+    """JSON formatter for structured logging."""
+    
+    def format(self, record: logging.LogRecord) -> str:
+        """Format log record as JSON."""
+        log_entry = {
+            'timestamp': self.formatTime(record),
+            'level': record.levelname,
+            'logger': record.name,
+            'message': record.getMessage(),
+            'module': record.module,
+            'function': record.funcName,
+            'line': record.lineno,
+        }
+        
+        if record.exc_info:
+            log_entry['exception'] = self.formatException(record.exc_info)
+        
+        return json.dumps(log_entry)
+
+def setup_logging(level: str = "INFO") -> None:
+    """Setup structured logging."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, level.upper()))
+    
+    handler = logging.StreamHandler()
+    handler.setFormatter(JSONFormatter())
+    root_logger.addHandler(handler)
+```
+
+## Database Patterns
+
+### Connection Management
+```python
+from contextlib import contextmanager
+from typing import Generator
+import sqlite3
+
+@contextmanager
+def get_db_connection(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
+    """Provide database connection with automatic cleanup."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row  # Enable dict-like access
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+def execute_query(db_path: Path, query: str, params: tuple = ()) -> list[dict[str, Any]]:
+    """Execute query and return results."""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+```
+
+## Testing Patterns
+
+### Fixture Patterns
+```python
+import pytest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+@pytest.fixture
+def sample_log_file(tmp_path: Path) -> Path:
+    """Create a sample log file for testing."""
+    log_file = tmp_path / "test.json"
+    log_data = [
+        {"eventid": "cowrie.session.connect", "src_ip": "192.168.1.1"},
+        {"eventid": "cowrie.command.input", "input": "ls -la"},
+    ]
+    
+    with log_file.open('w') as f:
+        for entry in log_data:
+            f.write(json.dumps(entry) + '\n')
+    
+    return log_file
+
+@pytest.fixture
+def mock_api_client() -> Mock:
+    """Mock API client for testing."""
+    mock_client = Mock()
+    mock_client.get_ip_info.return_value = {"country": "US", "asn": "AS123"}
+    return mock_client
+```
+
+### Test Patterns
+```python
+def test_process_valid_log_file(sample_log_file: Path) -> None:
+    """Test processing a valid log file."""
+    # GIVEN: A valid log file exists
+    assert sample_log_file.exists()
+    
+    # WHEN: Processing the log file
+    result = process_log_file(sample_log_file)
+    
+    # THEN: Expected data is returned
+    assert isinstance(result, dict)
+    assert "sessions" in result
+    assert len(result["sessions"]) > 0
+
+@patch('cowrieprocessor.api.requests.get')
+def test_api_error_handling(mock_get: Mock, sample_log_file: Path) -> None:
+    """Test API error handling during enrichment."""
+    # GIVEN: API call will fail
+    mock_get.side_effect = requests.RequestException("Network error")
+    
+    # WHEN: Processing with enrichment enabled
+    # THEN: Should handle error gracefully
+    with pytest.raises(EnrichmentError):
+        process_log_file(sample_log_file, enrichment=True)
+```
+
+## Performance Optimization
+
+### Memory Efficient Patterns
+```python
+def process_logs_generator(log_files: list[Path]) -> Generator[dict[str, Any], None, None]:
+    """Process logs using generator for memory efficiency."""
+    for log_file in log_files:
+        yield from process_large_log_file(log_file)
+
+def batch_process(items: list[Any], batch_size: int = 100) -> Generator[list[Any], None, None]:
+    """Process items in batches."""
+    for i in range(0, len(items), batch_size):
+        yield items[i:i + batch_size]
+```

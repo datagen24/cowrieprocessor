@@ -1,0 +1,679 @@
+---
+description: Testing and CI/CD rules - mandatory 80% coverage and comprehensive testing standards
+globs: **/*.py,**/test_*.py,**/*_test.py,**/*.yml,**/*.yaml
+alwaysApply: false
+---
+# Testing and CI/CD Rules
+
+## MANDATORY Testing Requirements
+All code MUST meet these testing standards before commit.
+
+## Test Coverage - NON-NEGOTIABLE
+
+### Coverage Requirements
+- Minimum 80% code coverage across the entire codebase
+- New features require 90%+ coverage
+- Bug fixes MUST include regression tests
+- Run: `uv run pytest --cov=. --cov-report=term-missing --cov-report=html`
+
+### Coverage Exclusions (Minimal)
+```python
+# Only exclude these patterns in .coveragerc
+[run]
+omit = 
+    */tests/*
+    */venv/*
+    */__pycache__/*
+    setup.py
+    
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__.:
+    raise AssertionError
+    raise NotImplementedError
+```
+
+## Test Structure - STRICT
+
+### Directory Layout
+```
+tests/
+├── unit/                    # Fast, isolated tests
+│   ├── test_log_parser.py
+│   ├── test_enrichment.py
+│   └── test_database.py
+├── integration/             # End-to-end tests
+│   ├── test_full_pipeline.py
+│   └── test_api_integration.py
+├── performance/             # Performance benchmarks
+│   └── test_large_files.py
+├── fixtures/                # Test data
+│   ├── sample_logs/
+│   └── mock_responses/
+├── conftest.py             # Shared fixtures
+└── pytest.ini             # Pytest configuration
+```
+
+### Test Naming Conventions
+```python
+# Test files: test_<module_name>.py
+# Test functions: test_<function_being_tested>_<scenario>_<expected_result>
+
+def test_process_log_file_valid_input_returns_parsed_data():
+    """Test processing valid log file returns expected data structure."""
+
+def test_process_log_file_invalid_json_raises_parsing_error():
+    """Test processing file with invalid JSON raises LogParsingError."""
+
+def test_enrich_ip_data_rate_limited_retries_with_backoff():
+    """Test IP enrichment handles rate limiting with exponential backoff."""
+```
+
+## Test Categories and Markers
+
+### Pytest Markers Configuration
+```ini
+# pytest.ini
+[tool:pytest]
+markers =
+    unit: Unit tests (fast, isolated)
+    integration: Integration tests (slower, external dependencies)
+    slow: Slow tests (> 5 seconds)
+    security: Security-focused tests
+    performance: Performance benchmark tests
+    network: Tests requiring network access
+    
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    --strict-markers
+    --disable-warnings
+    --tb=short
+    -v
+```
+
+### Test Execution Commands
+```bash
+# Fast feedback loop (unit tests only)
+uv run pytest tests/unit/ -v
+
+# Integration tests (requires external services)
+uv run pytest tests/integration/ -m "not slow"
+
+# All tests with coverage
+uv run pytest --cov=. --cov-report=term-missing
+
+# Security-focused tests
+uv run pytest -m security
+
+# Performance tests
+uv run pytest tests/performance/ -m performance
+```
+
+## Unit Test Patterns
+
+### Fixture Patterns
+```python
+# conftest.py
+import pytest
+from pathlib import Path
+from unittest.mock import Mock, AsyncMock
+import tempfile
+import json
+
+@pytest.fixture
+def temp_log_dir():
+    """Create temporary directory with sample log files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_dir = Path(tmpdir)
+        
+        # Create sample log files
+        (log_dir / "cowrie.json").write_text(
+            json.dumps({"eventid": "cowrie.session.connect", "src_ip": "1.2.3.4"})
+        )
+        (log_dir / "empty.json").write_text("")
+        (log_dir / "invalid.json").write_text("{invalid json")
+        
+        yield log_dir
+
+@pytest.fixture
+def mock_database():
+    """Mock database connection."""
+    mock_db = Mock()
+    mock_db.execute.return_value = Mock()
+    mock_db.fetchall.return_value = []
+    return mock_db
+
+@pytest.fixture
+async def mock_api_client():
+    """Mock async API client."""
+    mock_client = AsyncMock()
+    mock_client.get_ip_info.return_value = {
+        "country": "US",
+        "asn": "AS15169",
+        "organization": "Google LLC"
+    }
+    return mock_client
+```
+
+### Test Class Organization
+```python
+class TestLogProcessor:
+    """Test cases for LogProcessor class."""
+    
+    def test_init_sets_default_config(self):
+        """Test LogProcessor initializes with default configuration."""
+        processor = LogProcessor()
+        assert processor.enrichment_enabled is True
+        assert processor.batch_size == 100
+    
+    def test_init_accepts_custom_config(self):
+        """Test LogProcessor accepts custom configuration."""
+        config = {"enrichment_enabled": False, "batch_size": 50}
+        processor = LogProcessor(config)
+        assert processor.enrichment_enabled is False
+        assert processor.batch_size == 50
+    
+    def test_process_single_log_valid_input(self, temp_log_dir):
+        """Test processing single valid log file."""
+        # GIVEN: Valid log file exists
+        log_file = temp_log_dir / "cowrie.json"
+        processor = LogProcessor()
+        
+        # WHEN: Processing the log file
+        result = processor.process_single_log(log_file)
+        
+        # THEN: Expected data structure is returned
+        assert isinstance(result, dict)
+        assert "session_id" in result
+        assert "events" in result
+        assert len(result["events"]) > 0
+    
+    def test_process_single_log_missing_file_raises_error(self):
+        """Test processing non-existent file raises FileNotFoundError."""
+        # GIVEN: Non-existent file path
+        missing_file = Path("/non/existent/file.json")
+        processor = LogProcessor()
+        
+        # WHEN/THEN: Processing raises FileNotFoundError
+        with pytest.raises(FileNotFoundError):
+            processor.process_single_log(missing_file)
+```
+
+### Parameterized Tests
+```python
+@pytest.mark.parametrize("ip_address,expected_country", [
+    ("8.8.8.8", "US"),
+    ("1.1.1.1", "US"),
+    ("8.8.4.4", "US"),
+])
+def test_ip_enrichment_known_addresses(ip_address, expected_country, mock_api_client):
+    """Test IP enrichment for known addresses."""
+    enricher = IPEnricher(mock_api_client)
+    result = enricher.enrich_ip(ip_address)
+    assert result["country"] == expected_country
+
+@pytest.mark.parametrize("invalid_ip", [
+    "not.an.ip",
+    "999.999.999.999",
+    "256.1.1.1",
+    "",
+    None,
+])
+def test_ip_validation_rejects_invalid_addresses(invalid_ip):
+    """Test IP validation rejects invalid addresses."""
+    with pytest.raises(ValueError, match="Invalid IP address"):
+        validate_ip_address(invalid_ip)
+```
+
+### Mock Usage Patterns
+```python
+from unittest.mock import Mock, patch, call
+import pytest
+
+class TestAPIClient:
+    """Test API client with proper mocking."""
+    
+    @patch('cowrieprocessor.api.aiohttp.ClientSession')
+    async def test_get_ip_info_success(self, mock_session_class):
+        """Test successful IP info retrieval."""
+        # GIVEN: Mock HTTP response
+        mock_response = Mock()
+        mock_response.status = 200
+        mock_response.json.return_value = {"country": "US"}
+        
+        mock_session = Mock()
+        mock_session.request.return_value.__aenter__.return_value = mock_response
+        mock_session_class.return_value = mock_session
+        
+        # WHEN: Making API request
+        client = APIClient("test-key")
+        result = await client.get_ip_info("8.8.8.8")
+        
+        # THEN: Expected data is returned
+        assert result["country"] == "US"
+        mock_session.request.assert_called_once()
+    
+    @patch('cowrieprocessor.api.aiohttp.ClientSession')
+    async def test_get_ip_info_rate_limited_retries(self, mock_session_class):
+        """Test API client handles rate limiting with retries."""
+        # GIVEN: Rate limited response followed by success
+        rate_limited_response = Mock()
+        rate_limited_response.status = 429
+        rate_limited_response.headers = {"Retry-After": "1"}
+        
+        success_response = Mock()
+        success_response.status = 200
+        success_response.json.return_value = {"country": "US"}
+        
+        mock_session = Mock()
+        mock_session.request.return_value.__aenter__.side_effect = [
+            rate_limited_response,
+            success_response
+        ]
+        mock_session_class.return_value = mock_session
+        
+        # WHEN: Making API request
+        client = APIClient("test-key")
+        
+        # THEN: Should retry and succeed
+        with patch('asyncio.sleep') as mock_sleep:
+            result = await client.get_ip_info("8.8.8.8")
+            
+        assert result["country"] == "US"
+        mock_sleep.assert_called_once_with(1)
+        assert mock_session.request.call_count == 2
+```
+
+## Integration Test Patterns
+
+### Database Integration Tests
+```python
+@pytest.mark.integration
+class TestDatabaseIntegration:
+    """Integration tests for database operations."""
+    
+    @pytest.fixture
+    def test_database(self):
+        """Create test database with schema."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            db_path = Path(tmp.name)
+        
+        # Setup test database
+        setup_database_schema(db_path)
+        yield db_path
+        
+        # Cleanup
+        db_path.unlink()
+    
+    def test_store_and_retrieve_session_data(self, test_database):
+        """Test storing and retrieving session data from database."""
+        # GIVEN: Session data to store
+        session_data = {
+            "session_id": "abcd1234",
+            "src_ip": "1.2.3.4",
+            "commands": ["ls", "cat /etc/passwd"],
+            "start_time": datetime.now(),
+        }
+        
+        # WHEN: Storing data
+        db_manager = DatabaseManager(test_database)
+        session_id = db_manager.store_session(session_data)
+        
+        # THEN: Data can be retrieved
+        retrieved = db_manager.get_session(session_id)
+        assert retrieved["session_id"] == session_data["session_id"]
+        assert retrieved["src_ip"] == session_data["src_ip"]
+        assert len(retrieved["commands"]) == 2
+    
+    def test_bulk_insert_performance(self, test_database):
+        """Test bulk insert performance with large dataset."""
+        # GIVEN: Large dataset
+        sessions = [
+            {
+                "session_id": f"session_{i:06d}",
+                "src_ip": f"192.168.1.{i % 255}",
+                "commands": [f"command_{j}" for j in range(10)],
+                "start_time": datetime.now(),
+            }
+            for i in range(1000)
+        ]
+        
+        # WHEN: Bulk inserting
+        db_manager = DatabaseManager(test_database)
+        start_time = time.time()
+        db_manager.bulk_insert_sessions(sessions)
+        elapsed = time.time() - start_time
+        
+        # THEN: Insert completes in reasonable time
+        assert elapsed < 5.0  # Should complete in under 5 seconds
+        
+        # Verify data integrity
+        count = db_manager.count_sessions()
+        assert count == 1000
+```
+
+### API Integration Tests
+```python
+@pytest.mark.integration
+@pytest.mark.network
+class TestVirusTotalIntegration:
+    """Integration tests for VirusTotal API."""
+    
+    @pytest.fixture
+    def vt_client(self):
+        """Create VirusTotal client with real or test API key."""
+        api_key = os.getenv("VT_API_KEY_TEST", "test-key")
+        return VirusTotalClient(api_key)
+    
+    @pytest.mark.skipif(
+        not os.getenv("VT_API_KEY_TEST"),
+        reason="VT_API_KEY_TEST not set"
+    )
+    async def test_get_ip_report_real_api(self, vt_client):
+        """Test getting IP report from real VirusTotal API."""
+        # GIVEN: Known malicious IP (use test IP)
+        test_ip = "8.8.8.8"  # Use Google DNS for testing
+        
+        # WHEN: Getting IP report
+        async with vt_client:
+            report = await vt_client.get_ip_report(test_ip)
+        
+        # THEN: Report contains expected fields
+        assert "country" in report
+        assert "asn" in report
+        assert report["country"] is not None
+    
+    async def test_rate_limiting_respected(self, vt_client):
+        """Test that rate limiting is properly respected."""
+        # GIVEN: Multiple rapid requests
+        ips = ["8.8.8.8", "1.1.1.1", "9.9.9.9", "208.67.222.222"]
+        
+        # WHEN: Making rapid requests
+        start_time = time.time()
+        async with vt_client:
+            results = []
+            for ip in ips:
+                result = await vt_client.get_ip_report(ip)
+                results.append(result)
+        elapsed = time.time() - start_time
+        
+        # THEN: Requests are properly rate limited
+        # With 4 req/min limit, 4 requests should take at least 45 seconds
+        assert elapsed >= 45.0
+        assert len(results) == 4
+```
+
+## Performance Testing
+
+### Performance Test Patterns
+```python
+@pytest.mark.performance
+class TestPerformance:
+    """Performance benchmark tests."""
+    
+    def test_log_parsing_performance(self, large_log_file):
+        """Test log parsing performance with large files."""
+        # GIVEN: Large log file (1GB+)
+        processor = LogProcessor()
+        
+        # WHEN: Processing large file
+        start_time = time.time()
+        start_memory = psutil.Process().memory_info().rss
+        
+        result = processor.process_log_file(large_log_file)
+        
+        end_time = time.time()
+        end_memory = psutil.Process().memory_info().rss
+        
+        # THEN: Performance meets requirements
+        elapsed = end_time - start_time
+        memory_used = end_memory - start_memory
+        
+        assert elapsed < 300  # Should complete in under 5 minutes
+        assert memory_used < 1024 * 1024 * 1024  # Use less than 1GB RAM
+        assert len(result["sessions"]) > 0
+    
+    @pytest.mark.asyncio
+    async def test_concurrent_api_calls_performance(self):
+        """Test performance of concurrent API calls."""
+        # GIVEN: Multiple IPs to enrich
+        ips = [f"192.168.1.{i}" for i in range(1, 101)]  # 100 IPs
+        
+        # WHEN: Processing concurrently
+        enricher = IPEnricher(max_workers=10)
+        start_time = time.time()
+        
+        async with enricher:
+            results = await enricher.enrich_ips_batch(ips)
+        
+        elapsed = time.time() - start_time
+        
+        # THEN: Concurrent processing is faster than sequential
+        # With 10 workers and 4 req/sec rate limit, should complete in ~30 seconds
+        assert elapsed < 60
+        assert len(results) == 100
+```
+
+### Memory Usage Testing
+```python
+import psutil
+import gc
+
+def test_memory_usage_large_dataset():
+    """Test memory usage remains bounded with large datasets."""
+    # GIVEN: Large dataset that could cause memory issues
+    processor = LogProcessor()
+    initial_memory = psutil.Process().memory_info().rss
+    
+    # WHEN: Processing large dataset in batches
+    for batch_num in range(10):  # 10 batches
+        large_batch = generate_test_logs(10000)  # 10k logs per batch
+        processor.process_batch(large_batch)
+        
+        # Force garbage collection
+        gc.collect()
+        
+        # THEN: Memory usage stays bounded
+        current_memory = psutil.Process().memory_info().rss
+        memory_growth = current_memory - initial_memory
+        
+        # Memory growth should be less than 500MB
+        assert memory_growth < 500 * 1024 * 1024
+```
+
+## Test Data Management
+
+### Fixture Data Patterns
+```python
+# tests/fixtures/data_factory.py
+from typing import Dict, List, Any
+import random
+from datetime import datetime, timedelta
+
+class TestDataFactory:
+    """Factory for generating test data."""
+    
+    @staticmethod
+    def create_cowrie_log(
+        event_type: str = "cowrie.session.connect",
+        src_ip: str = "192.168.1.100",
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Create a Cowrie log entry."""
+        base_log = {
+            "eventid": event_type,
+            "timestamp": datetime.now().isoformat(),
+            "src_ip": src_ip,
+            "session": f"{random.randint(10000000, 99999999):08x}",
+        }
+        base_log.update(kwargs)
+        return base_log
+    
+    @staticmethod
+    def create_session_with_commands(
+        command_count: int = 5,
+        src_ip: str = "192.168.1.100"
+    ) -> List[Dict[str, Any]]:
+        """Create a session with multiple command events."""
+        session_id = f"{random.randint(10000000, 99999999):08x}"
+        
+        logs = [
+            TestDataFactory.create_cowrie_log(
+                "cowrie.session.connect",
+                src_ip=src_ip,
+                session=session_id,
+            )
+        ]
+        
+        commands = ["ls", "cat /etc/passwd", "whoami", "uname -a", "ps aux"]
+        for i in range(command_count):
+            cmd = random.choice(commands)
+            logs.append(
+                TestDataFactory.create_cowrie_log(
+                    "cowrie.command.input",
+                    src_ip=src_ip,
+                    session=session_id,
+                    input=cmd,
+                )
+            )
+        
+        logs.append(
+            TestDataFactory.create_cowrie_log(
+                "cowrie.session.closed",
+                src_ip=src_ip,
+                session=session_id,
+            )
+        )
+        
+        return logs
+```
+
+## CI/CD Integration
+
+### Pre-commit Hooks Configuration
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.11
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+  
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-requests]
+  
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: pytest-check
+        entry: uv run pytest tests/unit/ --tb=short
+        language: system
+        pass_filenames: false
+        always_run: true
+      
+      - id: coverage-check
+        name: coverage-check
+        entry: uv run pytest --cov=. --cov-fail-under=80 --tb=short
+        language: system
+        pass_filenames: false
+        always_run: true
+```
+
+### GitHub Actions Workflow
+```yaml
+# .github/workflows/ci.yml
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python pin ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Run linting
+      run: |
+        uv run ruff check .
+        uv run ruff format --check .
+        uv run mypy .
+    
+    - name: Run tests
+      run: |
+        uv run pytest tests/unit/ --cov=. --cov-report=xml
+    
+    - name: Run integration tests
+      env:
+        VT_API_KEY_TEST: ${{ secrets.VT_API_KEY_TEST }}
+      run: |
+        uv run pytest tests/integration/ -m "not slow"
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+```
+
+## Test Documentation
+
+### Test Case Documentation
+```python
+def test_process_malformed_json_logs():
+    """Test processing logs with malformed JSON.
+    
+    This test verifies that the log processor can handle files
+    containing malformed JSON entries without crashing and
+    continues processing valid entries.
+    
+    Test scenario:
+    1. Create log file with mix of valid and invalid JSON
+    2. Process the file
+    3. Verify valid entries are processed
+    4. Verify invalid entries are logged as warnings
+    5. Verify processing continues after errors
+    
+    Expected behavior:
+    - Valid JSON entries are parsed normally
+    - Invalid JSON entries trigger warnings but don't stop processing
+    - Final result contains only valid entries
+    - Error count matches number of invalid entries
+    """
+```
+
+## ENFORCEMENT
+
+All testing requirements are MANDATORY and NON-NEGOTIABLE.
+
+### Testing Checklist (Pre-commit)
+- [ ] All tests pass: `uv run pytest`
+- [ ] Coverage >= 80%: `uv run pytest --cov=. --cov-fail-under=80`
+- [ ] Unit tests run fast (< 30 seconds)
+- [ ] Integration tests marked appropriately
+- [ ] No test warnings or deprecation messages
+- [ ] New features include comprehensive tests
+- [ ] Bug fixes include regression tests
+- [ ] Performance tests pass for critical paths

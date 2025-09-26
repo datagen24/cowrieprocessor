@@ -262,6 +262,47 @@ cowrie-loader bulk /path/to/file.json.bz2 \
 
 This feature can eliminate millions of validation DLQ entries and recover valid Cowrie events from previously malformed pretty-printed JSON files.
 
+## Database Management
+
+### `cowrie-db` - Database Administration
+
+The `cowrie-db` CLI provides comprehensive database management capabilities for production deployments:
+
+```bash
+# Check database health and schema version
+cowrie-db check --verbose
+
+# Run schema migrations (safe to run multiple times)
+cowrie-db migrate
+
+# Optimize database (VACUUM and reindex)
+cowrie-db optimize
+
+# Create database backup with integrity verification
+cowrie-db backup --output /backups/cowrie_backup_$(date +%Y%m%d_%H%M%S).sqlite
+
+# Check database integrity and detect corruption
+cowrie-db integrity
+
+# Display database statistics and health information
+cowrie-db info
+```
+
+**Database Management Commands:**
+- `migrate`: Run schema migrations with advisory locking to prevent concurrent DDL operations
+- `check`: Validate schema version and health, display statistics
+- `optimize`: Run VACUUM and reindex operations for maintenance
+- `backup`: Create verified backups with integrity checking
+- `integrity`: Perform comprehensive integrity checks and corruption detection
+- `info`: Display database metadata and performance statistics
+
+**Key Features:**
+- **Advisory Locking**: Prevents concurrent migrations that could cause database locks
+- **Backup Verification**: Automatic integrity checking of created backups
+- **Corruption Detection**: Comprehensive integrity checks with recovery recommendations
+- **Performance Monitoring**: Database size, session counts, and optimization suggestions
+- **Safe Operations**: All operations include proper error handling and rollback capabilities
+
 ## Command Line Reference
 
 ### Core Arguments

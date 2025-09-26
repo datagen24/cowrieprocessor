@@ -71,3 +71,4 @@ py-modules = [
 cowrie-loader = "cowrieprocessor.cli.ingest:main"
 cowrie-report = "cowrieprocessor.cli.report:main"
 cowrie-health = "cowrieprocessor.cli.health:main"
+cowrie-db = "cowrieprocessor.cli.cowrie_db:main"
