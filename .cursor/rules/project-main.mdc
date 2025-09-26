@@ -1,0 +1,203 @@
+---
+description: Main development rules for Cowrie Processor - mandatory standards for all code contributions
+globs: **/*.py,**/*.md,**/*.toml,**/*.yml,**/*.yaml
+alwaysApply: false
+---
+
+# Cowrie Processor Development Rules
+
+## MANDATORY REQUIREMENTS
+All code contributions MUST strictly adhere to these rules. Violations will result in immediate rejection.
+
+## Python Environment
+- Target Python 3.13 for development and CI
+- Use `uv` for all environment management operations
+- All scripts must be run via `uv run` (e.g., `uv run python process_cowrie.py`)
+- Virtual environment must be created with `uv sync`
+
+## Code Quality - NON-NEGOTIABLE
+
+### Type Hints (MANDATORY)
+- ALL functions, methods, and classes MUST have complete type hints
+- Use `from __future__ import annotations` for forward references
+- NO `Any` types without explicit justification comment
+- Import types from `typing` module when needed
+
+### Docstrings (MANDATORY)
+- ALL modules, classes, methods, and functions MUST have Google-style docstrings
+- Include Args, Returns, Raises, and Examples sections where applicable
+- Be specific about parameter types and return value structure
+
+Example:
+```python
+def process_log_file(filepath: Path, enrichment: bool = True) -> dict[str, list]:
+    """Process a single Cowrie log file.
+    
+    Args:
+        filepath: Path to the log file to process
+        enrichment: Whether to enrich data with external APIs
+        
+    Returns:
+        Dictionary containing processed log data with keys:
+            - sessions: List of session objects
+            - commands: List of executed commands
+            - files: List of downloaded/uploaded files
+            
+    Raises:
+        FileNotFoundError: If the log file doesn't exist
+        ValueError: If the log file format is invalid
+    """
+```
+
+### Linting and Formatting
+- ALWAYS run `uv run ruff check .` before any commit
+- ALWAYS run `uv run ruff format .` before any commit
+- Code must pass ruff with target-version "py313" and line-length 120
+- Use ruff's pydocstyle with Google convention
+
+### Static Type Checking
+- ALWAYS run `uv run mypy .` before any commit
+- All code must pass mypy with no errors
+- Use mypy config: python_version = "3.13", warn_unused_ignores = true
+
+## Testing Requirements
+
+### Coverage
+- Minimum 80% code coverage required
+- Run: `uv run pytest --cov=. --cov-report=term-missing`
+- ALL new features MUST include tests
+- ALL bug fixes MUST include regression tests
+
+### Test Structure
+- Place unit tests in `tests/unit/`
+- Place integration tests in `tests/integration/`
+- Use fixtures in `tests/fixtures/`
+- Follow Given-When-Then pattern in test docstrings
+
+## Security - CRITICAL
+
+### Secret Management
+- NEVER commit secrets, API keys, passwords, or tokens
+- Use environment variables or secret management tools
+- Validate all secret references before use
+
+### Input Validation
+- ALL external inputs MUST be validated
+- Use `pathlib.Path` for ALL file operations
+- Parameterize ALL database queries
+- Validate ALL API responses
+
+### API Safety
+- ALL API calls MUST have timeouts
+- Implement retry logic with exponential backoff
+- Handle rate limiting gracefully
+
+## Git Workflow - STRICT
+
+### Branch Naming
+- feature/description
+- fix/issue-number
+- docs/description
+- test/description
+- refactor/description
+
+### Conventional Commits (MANDATORY)
+Format: `<type>(<scope>): <description>`
+
+Valid types:
+- feat: New feature
+- fix: Bug fix
+- docs: Documentation only
+- style: Code style changes
+- refactor: Code refactoring
+- perf: Performance improvements
+- test: Adding/updating tests
+- build: Build system changes
+- ci: CI configuration changes
+- chore: Maintenance tasks
+
+Examples:
+- `feat(enrichment): add SPUR.us IP enrichment support`
+- `fix(processor): handle corrupted bz2 files gracefully`
+- `docs(api): update VirusTotal integration examples`
+
+## Error Handling
+
+### Exception Patterns
+```python
+try:
+    result = risky_operation()
+except SpecificException as e:
+    logger.error(f"Specific error context: {e}", exc_info=True)
+    # Handle gracefully or re-raise based on context
+    raise
+except Exception as e:
+    logger.error(f"Unexpected error: {e}", exc_info=True)
+    raise
+```
+
+### Logging
+- Use structured logging with correlation IDs
+- Log at appropriate levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- Include meaningful context in log messages
+
+## Performance Standards
+
+### File Operations
+- Stream large files instead of loading into memory
+- Use appropriate buffer sizes
+- Implement progress indicators for long operations
+
+### Database Operations
+- Use bulk operations for multiple inserts
+- Implement connection pooling
+- Use appropriate indexes
+
+## Pre-Commit Checklist
+Before ANY commit, verify:
+- [ ] `uv run ruff check .` passes
+- [ ] `uv run ruff format .` applied
+- [ ] `uv run mypy .` passes
+- [ ] `uv run pytest --cov=. --cov-report=term-missing` >= 80%
+- [ ] All docstrings complete and follow Google style
+- [ ] All type hints complete
+- [ ] No hardcoded secrets
+- [ ] Error handling implemented
+- [ ] Conventional commit message format used
+
+## Import Organization
+- Use ruff's isort integration (select = ["I"])
+- Group imports: standard library, third-party, local
+- Use absolute imports for project modules
+
+## Code Patterns to AVOID
+- Global variables (use dependency injection)
+- Hardcoded file paths (use Path objects and configuration)
+- Bare except clauses (catch specific exceptions)
+- String concatenation for paths (use Path / operator)
+- Manual JSON parsing without validation
+- API calls without timeouts or retries
+
+## Code Patterns to PREFER
+- Context managers for resource handling
+- Dataclasses or Pydantic models for structured data
+- Enum classes for constants
+- Pathlib for all file operations
+- F-strings for string formatting
+- List/dict comprehensions when they improve readability
+
+## Documentation Requirements
+- Update README.md for new features
+- Update docstrings for API changes  
+- Add examples for complex functionality
+- Document environment variables
+- Update CHANGELOG.md for releases
+
+## Dependencies
+- Justify ALL new dependencies in PR description
+- Pin versions in requirements files
+- Run `pip-audit` before adding dependencies
+- Prefer standard library when possible
+
+## ENFORCEMENT
+These rules are NON-NEGOTIABLE. Code not meeting these standards will be rejected without exception.
