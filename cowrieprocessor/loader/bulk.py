@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import RawEvent, SessionSummary, create_session_maker
+from ..telemetry import start_span
 
 JsonDict = Dict[str, Any]
 TelemetryCallback = Callable[["BulkLoaderMetrics"], None]
@@ -152,70 +153,81 @@ class BulkLoader:
         session_aggregates: Dict[str, SessionAggregate] = {}
         telemetry_counter = 0
 
-        with self._session_factory() as session:
-            for source in sources:
-                metrics.files_processed += 1
-                source_path = Path(source)
-                source_inode = self._source_inode(source_path)
-                for offset, payload in self._iter_source(source_path):
-                    metrics.events_read += 1
-                    processed = self._process_event(payload)
-                    if processed.validation_errors:
-                        metrics.events_invalid += 1
-                    if processed.quarantined:
-                        metrics.events_quarantined += 1
+        with start_span("cowrie.bulk.load", {"ingest.id": ingest_ref, "sources": len(sources)}):
+            with self._session_factory() as session:
+                for source in sources:
+                    metrics.files_processed += 1
+                    source_path = Path(source)
+                    source_inode = self._source_inode(source_path)
+                    with start_span(
+                        "cowrie.bulk.file",
+                        {"ingest.id": ingest_ref, "source": str(source_path)},
+                    ):
+                        for offset, payload in self._iter_source(source_path):
+                            metrics.events_read += 1
+                            processed = self._process_event(payload)
+                            if processed.validation_errors:
+                                metrics.events_invalid += 1
+                            if processed.quarantined:
+                                metrics.events_quarantined += 1
 
-                    record = self._make_raw_event_record(
+                            record = self._make_raw_event_record(
+                                ingest_ref,
+                                source_path,
+                                source_inode,
+                                offset,
+                                processed,
+                            )
+                            pending_records.append(record)
+
+                            if processed.session_id:
+                                agg = session_aggregates.setdefault(processed.session_id, SessionAggregate())
+                                agg.event_count += 1
+                                if processed.event_type and any(
+                                    hint in processed.event_type for hint in COMMAND_EVENT_HINTS
+                                ):
+                                    agg.command_count += 1
+                                if processed.event_type and any(
+                                    hint in processed.event_type for hint in FILE_EVENT_HINTS
+                                ):
+                                    agg.file_downloads += 1
+                                if processed.event_type and any(
+                                    hint in processed.event_type for hint in LOGIN_EVENT_HINTS
+                                ):
+                                    agg.login_attempts += 1
+                                agg.update_timestamp(processed.event_timestamp)
+                                agg.highest_risk = max(agg.highest_risk, processed.risk_score)
+                                agg.source_files.add(str(source_path))
+
+                            metrics.last_source = str(source_path)
+                            metrics.last_offset = offset
+
+                            if len(pending_records) >= self.config.batch_size:
+                                self._flush(
+                                    session,
+                                    pending_records,
+                                    session_aggregates,
+                                    metrics,
+                                    ingest_ref,
+                                    metrics.batches_committed + 1,
+                                    checkpoint_cb,
+                                )
+                                pending_records = []
+                                session_aggregates = {}
+                                telemetry_counter += 1
+                                if telemetry_cb and telemetry_counter % self.config.telemetry_interval == 0:
+                                    telemetry_cb(metrics)
+
+                if pending_records:
+                    self._flush(
+                        session,
+                        pending_records,
+                        session_aggregates,
+                        metrics,
                         ingest_ref,
-                        source_path,
-                        source_inode,
-                        offset,
-                        processed,
+                        metrics.batches_committed + 1,
+                        checkpoint_cb,
                     )
-                    pending_records.append(record)
-
-                    if processed.session_id:
-                        agg = session_aggregates.setdefault(processed.session_id, SessionAggregate())
-                        agg.event_count += 1
-                        if processed.event_type and any(hint in processed.event_type for hint in COMMAND_EVENT_HINTS):
-                            agg.command_count += 1
-                        if processed.event_type and any(hint in processed.event_type for hint in FILE_EVENT_HINTS):
-                            agg.file_downloads += 1
-                        if processed.event_type and any(hint in processed.event_type for hint in LOGIN_EVENT_HINTS):
-                            agg.login_attempts += 1
-                        agg.update_timestamp(processed.event_timestamp)
-                        agg.highest_risk = max(agg.highest_risk, processed.risk_score)
-                        agg.source_files.add(str(source_path))
-
-                    metrics.last_source = str(source_path)
-                    metrics.last_offset = offset
-
-                    if len(pending_records) >= self.config.batch_size:
-                        self._flush(
-                            session,
-                            pending_records,
-                            session_aggregates,
-                            metrics,
-                            ingest_ref,
-                            metrics.batches_committed + 1,
-                            checkpoint_cb,
-                        )
-                        pending_records = []
-                        session_aggregates = {}
-                        telemetry_counter += 1
-                        if telemetry_cb and telemetry_counter % self.config.telemetry_interval == 0:
-                            telemetry_cb(metrics)
-
-            if pending_records:
-                self._flush(
-                    session,
-                    pending_records,
-                    session_aggregates,
-                    metrics,
-                    ingest_ref,
-                    metrics.batches_committed + 1,
-                    checkpoint_cb,
-                )
 
         metrics.duration_seconds = time.perf_counter() - start_time
         if telemetry_cb:
@@ -238,30 +250,38 @@ class BulkLoader:
 
         attempt = 0
         backoff = 1.0
-        while True:
-            try:
-                inserted = self._execute_flush(session, raw_event_records, session_aggregates)
-                break
-            except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
-                session.rollback()
-                metrics.flush_failures += 1
-                attempt += 1
-                if attempt <= self.config.max_flush_retries:
-                    time.sleep(max(0.0, backoff))
-                    backoff *= self.config.flush_retry_backoff
-                    continue
+        with start_span(
+            "cowrie.bulk.flush",
+            {
+                "ingest.id": ingest_id,
+                "batch.index": batch_index,
+                "records": len(raw_event_records),
+            },
+        ):
+            while True:
+                try:
+                    inserted = self._execute_flush(session, raw_event_records, session_aggregates)
+                    break
+                except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
+                    session.rollback()
+                    metrics.flush_failures += 1
+                    attempt += 1
+                    if attempt <= self.config.max_flush_retries:
+                        time.sleep(max(0.0, backoff))
+                        backoff *= self.config.flush_retry_backoff
+                        continue
 
-                self._failure_streak += 1
-                if self.config.failure_cooldown_seconds > 0:
-                    metrics.cooldowns_applied += 1
-                    time.sleep(self.config.failure_cooldown_seconds)
+                    self._failure_streak += 1
+                    if self.config.failure_cooldown_seconds > 0:
+                        metrics.cooldowns_applied += 1
+                        time.sleep(self.config.failure_cooldown_seconds)
 
-                if self._failure_streak >= self.config.max_failure_streak:
-                    metrics.circuit_break_active = True
-                    raise LoaderCircuitBreakerError(
-                        "Loader circuit breaker tripped after repeated flush failures"
-                    ) from exc
-                raise
+                    if self._failure_streak >= self.config.max_failure_streak:
+                        metrics.circuit_break_active = True
+                        raise LoaderCircuitBreakerError(
+                            "Loader circuit breaker tripped after repeated flush failures"
+                        ) from exc
+                    raise
 
         self._failure_streak = 0
         metrics.events_inserted += inserted

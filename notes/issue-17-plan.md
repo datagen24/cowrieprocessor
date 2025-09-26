@@ -69,8 +69,11 @@
     - Implement automated backpressure/throttling, circuit breakers, rate limiting, health check endpoints, and emergency isolation mode when defenses detect zero-day exploits or downstream outages.
     - Update documentation, dashboards, log aggregation strategy, alerting (prompt injection breakthroughs, command escape attempts, DLQ growth, anomaly spikes), and deployment scripts for new modes, telemetry fields, and configuration knobs.
     - Deliver incident-response playbooks covering hostile-content bypass, neutralization failure, supply-chain alerts, and rollback procedures for loader/reporting components.
-    - Implement a shared status emitter that writes bulk and delta loader telemetry (phase marker, throughput, checkpoints, DLQ metrics) to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` and other observers expose unified progress.
-    - **Status:** Circuit breaker/backpressure for loader flushes landed, status emitter now produces aggregate `status.json` with throughput metrics, and CLI telemetry reports per-sensor progress. Remaining work: health-check endpoints, OTEL integration, incident-response playbooks, and documentation/dashboards for the new metrics.
+- Implement a shared status emitter that writes bulk and delta loader telemetry (phase marker, throughput, checkpoints, DLQ metrics) to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` and other observers expose unified progress.
+- **Status:** Circuit breaker/backpressure for loader flushes landed, status emitter now produces aggregate `status.json` with throughput metrics, and loader/reporting paths (including repository queries) emit OpenTelemetry spans when the SDK is installed. `docs/telemetry-operations.md` now documents dashboards, alerts, and incident-response runbooks. Remaining work: wire dashboards into deployment automation and continue tuning alert thresholds as telemetry volume grows.
+
+- **Phase 6 – Validation, Migration & Rollout**
+    - **Status:** Validation checklist (`notes/phase6-validation-checklist.md`) and synthetic dataset generator (`scripts/generate_synthetic_cowrie.py`) prepared. Ready to execute real-world benchmarks, chaos tests, and parity checks against legacy outputs.
 
 ### Phase 6 – Validation, Migration & Rollout
 - Develop unit/integration tests for raw event persistence, loader workflows, reporting queries, JSON validation, hostile-content detection, neutralization routines, schema registry flows, compliance-mode behaviors, and geographic intelligence handling.
