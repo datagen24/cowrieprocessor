@@ -33,6 +33,7 @@ def _make_bulk_config(args: argparse.Namespace) -> BulkLoaderConfig:
     config = BulkLoaderConfig(
         batch_size=args.batch_size,
         quarantine_threshold=args.quarantine_threshold,
+        multiline_json=args.multiline_json,
     )
     return config
 
@@ -106,6 +107,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         type=int,
         default=BulkLoaderConfig().quarantine_threshold,
         help="Risk score above which events are quarantined",
+    )
+    parser.add_argument(
+        "--multiline-json",
+        action="store_true",
+        help="Enable multiline JSON parsing for pretty-printed Cowrie logs",
     )
 
     args = parser.parse_args(list(argv) if argv is not None else None)
