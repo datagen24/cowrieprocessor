@@ -51,6 +51,7 @@ class BulkLoaderConfig:
     flush_retry_backoff: float = 1.5
     max_failure_streak: int = 5
     failure_cooldown_seconds: float = 10.0
+    multiline_json: bool = False
 
 
 @dataclass(slots=True)
@@ -482,16 +483,64 @@ class BulkLoader:
     def _iter_source(self, path: Path) -> Iterator[tuple[int, Any]]:
         opener = self._resolve_opener(path)
         with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
-            for offset, line in enumerate(handle):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    payload = json.loads(stripped)
-                except json.JSONDecodeError:
-                    yield offset, {"malformed": stripped}
-                    continue
-                yield offset, payload
+            if self.config.multiline_json:
+                yield from self._iter_multiline_json(handle)
+            else:
+                yield from self._iter_line_by_line(handle)
+
+    def _iter_line_by_line(self, handle) -> Iterator[tuple[int, Any]]:
+        """Iterate through JSON lines, one object per line."""
+        for offset, line in enumerate(handle):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except json.JSONDecodeError:
+                yield offset, {"malformed": stripped}
+                continue
+            yield offset, payload
+
+    def _iter_multiline_json(self, handle) -> Iterator[tuple[int, Any]]:
+        """Iterate through potentially multiline JSON objects."""
+        accumulated_lines: list[str] = []
+        start_offset = 0
+
+        for offset, line in enumerate(handle):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # If we're not accumulating, this might be the start of a new object
+            if not accumulated_lines:
+                start_offset = offset
+                accumulated_lines.append(stripped)
+            else:
+                accumulated_lines.append(stripped)
+
+            # Try to parse the accumulated content
+            try:
+                combined_content = "\n".join(accumulated_lines)
+                payload = json.loads(combined_content)
+                yield start_offset, payload
+                accumulated_lines = []
+                continue
+            except json.JSONDecodeError:
+                # If it's incomplete JSON, continue accumulating
+                # If we've accumulated too much, treat as malformed
+                if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
+                    yield start_offset, {"malformed": "\n".join(accumulated_lines)}
+                    accumulated_lines = []
+                continue
+
+        # Handle any remaining accumulated content
+        if accumulated_lines:
+            try:
+                combined_content = "\n".join(accumulated_lines)
+                payload = json.loads(combined_content)
+                yield start_offset, payload
+            except json.JSONDecodeError:
+                yield start_offset, {"malformed": "\n".join(accumulated_lines)}
 
     def _resolve_opener(self, path: Path):
         if path.suffix == ".gz":
