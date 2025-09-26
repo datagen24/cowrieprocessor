@@ -1,0 +1,606 @@
+---
+alwaysApply: true
+---
+# Security-Focused Development Rules
+
+## CRITICAL SECURITY REQUIREMENTS
+These security rules are NON-NEGOTIABLE and must be followed without exception.
+
+## Secret Management - ZERO TOLERANCE
+
+### NEVER Commit These Items
+- API keys, tokens, passwords, or credentials
+- Private keys, certificates, or cryptographic material  
+- Database connection strings with embedded credentials
+- Service account files or authentication tokens
+- Hardcoded URLs with authentication parameters
+- Internal hostnames, IP addresses, or network topology
+
+### Secure Configuration Patterns
+```python
+import os
+from typing import Optional
+
+def get_api_key(service_name: str) -> str:
+    """Retrieve API key from environment with validation."""
+    env_var = f"{service_name.upper()}_API_KEY"
+    api_key = os.getenv(env_var)
+    
+    if not api_key:
+        raise ValueError(f"Required API key not found: {env_var}")
+    
+    if len(api_key) < 10:  # Basic sanity check
+        raise ValueError(f"Invalid API key format for {service_name}")
+    
+    return api_key
+
+# Correct usage
+VIRUSTOTAL_API_KEY = get_api_key("virustotal")
+SPUR_API_KEY = get_api_key("spur")
+
+# WRONG - Never do this
+# VIRUSTOTAL_API_KEY = "vt-abc123..."  # NEVER hardcode
+```
+
+### Environment Variable Validation
+```python
+import re
+from typing import Pattern
+
+def validate_api_key_format(api_key: str, pattern: Pattern[str]) -> bool:
+    """Validate API key follows expected format."""
+    return bool(pattern.match(api_key))
+
+def get_validated_api_key(service: str, pattern: str) -> str:
+    """Get and validate API key format."""
+    api_key = get_api_key(service)
+    
+    if not validate_api_key_format(api_key, re.compile(pattern)):
+        raise ValueError(f"Invalid {service} API key format")
+    
+    return api_key
+
+# Usage with format validation
+VT_API_KEY = get_validated_api_key("virustotal", r"^[a-f0-9]{64}$")
+```
+
+## Input Validation - MANDATORY
+
+### File Path Security
+```python
+from pathlib import Path
+import os
+
+def validate_file_path(file_path: Path, allowed_dirs: list[Path]) -> Path:
+    """Validate file path is within allowed directories."""
+    try:
+        resolved_path = file_path.resolve()
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"Invalid file path: {file_path}") from e
+    
+    # Check for directory traversal
+    for allowed_dir in allowed_dirs:
+        try:
+            resolved_path.relative_to(allowed_dir.resolve())
+            return resolved_path
+        except ValueError:
+            continue
+    
+    raise ValueError(f"File path outside allowed directories: {file_path}")
+
+def safe_file_read(file_path: Path, max_size: int = 100 * 1024 * 1024) -> str:
+    """Safely read file with size limits."""
+    validated_path = validate_file_path(file_path, [Path("/var/log/cowrie")])
+    
+    if validated_path.stat().st_size > max_size:
+        raise ValueError(f"File too large: {validated_path}")
+    
+    try:
+        return validated_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Invalid UTF-8 encoding in file: {validated_path}") from e
+```
+
+### JSON Input Validation
+```python
+import json
+from typing import Any, Dict
+from jsonschema import validate, ValidationError
+
+COWRIE_LOG_SCHEMA = {
+    "type": "object",
+    "required": ["eventid", "timestamp"],
+    "properties": {
+        "eventid": {"type": "string", "pattern": "^cowrie\\.[a-z]+\\.[a-z]+$"},
+        "timestamp": {"type": "string"},
+        "src_ip": {"type": "string", "format": "ipv4"},
+        "session": {"type": "string", "pattern": "^[a-f0-9]{8}$"},
+    },
+    "additionalProperties": True
+}
+
+def validate_log_entry(log_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate log entry against schema."""
+    try:
+        validate(instance=log_data, schema=COWRIE_LOG_SCHEMA)
+        return log_data
+    except ValidationError as e:
+        raise ValueError(f"Invalid log entry format: {e.message}") from e
+
+def safe_json_parse(json_string: str, max_depth: int = 10) -> Dict[str, Any]:
+    """Safely parse JSON with depth limits."""
+    try:
+        # Parse with limits to prevent DoS
+        data = json.loads(json_string)
+        
+        # Check nesting depth
+        def check_depth(obj: Any, current_depth: int = 0) -> None:
+            if current_depth > max_depth:
+                raise ValueError("JSON nesting too deep")
+            
+            if isinstance(obj, dict):
+                for value in obj.values():
+                    check_depth(value, current_depth + 1)
+            elif isinstance(obj, list):
+                for item in obj:
+                    check_depth(item, current_depth + 1)
+        
+        check_depth(data)
+        return validate_log_entry(data)
+        
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON format: {e}") from e
+```
+
+### IP Address Validation
+```python
+import ipaddress
+from typing import Union
+
+def validate_ip_address(ip_str: str) -> Union[ipaddress.IPv4Address, ipaddress.IPv6Address]:
+    """Validate and return IP address object."""
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+    except ValueError as e:
+        raise ValueError(f"Invalid IP address: {ip_str}") from e
+    
+    # Reject private/reserved addresses for external enrichment
+    if ip_obj.is_private or ip_obj.is_reserved or ip_obj.is_loopback:
+        raise ValueError(f"Cannot enrich private/reserved IP: {ip_str}")
+    
+    return ip_obj
+
+def is_public_ip(ip_str: str) -> bool:
+    """Check if IP address is public (safe for external queries)."""
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+        return not (ip_obj.is_private or ip_obj.is_reserved or ip_obj.is_loopback)
+    except ValueError:
+        return False
+```
+
+## API Security - CRITICAL
+
+### Secure HTTP Client Configuration
+```python
+import aiohttp
+import asyncio
+from typing import Dict, Any, Optional
+import ssl
+
+async def create_secure_session(
+    timeout: float = 30.0,
+    max_connections: int = 100,
+    verify_ssl: bool = True,
+) -> aiohttp.ClientSession:
+    """Create secure HTTP session with proper configuration."""
+    
+    # Create SSL context with security hardening
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = True
+    ssl_context.verify_mode = ssl.CERT_REQUIRED
+    
+    # Configure connection limits
+    connector = aiohttp.TCPConnector(
+        limit=max_connections,
+        limit_per_host=10,
+        ttl_dns_cache=300,
+        use_dns_cache=True,
+        ssl=ssl_context if verify_ssl else False,
+    )
+    
+    # Configure timeouts
+    timeout_config = aiohttp.ClientTimeout(
+        total=timeout,
+        connect=10.0,
+        sock_read=10.0,
+    )
+    
+    return aiohttp.ClientSession(
+        connector=connector,
+        timeout=timeout_config,
+        headers={
+            'User-Agent': 'CowrieProcessor/1.0',
+            'Accept': 'application/json',
+        }
+    )
+```
+
+### Rate Limiting and Retry Logic
+```python
+import asyncio
+import random
+from typing import Callable, TypeVar, Any
+from functools import wraps
+
+T = TypeVar('T')
+
+class RateLimiter:
+    """Token bucket rate limiter."""
+    
+    def __init__(self, rate: float, burst: int):
+        self.rate = rate
+        self.burst = burst
+        self.tokens = burst
+        self.last_update = asyncio.get_event_loop().time()
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self) -> None:
+        """Acquire a token, waiting if necessary."""
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            elapsed = now - self.last_update
+            self.tokens = min(self.burst, self.tokens + elapsed * self.rate)
+            self.last_update = now
+            
+            if self.tokens < 1:
+                wait_time = (1 - self.tokens) / self.rate
+                await asyncio.sleep(wait_time)
+                self.tokens = 0
+            else:
+                self.tokens -= 1
+
+def with_retries(
+    max_retries: int = 3,
+    backoff_base: float = 1.0,
+    backoff_factor: float = 2.0,
+    jitter: bool = True,
+) -> Callable:
+    """Decorator for retry logic with exponential backoff."""
+    
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        break
+                    
+                    # Calculate backoff with jitter
+                    backoff = backoff_base * (backoff_factor ** attempt)
+                    if jitter:
+                        backoff *= (0.5 + random.random() * 0.5)
+                    
+                    await asyncio.sleep(backoff)
+            
+            raise last_exception
+        
+        return wrapper
+    return decorator
+```
+
+### Secure API Client Implementation
+```python
+class SecureAPIClient:
+    """Secure API client with rate limiting and retries."""
+    
+    def __init__(self, api_key: str, base_url: str, rate_limit: float = 4.0):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip('/')
+        self.rate_limiter = RateLimiter(rate=rate_limit, burst=5)
+        self._session: Optional[aiohttp.ClientSession] = None
+    
+    async def __aenter__(self) -> 'SecureAPIClient':
+        self._session = await create_secure_session()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._session:
+            await self._session.close()
+    
+    @with_retries(max_retries=3)
+    async def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """Make rate-limited HTTP request."""
+        await self.rate_limiter.acquire()
+        
+        url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        headers = kwargs.pop('headers', {})
+        headers.update({
+            'Authorization': f'Bearer {self.api_key}',
+            'X-Request-ID': generate_request_id(),
+        })
+        
+        if not self._session:
+            raise RuntimeError("Client not initialized - use as context manager")
+        
+        async with self._session.request(method, url, headers=headers, **kwargs) as response:
+            # Check for rate limiting
+            if response.status == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                await asyncio.sleep(retry_after)
+                raise aiohttp.ClientError("Rate limited")
+            
+            # Validate response
+            if response.status >= 400:
+                error_text = await response.text()
+                raise aiohttp.ClientError(f"API error {response.status}: {error_text}")
+            
+            return await response.json()
+
+def generate_request_id() -> str:
+    """Generate unique request ID for tracking."""
+    import uuid
+    return str(uuid.uuid4())
+```
+
+## Database Security
+
+### SQL Injection Prevention
+```python
+import sqlite3
+from typing import Any, List, Tuple
+
+def safe_execute_query(
+    connection: sqlite3.Connection,
+    query: str,
+    parameters: Tuple[Any, ...] = (),
+) -> List[Dict[str, Any]]:
+    """Execute parameterized query safely."""
+    
+    # Validate no dangerous SQL keywords in dynamic parts
+    dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'CREATE', 'ALTER']
+    query_upper = query.upper()
+    
+    # Only allow SELECT queries for this function
+    if not query_upper.strip().startswith('SELECT'):
+        raise ValueError("Only SELECT queries allowed")
+    
+    try:
+        cursor = connection.execute(query, parameters)
+        return [dict(row) for row in cursor.fetchall()]
+    except sqlite3.Error as e:
+        raise ValueError(f"Database query failed: {e}") from e
+
+def build_safe_where_clause(filters: Dict[str, Any]) -> Tuple[str, Tuple[Any, ...]]:
+    """Build WHERE clause with safe parameter binding."""
+    if not filters:
+        return "", ()
+    
+    # Whitelist allowed column names
+    allowed_columns = {
+        'session_id', 'src_ip', 'timestamp', 'event_type', 'command'
+    }
+    
+    conditions = []
+    parameters = []
+    
+    for column, value in filters.items():
+        if column not in allowed_columns:
+            raise ValueError(f"Column not allowed in WHERE clause: {column}")
+        
+        conditions.append(f"{column} = ?")
+        parameters.append(value)
+    
+    where_clause = " AND ".join(conditions)
+    return f"WHERE {where_clause}", tuple(parameters)
+```
+
+## Logging Security
+
+### Secure Logging Patterns
+```python
+import logging
+import re
+from typing import Any, Dict
+
+class SecurityLogger:
+    """Logger with security-aware formatting."""
+    
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
+        self._sensitive_patterns = [
+            re.compile(r'api[_-]?key["\s:=]+[a-zA-Z0-9]{20,}', re.IGNORECASE),
+            re.compile(r'password["\s:=]+\S+', re.IGNORECASE),
+            re.compile(r'token["\s:=]+[a-zA-Z0-9]{20,}', re.IGNORECASE),
+            re.compile(r'\b\d{16}\b'),  # Credit card numbers
+            re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),  # SSN
+        ]
+    
+    def _sanitize_message(self, message: str) -> str:
+        """Remove sensitive data from log messages."""
+        sanitized = message
+        for pattern in self._sensitive_patterns:
+            sanitized = pattern.sub('[REDACTED]', sanitized)
+        return sanitized
+    
+    def info(self, message: str, **kwargs: Any) -> None:
+        """Log info message with sanitization."""
+        sanitized = self._sanitize_message(message)
+        self.logger.info(sanitized, **kwargs)
+    
+    def error(self, message: str, **kwargs: Any) -> None:
+        """Log error message with sanitization."""
+        sanitized = self._sanitize_message(message)
+        self.logger.error(sanitized, **kwargs)
+    
+    def security_event(self, event_type: str, details: Dict[str, Any]) -> None:
+        """Log security-relevant events."""
+        sanitized_details = {
+            k: self._sanitize_message(str(v)) if isinstance(v, str) else v
+            for k, v in details.items()
+        }
+        
+        self.logger.warning(
+            f"SECURITY_EVENT: {event_type}",
+            extra={'security_event': True, 'details': sanitized_details}
+        )
+
+# Usage
+security_logger = SecurityLogger(__name__)
+
+def log_suspicious_activity(src_ip: str, commands: List[str]) -> None:
+    """Log suspicious honeypot activity."""
+    security_logger.security_event(
+        "suspicious_commands",
+        {
+            "src_ip": src_ip,
+            "command_count": len(commands),
+            "commands_sample": commands[:5],  # First 5 commands only
+        }
+    )
+```
+
+## Cryptographic Requirements
+
+### Secure Hashing
+```python
+import hashlib
+import hmac
+import secrets
+from typing import str
+
+def secure_hash(data: str, salt: Optional[str] = None) -> str:
+    """Create secure hash with salt."""
+    if salt is None:
+        salt = secrets.token_hex(32)
+    
+    # Use SHA-256 minimum
+    hash_obj = hashlib.sha256()
+    hash_obj.update(salt.encode('utf-8'))
+    hash_obj.update(data.encode('utf-8'))
+    
+    return f"{salt}:{hash_obj.hexdigest()}"
+
+def verify_hash(data: str, hashed: str) -> bool:
+    """Verify data against secure hash."""
+    try:
+        salt, expected_hash = hashed.split(':', 1)
+        actual_hash = hashlib.sha256()
+        actual_hash.update(salt.encode('utf-8'))
+        actual_hash.update(data.encode('utf-8'))
+        
+        return hmac.compare_digest(expected_hash, actual_hash.hexdigest())
+    except ValueError:
+        return False
+```
+
+## Security Testing Requirements
+
+### Security Test Patterns
+```python
+import pytest
+from unittest.mock import patch, Mock
+
+def test_api_key_validation():
+    """Test API key validation rejects invalid keys."""
+    with pytest.raises(ValueError, match="Invalid API key format"):
+        get_validated_api_key("test", r"^[a-f0-9]{64}$")
+
+def test_path_traversal_prevention():
+    """Test file path validation prevents directory traversal."""
+    malicious_path = Path("../../../etc/passwd")
+    allowed_dirs = [Path("/var/log/cowrie")]
+    
+    with pytest.raises(ValueError, match="outside allowed directories"):
+        validate_file_path(malicious_path, allowed_dirs)
+
+def test_sql_injection_prevention():
+    """Test SQL query validation prevents injection."""
+    malicious_query = "SELECT * FROM users; DROP TABLE users; --"
+    
+    with pytest.raises(ValueError, match="Only SELECT queries allowed"):
+        safe_execute_query(Mock(), malicious_query)
+
+@pytest.mark.asyncio
+async def test_rate_limiting():
+    """Test rate limiter enforces limits."""
+    limiter = RateLimiter(rate=1.0, burst=1)
+    
+    # First request should succeed immediately
+    start_time = asyncio.get_event_loop().time()
+    await limiter.acquire()
+    first_time = asyncio.get_event_loop().time() - start_time
+    assert first_time < 0.1
+    
+    # Second request should be delayed
+    start_time = asyncio.get_event_loop().time()
+    await limiter.acquire()
+    second_time = asyncio.get_event_loop().time() - start_time
+    assert second_time >= 1.0
+```
+
+## Security Monitoring
+
+### Metrics and Alerting
+```python
+from typing import Counter
+import time
+
+class SecurityMetrics:
+    """Track security-relevant metrics."""
+    
+    def __init__(self):
+        self.failed_api_calls = Counter()
+        self.invalid_inputs = Counter()
+        self.rate_limit_hits = Counter()
+        self.last_reset = time.time()
+    
+    def record_failed_api_call(self, service: str, error_type: str) -> None:
+        """Record failed API call."""
+        self.failed_api_calls[f"{service}:{error_type}"] += 1
+    
+    def record_invalid_input(self, input_type: str) -> None:
+        """Record invalid input attempt."""
+        self.invalid_inputs[input_type] += 1
+    
+    def record_rate_limit_hit(self, service: str) -> None:
+        """Record rate limit hit."""
+        self.rate_limit_hits[service] += 1
+    
+    def get_security_summary(self) -> Dict[str, Any]:
+        """Get security metrics summary."""
+        return {
+            "failed_api_calls": dict(self.failed_api_calls),
+            "invalid_inputs": dict(self.invalid_inputs),
+            "rate_limit_hits": dict(self.rate_limit_hits),
+            "collection_period": time.time() - self.last_reset,
+        }
+
+# Global metrics instance
+security_metrics = SecurityMetrics()
+```
+
+## ENFORCEMENT
+
+All security requirements are MANDATORY and NON-NEGOTIABLE. Any code that violates these security standards will be immediately rejected.
+
+### Pre-Commit Security Checklist
+- [ ] No hardcoded secrets or credentials
+- [ ] All inputs validated and sanitized
+- [ ] API calls use proper authentication and rate limiting
+- [ ] File operations use path validation
+- [ ] Database queries use parameterization
+- [ ] Error messages don't leak sensitive information
+- [ ] Logging sanitizes sensitive data
+- [ ] Security tests cover all validation logic
