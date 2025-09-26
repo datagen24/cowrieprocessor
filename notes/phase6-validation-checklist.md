@@ -24,6 +24,12 @@ This checklist expands Phase 6 objectives into actionable test runs. Complete ea
   uv run cowrie-loader bulk data/synthetic/day01.json.gz \
       --db tmp/phase6.sqlite --status-dir /mnt/dshield/data/logs/status
   ```
+- [ ] For pretty-printed JSON files (2025-02 to 2025-03 range), use multiline parsing:
+  ```bash
+  uv run cowrie-loader bulk data/pretty-printed-logs.json \
+      --db tmp/phase6.sqlite --status-dir /mnt/dshield/data/logs/status \
+      --multiline-json
+  ```
 - [ ] Capture runtime, `events_read`, `events_inserted`, `events_quarantined`, and any DLQ inserts.
 - [ ] Export OTEL traces for `cowrie.bulk.load` and attach screenshots or URLs.
 - [ ] Inspect `tmp/phase6.sqlite` for row counts (`SELECT COUNT(*) FROM raw_events;`).
@@ -64,9 +70,21 @@ This checklist expands Phase 6 objectives into actionable test runs. Complete ea
 - [ ] Rebuild reports from the same dataset using the legacy pipeline (if available) and diff outputs.
 - [ ] Run schema migration / downgrade rehearsal (SQLite → Postgres hydration sample if feasible).
 
-## 9. Sign-off Artifacts
+## 9. Multiline JSON Format Handling
+- [ ] Test with historical pretty-printed Cowrie logs (2025-02 to 2025-03 range):
+  ```bash
+  # Without multiline parsing (should produce validation DLQ entries)
+  uv run cowrie-loader bulk data/historical/2025-02-logs.json --db tmp/test.sqlite
+  
+  # With multiline parsing (should ingest successfully)
+  uv run cowrie-loader bulk data/historical/2025-02-logs.json --db tmp/test.sqlite --multiline-json
+  ```
+- [ ] Verify that multiline parsing reduces validation DLQ entries from ~135M to near zero for affected date ranges.
+- [ ] Confirm that both single-line JSONL and multiline JSON formats are handled correctly.
+- [ ] Document any preprocessing steps needed for non-standard JSON formats in deployment runbooks.
+
+## 10. Sign-off Artifacts
 - [ ] Archive status telemetry snapshots, OTEL traces, and report outputs in `/reports/phase6-validation/` (or similar).
 - [ ] Update `notes/issue-17-plan.md` with benchmark numbers and remaining risks.
-- [ ] File tickets for any bottlenecks or incidents uncovered.
 
 Completion of all checkboxes indicates readiness to transition from Phase 5 hardening to Phase 6 rollout drills.

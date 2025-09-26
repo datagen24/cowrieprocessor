@@ -141,12 +141,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Generate synthetic Cowrie JSON events")
     parser.add_argument("output", help="Path to JSON lines file (append .gz for gzip)")
     parser.add_argument("--sessions", type=int, default=500, help="Number of sessions to emit")
-    parser.add_argument(
-        "--commands-per-session", type=int, default=3, help="Command events per session"
-    )
-    parser.add_argument(
-        "--downloads-per-session", type=int, default=1, help="File downloads per session"
-    )
+    parser.add_argument("--commands-per-session", type=int, default=3, help="Command events per session")
+    parser.add_argument("--downloads-per-session", type=int, default=1, help="File downloads per session")
     parser.add_argument(
         "--sensor",
         action="append",
@@ -158,9 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         default=datetime.now(UTC).isoformat(),
         help="ISO timestamp for first session (defaults to now UTC)",
     )
-    parser.add_argument(
-        "--seed", type=int, default=None, help="Random seed for reproducibility"
-    )
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     args = parser.parse_args(argv)
 
     if args.seed is not None:
