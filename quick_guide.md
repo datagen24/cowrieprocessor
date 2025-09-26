@@ -7,8 +7,8 @@
 pip install elasticsearch>=8.0.0
 ```
 
-### 2. Copy Files
-- Save `es_reports.py` to your dshield directory
+### 2. Deploy CLI & Templates
+- Install or copy the `cowrieprocessor` package onto the reporting host (the CLI entrypoint is `cowrie-report`)
 - Save index templates under `scripts/` (daily/weekly/monthly JSON files)
 
 ### 3. Create Index Templates & ILM Policies (no delete)
@@ -38,36 +38,45 @@ curl -X PUT "localhost:9200/_index_template/cowrie.reports.monthly" -H "Content-
 ```bash
 export ES_HOST=localhost:9200
 export ES_USERNAME=elastic
-export ES_PASSWORD=your_password
+# Secrets can reference env/file/1Password/AWS SM/etc. and will be resolved automatically
+export ES_PASSWORD=file:/run/secrets/es_password
+# alternatively
+# export ES_API_KEY=op://Elastic/cowrie-reporting/api_key
 ```
 
 ### 5. Test Report Generation
 ```bash
-# Test today's report
-python3 es_reports.py daily --all-sensors
+# Daily aggregate (prints JSON)
+cowrie-report daily 2024-12-20 --db /path/to/cowrieprocessor.sqlite
 
-# Backfill last week
-python3 es_reports.py backfill --start 2024-12-14 --end 2024-12-20
+# Daily per-sensor set with Elasticsearch publishing enabled
+cowrie-report daily 2024-12-20 --db /path/to/cowrieprocessor.sqlite --all-sensors --publish
+
+# Weekly rollup (ISO week string supported)
+cowrie-report weekly 2024-W50 --db /path/to/cowrieprocessor.sqlite --publish
 ```
+
+> **Backfill note:** the new CLI does not yet include a standalone `backfill` subcommand. Loop over the desired dates and invoke `cowrie-report daily <date> --all-sensors --publish` until the range is covered.
 
 ### 6. Schedule with Cron
 ```bash
 crontab -e
 # Add:
-30 4 * * * cd /home/cowrie/dshield && python3 es_reports.py daily --all-sensors
-0 5 * * 1 python3 es_reports.py weekly
-30 5 1 * * python3 es_reports.py monthly
+30 4 * * * cd /home/cowrie/dshield && cowrie-report daily "$(date -u +\\%F)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --all-sensors --publish
+0 5 * * 1 cowrie-report weekly "$(date -u +\\%G-W\\%V)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish
+30 5 1 * * cowrie-report monthly "$(date -u +\\%Y-\\%m)" --db /home/cowrie/dshield/cowrieprocessor.sqlite --publish
 ```
 
 ## Key Features Implemented
 
 ### Daily Reports (Per-sensor + Aggregate)
-- **Session Metrics**: Total, unique IPs, usernames, passwords, protocols
-- **Command Statistics**: Total, unique, top commands
-- **File Activity**: Downloads, uploads, VT classifications
-- **Enrichments**: URLhaus tags, ASN, country, SPUR data
-- **Abnormality Detection**: Uncommon command counts, recent VT submissions
-- **Alerts**: IP spikes, new VT classifications, high tunnel usage
+- **Session Metrics**: Total sessions, command totals, file downloads, login attempts, VT/DShield flags, unique IP counts
+- **Command Statistics**: Top command inputs (`input_safe`) ranked by frequency
+- **File Activity**: Most common download URLs per window
+
+### Weekly & Monthly Rollups (Aggregate)
+- Reuse session metrics to surface trends over 7-day and month windows
+- Focus on aggregate view; sensor-specific weekly/monthly cuts are planned but not yet implemented
 
 ### Alert Thresholds
 - **IP Spike**: >50% increase from 7-day average
@@ -81,58 +90,54 @@ crontab -e
 
 ### Data Structure
 ```
-cowrie.reports.daily-*
-  └── sensor:date_utc (e.g., "honeypot1:2024-12-20")
+cowrie.reports.daily-write (alias -> cowrie.reports.daily-000001, ...)
+  └── sensor:daily:date (e.g., "honeypot1:daily:2024-12-20")
       ├── sessions (metrics)
-      ├── commands (statistics)
-      ├── files (activity)
-      ├── enrichments (3rd party data)
-      ├── abnormalities (detection flags)
-      └── alerts (threshold triggers)
+      ├── commands (top commands)
+      └── files (top download URLs)
 
-cowrie.reports.weekly-*
-  └── aggregate:YYYY-Www (e.g., "aggregate:2024-W51")
-      └── Aggregated daily metrics
+cowrie.reports.weekly-write
+  └── aggregate:weekly:YYYY-Www (e.g., "aggregate:weekly:2024-W51")
+      └── Aggregated session metrics
 
-cowrie.reports.monthly-*
-  └── aggregate:YYYY-MM (e.g., "aggregate:2024-12")
-      ├── Aggregated daily metrics
-      └── trends (month-over-month changes)
+cowrie.reports.monthly-write
+  └── aggregate:monthly:YYYY-MM (e.g., "aggregate:monthly:2024-12")
+      └── Aggregated session metrics
 ```
 
 ## Usage Examples
 
 ### Daily Operations
 ```bash
-# Generate all reports for today
-python3 es_reports.py daily --all-sensors
+# Generate all reports for today (UTC)
+cowrie-report daily "$(date -u +%F)" --db /path/to/cowrieprocessor.sqlite --all-sensors --publish
 
 # Generate for specific date
-python3 es_reports.py daily --date 2024-12-19 --all-sensors
+cowrie-report daily 2024-12-19 --db /path/to/cowrieprocessor.sqlite --all-sensors --publish
 
 # Single sensor only
-python3 es_reports.py daily --sensor honeypot1
+cowrie-report daily 2024-12-19 --db /path/to/cowrieprocessor.sqlite --sensor honeypot1 --publish
 ```
 
 ### Backfilling
 ```bash
-# Backfill date range
-python3 es_reports.py backfill --start 2024-11-01 --end 2024-11-30
-
-# Backfill specific sensors
-python3 es_reports.py backfill --start 2024-12-01 --end 2024-12-20 --sensors honeypot1 honeypot2
+# Backfill date range (loop over dates)
+for day in $(seq 0 29); do
+  cowrie-report daily "$(date -u -d "2024-12-20 - ${day} day" +%F)" \
+    --db /path/to/cowrieprocessor.sqlite --all-sensors --publish
+done
 ```
 
 ### Rollups
 ```bash
 # Weekly rollup (current week)
-python3 es_reports.py weekly
+cowrie-report weekly "$(date -u +%G-W%V)" --db /path/to/cowrieprocessor.sqlite --publish
 
 # Specific week
-python3 es_reports.py weekly --week 2024-W50
+cowrie-report weekly 2024-W50 --db /path/to/cowrieprocessor.sqlite --publish
 
 # Monthly rollup
-python3 es_reports.py monthly --month 2024-11
+cowrie-report monthly 2024-11 --db /path/to/cowrieprocessor.sqlite --publish
 ```
 
 ## Kibana Queries
@@ -142,21 +147,8 @@ python3 es_reports.py monthly --month 2024-11
 GET cowrie.reports.daily-*/_search
 {
   "size": 1,
-  "sort": [{"date_utc": "desc"}],
-  "query": {"term": {"sensor": "aggregate"}}
-}
-```
-
-### Find High Severity Alerts
-```
-GET cowrie.reports.daily-*/_search
-{
-  "query": {
-    "nested": {
-      "path": "alerts",
-      "query": {"term": {"alerts.severity": "high"}}
-    }
-  }
+  "sort": [{"@timestamp": "desc"}],
+  "query": {"term": {"sensor.keyword": "aggregate"}}
 }
 ```
 
@@ -168,15 +160,15 @@ GET cowrie.reports.daily-*/_search
   "query": {
     "bool": {
       "filter": [
-        {"term": {"sensor": "aggregate"}},
-        {"range": {"date_utc": {"gte": "now-30d"}}}
+        {"term": {"sensor.keyword": "aggregate"}},
+        {"range": {"date": {"gte": "now-30d/d"}}}
       ]
     }
   },
   "aggs": {
     "daily_sessions": {
       "date_histogram": {
-        "field": "date_utc",
+        "field": "date",
         "calendar_interval": "day"
       },
       "aggs": {
@@ -192,7 +184,7 @@ GET cowrie.reports.daily-*/_search
 ### Check Report Generation
 ```bash
 # View last 5 reports
-curl -s "localhost:9200/cowrie.reports.daily-*/_search?size=5&sort=@timestamp:desc" | jq '.hits.hits[]._source | {date: .date_utc, sensor: .sensor, sessions: .sessions.total}'
+curl -s "localhost:9200/cowrie.reports.daily-*/_search?size=5&sort=@timestamp:desc" | jq '.hits.hits[]._source | {date: .date, sensor: .sensor, sessions: .sessions.total}'
 
 # Check for missing days
 python3 -c "
@@ -200,24 +192,42 @@ from datetime import datetime, timedelta
 import requests
 for i in range(7):
     date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
-    r = requests.get(f'http://localhost:9200/cowrie.reports.daily-*/_count?q=date_utc:{date}')
+    r = requests.get(f'http://localhost:9200/cowrie.reports.daily-*/_count?q=date:{date}')
     print(f'{date}: {r.json()[\"count\"]} reports')
 "
 ```
 
-### View Alerts
+### Status Telemetry
 ```bash
-# Today's alerts
-curl -s "localhost:9200/cowrie.reports.daily-*/_search?q=date_utc:$(date +%Y-%m-%d)" | \
-  jq '.hits.hits[]._source | select(.alerts | length > 0) | {sensor, alerts}'
+# Aggregate view combining bulk, delta, and reporting phases
+jq '.' /mnt/dshield/data/logs/status/status.json
+
+# Individual phase files still exist for granular inspection
+ls /mnt/dshield/data/logs/status
+
+# Example: tail the reporting phase with derived throughput metrics
+jq '.' /mnt/dshield/data/logs/status/reporting.json
 ```
+
+### OpenTelemetry Tracing (Optional)
+```bash
+pip install opentelemetry-api opentelemetry-sdk
+
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Run loaders/reporters with tracing enabled
+cowrie-loader delta /mnt/dshield/data/logs/cowrie.json --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+cowrie-report daily "$(date -u +%F)" --db /mnt/dshield/data/db/cowrieprocessor.sqlite --all-sensors
+```
+Spans land under `cowrie.bulk.*`, `cowrie.delta.*`, and `cowrie.reporting.*` to highlight slow files, batches, and queries. See `docs/telemetry-operations.md` for dashboards, alert thresholds, and incident-response runbooks tied to those traces and the status emitter output.
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **No data in reports**
-   - Check SQLite has data: `sqlite3 cowrieprocessor.sqlite "SELECT COUNT(*) FROM sessions"`
+   - Check SQLite has data: `sqlite3 cowrieprocessor.sqlite "SELECT COUNT(*) FROM session_summaries"`
    - Verify date range has sessions
 
 2. **Connection errors**
@@ -225,17 +235,16 @@ curl -s "localhost:9200/cowrie.reports.daily-*/_search?q=date_utc:$(date +%Y-%m-
    - Check credentials in environment
 
 3. **Missing enrichments**
-   - Enrichments show as null if not available
-   - Check if SPUR/URLhaus data exists in SQLite
+   - The ORM rewrite currently publishes core metrics only; enrichment fields will return in a later phase
 
 4. **Slow queries**
-   - Add index on timestamp: `CREATE INDEX idx_sessions_timestamp ON sessions(timestamp)`
-   - Limit date ranges for backfill
+   - Add index on timestamp: `CREATE INDEX idx_session_summaries_first_event ON session_summaries(first_event_at)`
+   - Limit date ranges for backfill loops
 
 ### Debug Mode
 ```bash
 # Enable debug logging
-python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)" es_reports.py daily --date 2024-12-20
+python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)" -m cowrieprocessor.cli.report daily 2024-12-20 --db /path/to/cowrieprocessor.sqlite --publish
 ```
 
 ## Next Steps

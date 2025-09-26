@@ -168,6 +168,47 @@ python refresh_cache_and_reports.py \
     --email your.email@example.com
 ```
 
+### Synthetic Data Generator (Phase 6 prep)
+
+Generate large validation datasets without exposing live honeypot logs:
+
+```bash
+./scripts/generate_synthetic_cowrie.py data/synthetic/day01.json.gz \
+    --sessions 5000 --commands-per-session 4 --downloads-per-session 2 \
+    --sensor honeypot-a --sensor honeypot-b --seed 17
+```
+
+Use the output with `cowrie-loader bulk` / `cowrie-loader delta` to rehearse Phase 6 performance and chaos drills (see `notes/phase6-validation-checklist.md`).
+
+### Telemetry-Enabled Loader CLI
+
+The new ingestion CLI streams loader metrics, checkpoints, and dead-letter statistics to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` (or other observers) can display real-time progress.
+
+Bulk ingest example:
+```bash
+cowrie-loader bulk \
+    /mnt/dshield/a/NSM/cowrie/*.json \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status
+```
+
+Incremental ingest (delta) example:
+```bash
+cowrie-loader delta \
+    /mnt/dshield/a/NSM/cowrie/*.json \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --status-dir /mnt/dshield/data/logs/status
+```
+
+Monitor progress in another terminal:
+```bash
+python monitor_progress.py
+```
+
+The status output now includes phase (`bulk_ingest`/`delta_ingest`), event throughput, last checkpoint (source + offset), and dead-letter totals.
+
+To forward traces, export standard OTEL variables (for example `OTEL_EXPORTER_OTLP_ENDPOINT`) before running loaders or the reporting CLI. Spans are emitted under the `cowrie.bulk.*`, `cowrie.delta.*`, and `cowrie.reporting.*` namespaces so slow batches and SQL calls surface in your APM tooling. Dashboards, alert thresholds, and incident-response drills are captured in `docs/telemetry-operations.md`.
+
 ## Command Line Reference
 
 ### Core Arguments
@@ -209,9 +250,9 @@ Configure environment variables:
 ```bash
 export ES_HOST=https://elasticsearch.example.com:9200
 export ES_USERNAME=elastic
-export ES_PASSWORD=changeme
-# OR use API key
-export ES_API_KEY=base64_encoded_key
+export ES_PASSWORD=file:/run/secrets/es_password
+# OR use API key (also supports secret references such as op:// vault paths)
+export ES_API_KEY=op://Elastic/cowrie-reporting/api_key
 # OR use Elastic Cloud
 export ES_CLOUD_ID=deployment:region:id
 ```
@@ -219,19 +260,20 @@ export ES_CLOUD_ID=deployment:region:id
 ### Generate Reports
 ```bash
 # Daily reports for all sensors
-python es_reports.py daily --all-sensors \
+cowrie-report daily 2025-09-14 \
     --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
-    --date 2025-09-14
+    --all-sensors --publish
 
 # Weekly rollup
-python es_reports.py weekly --week 2025-W37 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+cowrie-report weekly 2025-W37 \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --publish
 
-# Backfill historical data
-python es_reports.py backfill \
-    --start 2025-09-01 \
-    --end 2025-09-14 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite
+# Backfill historical data (loop over days)
+for day in $(seq 0 13); do
+  cowrie-report daily "$(date -u -d "2025-09-14 - ${day} day" +%F)" \
+    --db /mnt/dshield/data/db/cowrieprocessor.sqlite --all-sensors --publish
+done
 ```
 
 ### Index Lifecycle Management
@@ -272,6 +314,21 @@ python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --oneshot
 
 # Live updates
 python status_dashboard.py --status-dir /mnt/dshield/data/logs/status --refresh 2
+```
+
+- `status.json` aggregates bulk/delta/reporting metrics (throughput, failure counters)
+- Phase-specific files (`bulk_ingest.json`, `delta_ingest.json`, `reporting.json`) provide granular detail
+- `cowrie-health` CLI performs integrity and telemetry checks (see Health Check below)
+
+### Tracing (Optional)
+OpenTelemetry spans are emitted when the SDK is available:
+```bash
+pip install opentelemetry-api opentelemetry-sdk
+
+export OTEL_TRACES_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+cowrie-loader bulk /var/log/cowrie/json.log --db /mnt/dshield/data/db/cowrieprocessor.sqlite
 ```
 
 ## Development

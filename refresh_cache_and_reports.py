@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refresh indicator cache (VT/IP) and reindex recent ES reports.
+"""Refresh indicator cache (VT/IP) and reindex recent reports via the ORM pipeline.
 
 This script:
  - Refreshes indicator_cache entries and seeds missing ones from the DB
@@ -8,7 +8,7 @@ This script:
  - Re-generates recent daily/weekly/monthly reports within the configured hot windows
 
 Credentials for services are provided via CLI flags. Elasticsearch credentials are
-picked up by es_reports.py via environment variables or flags (not handled here).
+picked up by the reporting CLI via environment variables or flags (not handled here).
 """
 
 import argparse
@@ -245,9 +245,9 @@ class Refresher:
                 self.refresh_vt(h)
 
         # Seed IPs from sessions/files
-        cur.execute("SELECT DISTINCT source_ip as ip FROM sessions " "WHERE source_ip IS NOT NULL AND source_ip != ''")
+        cur.execute("SELECT DISTINCT source_ip as ip FROM sessions WHERE source_ip IS NOT NULL AND source_ip != ''")
         ips = {row['ip'] for row in cur.fetchall()}
-        cur.execute("SELECT DISTINCT src_ip as ip FROM files " "WHERE src_ip IS NOT NULL AND src_ip != ''")
+        cur.execute("SELECT DISTINCT src_ip as ip FROM files WHERE src_ip IS NOT NULL AND src_ip != ''")
         ips |= {row['ip'] for row in cur.fetchall()}
         for ip in ips:
             if not self.cache_get('dshield_ip', ip):
@@ -295,13 +295,14 @@ def refresh_reports(db_path: str, args):
             subprocess.run(
                 [
                     sys.executable,
-                    'es_reports.py',
+                    '-m',
+                    'cowrieprocessor.cli.report',
                     'daily',
-                    '--all-sensors',
-                    '--date',
                     date_str,
+                    '--all-sensors',
                     '--db',
                     db_path,
+                    '--publish',
                 ],
                 check=False,
             )
@@ -317,7 +318,16 @@ def refresh_reports(db_path: str, args):
             key = f"{iso_year}-W{iso_week:02d}"
             if key not in seen:
                 subprocess.run(
-                    [sys.executable, 'es_reports.py', 'weekly', '--week', key, '--db', db_path],
+                    [
+                        sys.executable,
+                        '-m',
+                        'cowrieprocessor.cli.report',
+                        'weekly',
+                        key,
+                        '--db',
+                        db_path,
+                        '--publish',
+                    ],
                     check=False,
                 )
                 seen.add(key)
@@ -332,7 +342,16 @@ def refresh_reports(db_path: str, args):
             months.add(d.strftime('%Y-%m'))
         for ym in sorted(months):
             subprocess.run(
-                [sys.executable, 'es_reports.py', 'monthly', '--month', ym, '--db', db_path],
+                [
+                    sys.executable,
+                    '-m',
+                    'cowrieprocessor.cli.report',
+                    'monthly',
+                    ym,
+                    '--db',
+                    db_path,
+                    '--publish',
+                ],
                 check=False,
             )
 

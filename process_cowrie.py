@@ -2074,9 +2074,7 @@ def print_session_info(
             print("Data for session " + session + " was already stored within database")
         else:
             session_urlhaus_tags = (
-                safe_read_uh_data(src_ip, urlhausapi)
-                if (not skip_enrich and urlhausapi and src_ip)
-                else ""
+                safe_read_uh_data(src_ip, urlhausapi) if (not skip_enrich and urlhausapi and src_ip) else ""
             )
             sql = (
                 "INSERT INTO sessions( session, session_duration, protocol, username, password, "
