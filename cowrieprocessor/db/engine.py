@@ -27,6 +27,7 @@ def _sqlite_on_connect(settings: DatabaseSettings):
     def configure(dbapi_connection: sqlite3.Connection, _: Any) -> None:
         cursor = dbapi_connection.cursor()
         try:
+            cursor.execute("PRAGMA busy_timeout=5000")
             journal_mode = None
             if settings.sqlite_wal:
                 try:
