@@ -91,6 +91,7 @@ class SessionSummary(Base):
     risk_score = Column(Integer, nullable=True)
     matcher = Column(String(32), nullable=True)
     source_files = Column(JSON, nullable=True)
+    enrichment = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

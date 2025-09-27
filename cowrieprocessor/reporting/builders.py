@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, List, Optional
 
-from .dal import CommandStatRow, FileDownloadRow, ReportingRepository, SessionStatistics
+from .dal import (
+    CommandStatRow,
+    EnrichedSessionRow,
+    FileDownloadRow,
+    ReportingRepository,
+    SessionStatistics,
+)
 
 
 @dataclass(slots=True)
@@ -53,10 +59,12 @@ class DailyReportBuilder(BaseReportBuilder):
         stats = self.repository.session_stats(context.start, context.end, context.sensor)
         commands = list(self.repository.top_commands(context.start, context.end, self.top_n, context.sensor))
         downloads = list(self.repository.top_file_downloads(context.start, context.end, self.top_n, context.sensor))
+        enrichments = self.repository.enriched_sessions(context.start, context.end, sensor=context.sensor)
 
         payload["sessions"] = _session_stats_dict(stats)
         payload["commands"] = _top_commands(commands)
         payload["files"] = _top_downloads(downloads)
+        payload["enrichments"] = _enrichment_summary(enrichments)
         return payload
 
 
@@ -125,3 +133,58 @@ def _top_downloads(rows: Iterable[FileDownloadRow]) -> Dict[str, object]:
             for row in rows
         ]
     }
+
+
+def _enrichment_summary(rows: Iterable[EnrichedSessionRow]) -> Dict[str, object]:
+    entries = []
+    for row in rows:
+        ips: List[Dict[str, object]] = []
+        files: List[Dict[str, object]] = []
+        entry: Dict[str, object] = {
+            "session": row.session_id,
+            "sensor": row.sensor or "aggregate",
+            "first_seen": row.first_event_at.isoformat() if row.first_event_at else None,
+            "last_seen": row.last_event_at.isoformat() if row.last_event_at else None,
+            "ips": ips,
+            "files": files,
+        }
+
+        session_data = row.enrichment.get("session", {})
+        if isinstance(session_data, dict):
+            for ip, details in list(session_data.items())[:3]:
+                ip_entry: Dict[str, object] = {"ip": ip}
+                if isinstance(details, dict):
+                    if "dshield" in details:
+                        ip_entry["dshield"] = details.get("dshield")
+                    if "urlhaus" in details:
+                        ip_entry["urlhaus"] = details.get("urlhaus")
+                    if "spur" in details:
+                        ip_entry["spur"] = details.get("spur")
+                ips.append(ip_entry)
+
+        vt_data = row.enrichment.get("virustotal", {})
+        if isinstance(vt_data, dict):
+            for file_hash, payload in list(vt_data.items())[:3]:
+                vt_entry: Dict[str, object] = {"hash": file_hash}
+                attributes = {}
+                if isinstance(payload, dict):
+                    data_obj = payload.get("data")
+                    if isinstance(data_obj, dict):
+                        attributes = data_obj.get("attributes", {})
+                if isinstance(attributes, dict):
+                    stats = attributes.get("last_analysis_stats", {})
+                    if isinstance(stats, dict) and "malicious" in stats:
+                        vt_entry["malicious"] = stats.get("malicious")
+                    classification = attributes.get("popular_threat_classification")
+                    if isinstance(classification, dict):
+                        label = classification.get("suggested_threat_label")
+                        if label:
+                            vt_entry["label"] = label
+                    first_seen = attributes.get("first_submission_date")
+                    if first_seen:
+                        vt_entry["first_seen"] = first_seen
+                files.append(vt_entry)
+
+        entries.append(entry)
+
+    return {"flagged": entries}

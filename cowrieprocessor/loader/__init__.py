@@ -7,6 +7,7 @@ from .bulk import (
     BulkLoaderMetrics,
     LoaderCheckpoint,
     LoaderCircuitBreakerError,
+    SessionEnricher,
 )
 from .delta import DeltaLoader, DeltaLoaderConfig
 
@@ -16,6 +17,7 @@ __all__ = [
     "BulkLoaderMetrics",
     "LoaderCheckpoint",
     "LoaderCircuitBreakerError",
+    "SessionEnricher",
     "DeltaLoader",
     "DeltaLoaderConfig",
     "StatusEmitter",

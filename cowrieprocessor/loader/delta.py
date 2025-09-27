@@ -28,6 +28,7 @@ from .bulk import (
     BulkLoaderMetrics,
     LoaderCheckpoint,
     SessionAggregate,
+    SessionEnricher,
     TelemetryCallback,
 )
 
@@ -44,10 +45,16 @@ class DeltaLoaderConfig:
 class DeltaLoader:
     """Incremental loader that only ingests new events since the last run."""
 
-    def __init__(self, engine, config: Optional[DeltaLoaderConfig] = None):
+    def __init__(
+        self,
+        engine,
+        config: Optional[DeltaLoaderConfig] = None,
+        *,
+        enrichment_service: Optional[SessionEnricher] = None,
+    ):
         """Bind the delta loader to a database engine and configuration."""
         self.config = config or DeltaLoaderConfig()
-        self._bulk = BulkLoader(engine, self.config.bulk)
+        self._bulk = BulkLoader(engine, self.config.bulk, enrichment_service=enrichment_service)
         self._session_factory = self._bulk._session_factory  # reuse session factory
 
     def load_paths(

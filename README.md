@@ -318,6 +318,25 @@ cowrie-db info
 - `--spurapi`: SPUR.us API key
 - `--dbxapi`, `--dbxkey`, `--dbxsecret`, `--dbxrefreshtoken`: Dropbox credentials
 
+### ORM Loader Enrichment
+The `cowrie-loader` ORM ingestion CLI accepts dedicated enrichment options that
+mirror the legacy processor flags while sourcing defaults from the same
+environment variables:
+
+- `--vt-api-key` (uses `VT_API_KEY` when omitted)
+- `--dshield-email` (uses `DSHIELD_EMAIL` when omitted)
+- `--urlhaus-api-key` (uses `URLHAUS_API_KEY` when omitted)
+- `--spur-api-key` (uses `SPUR_API_KEY` when omitted)
+- `--cache-dir` to override the enrichment cache location
+- `--skip-enrich` to disable all enrichment lookups for the current run
+
+These options feed the new enrichment pipeline that materialises VirusTotal and
+DShield flags in the ORM `session_summaries` table for downstream reporting.
+
+Daily JSON reports now include an `enrichments.flagged` section summarising the
+sessions that triggered VirusTotal or DShield hits, including the top source IP
+intelligence and associated file hash verdicts.
+
 ### Performance Tuning
 - `--bulk-load`: Enable bulk loading mode
 - `--skip-enrich`: Skip API enrichments
