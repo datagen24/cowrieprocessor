@@ -1,4 +1,4 @@
-name: Lint and Type Check
+name: CI Pipeline
 
 on:
   push:
@@ -32,4 +32,67 @@ jobs:
         run: |
           mypy --version
           mypy .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    services:
+      # Mock enrichment server for integration tests
+      mock-enrichment-server:
+        image: mock-enrichment-server:latest
+        ports:
+          - 8888:8888
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: |
+          uv sync
+
+      - name: Run unit tests
+        env:
+          USE_MOCK_APIS: true
+        run: |
+          uv run pytest tests/unit/ -v --tb=short
+
+      - name: Run integration tests
+        env:
+          USE_MOCK_APIS: true
+          MOCK_SERVER_URL: http://localhost:8888
+        run: |
+          uv run pytest tests/integration/ -v --tb=short
+
+      - name: Run performance tests
+        env:
+          USE_MOCK_APIS: true
+        run: |
+          uv run pytest tests/performance/ -v --tb=short --benchmark-only
+
+      - name: Run tests with coverage
+        env:
+          USE_MOCK_APIS: true
+        run: |
+          uv run pytest --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=80
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: true
 
