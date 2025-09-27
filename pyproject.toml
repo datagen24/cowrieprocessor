@@ -55,6 +55,7 @@ disallow_untyped_defs = false
 check_untyped_defs = false
 warn_unused_ignores = true
 warn_redundant_casts = true
+explicit_package_bases = true
 
 [tool.setuptools]
 packages = [
