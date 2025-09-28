@@ -43,7 +43,7 @@ class MockEnrichmentHandler(BaseHTTPRequestHandler):
 
         if path.startswith('/api/v3/files/'):
             self._handle_vt_file_request(path)
-        elif '/api/ip/' in path and 'dshield.org' in self.headers.get('Host', ''):
+        elif '/api/ip/' in path and 'isc.sans.edu' in self.headers.get('Host', ''):
             self._handle_dshield_request(path, query_params)
         elif '/api/v1/context/' in path:
             self._handle_spur_request(path)
@@ -321,7 +321,7 @@ def create_mock_server_config() -> Dict[str, Any]:
             "endpoints": {"/api/v3/files/{hash}": {"method": "GET", "description": "File hash lookup"}},
         },
         "dshield": {
-            "base_url": "https://dshield.org",
+            "base_url": "https://isc.sans.edu",
             "endpoints": {
                 "/api/ip/{ip}": {"method": "GET", "description": "IP reputation lookup", "params": ["email"]}
             },
