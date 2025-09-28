@@ -80,7 +80,7 @@ def test_dshield_query_uses_cache(tmp_path: Path) -> None:
     )
 
     assert data["ip"]["asname"] == "Example ASN"
-    assert session.calls == [("https://dshield.org/api/ip/203.0.113.10?email=analyst@example.com", 30)]
+    assert session.calls == [("https://isc.sans.edu/api/ip/203.0.113.10?email=analyst@example.com&json", 30)]
 
     # Second call should hit the cache and avoid a new HTTP request.
     def fail_factory() -> requests.Session:
@@ -330,7 +330,7 @@ def test_dshield_query_handles_expired_cache(tmp_path: Path) -> None:
 
     # Should fetch fresh data
     assert data["ip"]["asname"] == "New ASN"
-    assert session.calls == [("https://dshield.org/api/ip/203.0.113.10?email=analyst@example.com", 30)]
+    assert session.calls == [("https://isc.sans.edu/api/ip/203.0.113.10?email=analyst@example.com&json", 30)]
 
 
 def test_dshield_query_handles_api_error() -> None:
