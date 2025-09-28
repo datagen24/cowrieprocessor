@@ -333,6 +333,23 @@ environment variables:
 These options feed the new enrichment pipeline that materialises VirusTotal and
 DShield flags in the ORM `session_summaries` table for downstream reporting.
 
+### Feature Flag
+- `USE_NEW_ENRICHMENT`: Set to `true` to route the legacy `process_cowrie.py`
+  workflow through the compatibility adapter and new enrichment service. Keep
+  it `false` (default) for the original behaviour while rolling out changes.
+
+### Cache Layout
+Enrichment responses are cached beneath `~/.cache/cowrieprocessor` (configurable)
+using sharded subdirectories per service. Each service has a default TTL:
+
+- VirusTotal hash lookups: 30 days (12 hours for unknown hashes)
+- DShield IP lookups: 7 days
+- URLHaus lookups: 3 days
+- SPUR lookups: 14 days
+
+Cache telemetry (hits, misses, stores) is published alongside status updates so
+long-running jobs can observe enrichment behaviour without additional tooling.
+
 Daily JSON reports now include an `enrichments.flagged` section summarising the
 sessions that triggered VirusTotal or DShield hits, including the top source IP
 intelligence and associated file hash verdicts.
@@ -561,6 +578,21 @@ Test fixtures include realistic API responses for all services:
 - **DShield**: Datacenter, residential, and VPN IP responses
 - **URLHaus**: Malicious URL and tag responses
 - **SPUR**: Infrastructure classification responses
+
+#### Phase 2 Enrichment Harness
+
+An offline harness for phase 2 lives under
+`tests/integration/test_enrichment_flow.py`. It provides deterministic stubs for
+all enrichment services, supports synthetic fixtures, and can optionally read
+from the archival snapshot at `/mnt/dshield/data/db/cowrieprocessor.sqlite`.
+Usage examples and safeguards are documented in
+`docs/enrichment_test_harness.md`.
+
+#### Contributing
+
+Refer to `CONTRIBUTING.md` for pull-request expectations, required lint/type
+checks, and the recommended pytest commands that must pass before a PR is
+submitted.
 - **OTX**: IP reputation and threat intelligence
 - **AbuseIPDB**: IP abuse scoring and categorization
 

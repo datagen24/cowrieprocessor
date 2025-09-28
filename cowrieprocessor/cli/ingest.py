@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 try:
+    from cowrieprocessor.enrichment import EnrichmentCacheManager
     from enrichment_handlers import EnrichmentService
 except ModuleNotFoundError:  # pragma: no cover - package execution path
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
         sys.path.append(str(project_root))
+    from cowrieprocessor.enrichment import EnrichmentCacheManager
     from enrichment_handlers import EnrichmentService
 
 from ..db import apply_migrations, create_engine_from_settings
@@ -72,12 +74,15 @@ def _resolve_enrichment_service(args: argparse.Namespace) -> EnrichmentService |
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    cache_manager = EnrichmentCacheManager(cache_dir)
+
     return EnrichmentService(
         cache_dir,
         vt_api=vt_api,
         dshield_email=dshield_email,
         urlhaus_api=urlhaus_api,
         spur_api=spur_api,
+        cache_manager=cache_manager,
     )
 
 

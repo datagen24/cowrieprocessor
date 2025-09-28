@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Dict, Mapping
+
+from cowrieprocessor.enrichment import EnrichmentCacheManager
 
 _DEFAULT_DB_PATH = Path("cowrieprocessor.sqlite")
 
@@ -104,4 +106,20 @@ def load_database_settings(
     return DatabaseSettings.from_sources(config=config, env_prefix=env_prefix)
 
 
-__all__ = ["DatabaseSettings", "load_database_settings"]
+@dataclass(slots=True)
+class EnrichmentSettings:
+    """Runtime configuration controlling enrichment behaviour."""
+
+    cache_dir: Path = Path.home() / ".cache" / "cowrieprocessor"
+    cache_ttls: Dict[str, int] = field(default_factory=lambda: dict(EnrichmentCacheManager.DEFAULT_TTLS))
+    rate_limits: Dict[str, int] = field(
+        default_factory=lambda: {
+            'virustotal': 4,
+            'dshield': 100,
+            'urlhaus': 60,
+            'spur': 30,
+        }
+    )
+
+
+__all__ = ["DatabaseSettings", "load_database_settings", "EnrichmentSettings"]
