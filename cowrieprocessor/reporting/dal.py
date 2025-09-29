@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable, Iterator, List, Optional, cast
 
 from sqlalchemy import and_, func, or_, select
@@ -72,6 +72,13 @@ class ReportingRepository:
         finally:
             session.close()
 
+    @staticmethod
+    def _normalize_datetime(dt: datetime) -> datetime:
+        """Return a timezone-naive version in UTC for SQLite comparisons."""
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
     def session_stats(self, start: datetime, end: datetime, sensor: Optional[str] = None) -> SessionStatistics:
         """Return aggregated session metrics for the requested window."""
         span_attributes = {
@@ -81,7 +88,12 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.session_stats", span_attributes):
             with self.session() as session:
-                filters = [SessionSummary.first_event_at >= start, SessionSummary.first_event_at < end]
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
+                filters = [
+                    SessionSummary.first_event_at >= range_start,
+                    SessionSummary.first_event_at < range_end,
+                ]
                 if sensor:
                     filters.append(SessionSummary.matcher == sensor)
 
@@ -99,8 +111,8 @@ class ReportingRepository:
                 ).one()
 
                 ip_filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                 ]
                 if sensor:
                     ip_filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
@@ -139,9 +151,11 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.top_commands", span_attributes):
             with self.session() as session:
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
                 filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                     func.json_extract(RawEvent.payload, "$.eventid").like("%command%"),
                 ]
                 if sensor:
@@ -179,9 +193,11 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.top_files", span_attributes):
             with self.session() as session:
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
                 filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                     func.json_extract(RawEvent.payload, "$.eventid") == "cowrie.session.file_download",
                 ]
                 if sensor:
