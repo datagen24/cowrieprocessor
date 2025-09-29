@@ -12,7 +12,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 @contextmanager
@@ -58,6 +58,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v2(connection)
             _set_schema_version(connection, 2)
             version = 2
+
+        if version < 3:
+            _upgrade_to_v3(connection)
+            _set_schema_version(connection, 3)
+            version = 3
     return version
 
 
@@ -73,6 +78,21 @@ def _upgrade_to_v2(connection: Connection) -> None:
             "ON raw_events(source, source_inode, source_generation, source_offset)"
         )
     )
+
+
+def _upgrade_to_v3(connection: Connection) -> None:
+    inspector = inspect(connection)
+    columns = {column["name"] for column in inspector.get_columns("session_summaries")}
+    if "enrichment" in columns:
+        return
+
+    dialect_name = connection.dialect.name
+    if dialect_name == "postgresql":
+        column_type = "JSONB"
+    else:
+        column_type = "JSON"
+
+    connection.execute(text(f"ALTER TABLE session_summaries ADD COLUMN enrichment {column_type}"))
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]

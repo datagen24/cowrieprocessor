@@ -171,7 +171,11 @@ class Refresher:
         """Refresh DShield cache entry for an IP."""
         if not self.args.email:
             return
-        url = f"https://www.dshield.org/api/ip/{ip}?json"
+        base_url = f"https://isc.sans.edu/api/ip/{ip}?json"
+        if self.args.email:
+            url = f"{base_url}&email={self.args.email}"
+        else:
+            url = base_url
         attempt = 0
         while attempt < self.args.api_retries:
             attempt += 1

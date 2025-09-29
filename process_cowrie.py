@@ -31,6 +31,7 @@ from typing import Dict, Optional
 import dropbox
 import requests
 
+from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
 from enrichment_handlers import (
     dshield_query as enrichment_dshield_query,
 )
@@ -83,6 +84,10 @@ for handler in handlers:
 logging.root.setLevel(logging.DEBUG)
 
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+
+USE_NEW_ENRICHMENT = os.getenv("USE_NEW_ENRICHMENT", "false").lower() == "true"
+ENRICHMENT_CACHE_MANAGER: Optional[EnrichmentCacheManager] = None
+LEGACY_ENRICHMENT_ADAPTER: Optional[LegacyEnrichmentAdapter] = None
 
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
 parser.add_argument(
@@ -333,6 +338,14 @@ rate_limits = {
     'spur': getattr(args, 'rate_spur', 60),
 }
 
+cache_ttls = {
+    'virustotal': hash_ttl_seconds,
+    'virustotal_unknown': hash_unknown_ttl_seconds,
+    'dshield': ip_ttl_seconds,
+    'urlhaus': ip_ttl_seconds,
+    'spur': ip_ttl_seconds,
+}
+
 last_request_time = {k: 0.0 for k in rate_limits.keys()}
 
 
@@ -421,6 +434,18 @@ for d in (cache_dir, temp_dir):
         d.mkdir(parents=True, exist_ok=True)
     except Exception:
         logging.error(f"Failed creating directory {d}", exc_info=True)
+
+ENRICHMENT_CACHE_MANAGER = EnrichmentCacheManager(cache_dir, ttls=cache_ttls)
+if USE_NEW_ENRICHMENT and not skip_enrich:
+    LEGACY_ENRICHMENT_ADAPTER = LegacyEnrichmentAdapter(
+        cache_manager=ENRICHMENT_CACHE_MANAGER,
+        cache_dir=cache_dir,
+        vt_api=vtapi,
+        dshield_email=email,
+        urlhaus_api=urlhausapi,
+        spur_api=spurapi,
+        skip_enrich=skip_enrich,
+    )
 
 # Determine output directory: configurable or derived from log path
 try:
@@ -512,8 +537,13 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
         'timestamp': int(now),
     }
     legacy.update(details)
+    cache_snapshot = None
+    if ENRICHMENT_CACHE_MANAGER is not None:
+        cache_snapshot = ENRICHMENT_CACHE_MANAGER.snapshot()
+        legacy['enrichment_cache'] = cache_snapshot
+    legacy['use_new_enrichment'] = USE_NEW_ENRICHMENT
 
-    payload = {
+    payload: dict[str, object] = {
         'version': STATUS_PAYLOAD_VERSION,
         'timestamp_iso': iso_timestamp,
         'timestamp': int(now),
@@ -526,6 +556,10 @@ def write_status(state: str, total_files: int, processed_files: int, current_fil
         'details': details,
         'legacy_format': legacy,
     }
+    if cache_snapshot:
+        enrichment_block = payload.setdefault('enrichment', {})
+        if isinstance(enrichment_block, dict):
+            enrichment_block['cache'] = cache_snapshot
     payload.update(legacy)
     try:
         tmp = status_file.with_suffix('.tmp')
@@ -1296,6 +1330,9 @@ def vt_query(hash, cache_dir: Path):
     Returns:
         None. Side effects: writes a file named after the hash.
     """
+    if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
+        LEGACY_ENRICHMENT_ADAPTER.virustotal(hash)
+        return
     # If cached and TTL valid, restore from DB to file if needed
     cached = cache_get('vt_file', hash)
     vt_path = cache_dir / hash
@@ -1382,6 +1419,8 @@ def vt_filescan(hash, cache_dir: Path):
 
 def dshield_query(ip_address):
     """Return DShield metadata, leveraging the shared enrichment helper."""
+    if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
+        return LEGACY_ENRICHMENT_ADAPTER.dshield(ip_address)
     if skip_enrich:
         return {"ip": {"asname": "", "ascountry": ""}}
 
@@ -1411,6 +1450,8 @@ def dshield_query(ip_address):
 
 def safe_read_uh_data(ip_address, urlhausapi):
     """Return URLHaus tags via the shared enrichment helper."""
+    if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
+        return LEGACY_ENRICHMENT_ADAPTER.urlhaus(ip_address)
     return enrichment_safe_read_uh_data(
         ip_address,
         urlhausapi,
@@ -1463,6 +1504,8 @@ def read_vt_data(hash, cache_dir: Path):
 
 def read_spur_data(ip_address):
     """Return SPUR attributes via the shared enrichment helper."""
+    if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
+        return LEGACY_ENRICHMENT_ADAPTER.spur(ip_address)
     return enrichment_read_spur_data(
         ip_address,
         spurapi or "",
