@@ -32,6 +32,24 @@ def _prepare_repository(tmp_path):
                 login_attempts=1,
                 vt_flagged=1,
                 dshield_flagged=0,
+                enrichment={
+                    "session": {
+                        "1.2.3.4": {
+                            "dshield": {"ip": {"count": "8"}},
+                            "urlhaus": "botnet",
+                        }
+                    },
+                    "virustotal": {
+                        "feedface": {
+                            "data": {
+                                "attributes": {
+                                    "last_analysis_stats": {"malicious": 2},
+                                    "popular_threat_classification": {"suggested_threat_label": "worm"},
+                                }
+                            }
+                        }
+                    },
+                },
             )
         )
         session.add(
@@ -66,3 +84,4 @@ def test_daily_report_builder(tmp_path):
     assert report["report_type"] == "daily"
     assert report["sessions"]["total"] == 1
     assert report["commands"]["top"][0]["command"] == "uname -a"
+    assert report["enrichments"]["flagged"][0]["session"] == "s1"

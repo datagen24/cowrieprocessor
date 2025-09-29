@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Iterable, Iterator, List, Optional, cast
+from datetime import datetime, timezone
+from typing import Any, Iterable, Iterator, List, Optional, cast
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import RawEvent, SessionSummary
@@ -45,6 +45,17 @@ class FileDownloadRow:
     occurrences: int
 
 
+@dataclass(slots=True)
+class EnrichedSessionRow:
+    """Session metadata paired with stored enrichment payload."""
+
+    session_id: str
+    sensor: Optional[str]
+    first_event_at: Optional[datetime]
+    last_event_at: Optional[datetime]
+    enrichment: dict[str, Any]
+
+
 class ReportingRepository:
     """Repository for querying aggregated report data."""
 
@@ -61,6 +72,13 @@ class ReportingRepository:
         finally:
             session.close()
 
+    @staticmethod
+    def _normalize_datetime(dt: datetime) -> datetime:
+        """Return a timezone-naive version in UTC for SQLite comparisons."""
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
     def session_stats(self, start: datetime, end: datetime, sensor: Optional[str] = None) -> SessionStatistics:
         """Return aggregated session metrics for the requested window."""
         span_attributes = {
@@ -70,7 +88,12 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.session_stats", span_attributes):
             with self.session() as session:
-                filters = [SessionSummary.first_event_at >= start, SessionSummary.first_event_at < end]
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
+                filters = [
+                    SessionSummary.first_event_at >= range_start,
+                    SessionSummary.first_event_at < range_end,
+                ]
                 if sensor:
                     filters.append(SessionSummary.matcher == sensor)
 
@@ -88,8 +111,8 @@ class ReportingRepository:
                 ).one()
 
                 ip_filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                 ]
                 if sensor:
                     ip_filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
@@ -128,9 +151,11 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.top_commands", span_attributes):
             with self.session() as session:
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
                 filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                     func.json_extract(RawEvent.payload, "$.eventid").like("%command%"),
                 ]
                 if sensor:
@@ -168,9 +193,11 @@ class ReportingRepository:
         }
         with start_span("cowrie.reporting.repo.top_files", span_attributes):
             with self.session() as session:
+                range_start = self._normalize_datetime(start)
+                range_end = self._normalize_datetime(end)
                 filters = [
-                    RawEvent.ingest_at >= start,
-                    RawEvent.ingest_at < end,
+                    RawEvent.ingest_at >= range_start,
+                    RawEvent.ingest_at < range_end,
                     func.json_extract(RawEvent.payload, "$.eventid") == "cowrie.session.file_download",
                 ]
                 if sensor:
@@ -195,9 +222,61 @@ class ReportingRepository:
     def sensors(self) -> List[str]:
         """Return a sorted list of sensor identifiers present in summaries."""
         with start_span("cowrie.reporting.repo.sensors", {}):
-            with self.session() as session:
-                rows = session.execute(
+            with self.session() as session_ctx:
+                rows = session_ctx.execute(
                     select(func.distinct(SessionSummary.matcher)).where(SessionSummary.matcher.isnot(None))
+                ).scalars()
+                return sorted({row for row in rows if row})
+
+    def enriched_sessions(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        sensor: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[EnrichedSessionRow]:
+        """Return sessions with persisted enrichment metadata in the window."""
+        span_attributes = {
+            "report.window.start": start.isoformat(),
+            "report.window.end": end.isoformat(),
+            "report.sensor": sensor or "aggregate",
+            "report.limit": limit,
+        }
+        with start_span("cowrie.reporting.repo.enriched_sessions", span_attributes):
+            with self.session() as session_ctx:
+                filters = [
+                    SessionSummary.first_event_at >= start,
+                    SessionSummary.first_event_at < end,
+                    SessionSummary.enrichment.isnot(None),
+                    or_(SessionSummary.vt_flagged == 1, SessionSummary.dshield_flagged == 1),
+                ]
+                if sensor:
+                    filters.append(SessionSummary.matcher == sensor)
+
+                stmt = (
+                    select(
+                        SessionSummary.session_id,
+                        SessionSummary.matcher,
+                        SessionSummary.enrichment,
+                        SessionSummary.first_event_at,
+                        SessionSummary.last_event_at,
+                    )
+                    .where(and_(*filters))
+                    .order_by(SessionSummary.last_event_at.desc())
+                    .limit(limit)
                 )
-                sensors = [value for (value,) in rows if value]
-        return sorted(set(sensors))
+
+                results: List[EnrichedSessionRow] = []
+                for row in session_ctx.execute(stmt):
+                    enrichment_value = row.enrichment if isinstance(row.enrichment, dict) else {}
+                    results.append(
+                        EnrichedSessionRow(
+                            session_id=row.session_id,
+                            sensor=row.matcher,
+                            first_event_at=row.first_event_at,
+                            last_event_at=row.last_event_at,
+                            enrichment=enrichment_value,
+                        )
+                    )
+                return results

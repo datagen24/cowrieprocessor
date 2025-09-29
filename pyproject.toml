@@ -14,6 +14,8 @@ dependencies = [
   "python-dateutil>=2.8.2",
   "sqlalchemy>=2.0.36",
   "tomli>=2.0.1; python_version < '3.11'",
+  "types-python-dateutil>=2.9.0.20250822",
+  "pip>=25.2",
 ]
 
 [build-system]
@@ -55,6 +57,11 @@ disallow_untyped_defs = false
 check_untyped_defs = false
 warn_unused_ignores = true
 warn_redundant_casts = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["dateutil.*"]
+ignore_missing_imports = true
 
 [tool.setuptools]
 packages = [

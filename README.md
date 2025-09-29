@@ -318,6 +318,42 @@ cowrie-db info
 - `--spurapi`: SPUR.us API key
 - `--dbxapi`, `--dbxkey`, `--dbxsecret`, `--dbxrefreshtoken`: Dropbox credentials
 
+### ORM Loader Enrichment
+The `cowrie-loader` ORM ingestion CLI accepts dedicated enrichment options that
+mirror the legacy processor flags while sourcing defaults from the same
+environment variables:
+
+- `--vt-api-key` (uses `VT_API_KEY` when omitted)
+- `--dshield-email` (uses `DSHIELD_EMAIL` when omitted)
+- `--urlhaus-api-key` (uses `URLHAUS_API_KEY` when omitted)
+- `--spur-api-key` (uses `SPUR_API_KEY` when omitted)
+- `--cache-dir` to override the enrichment cache location
+- `--skip-enrich` to disable all enrichment lookups for the current run
+
+These options feed the new enrichment pipeline that materialises VirusTotal and
+DShield flags in the ORM `session_summaries` table for downstream reporting.
+
+### Feature Flag
+- `USE_NEW_ENRICHMENT`: Set to `true` to route the legacy `process_cowrie.py`
+  workflow through the compatibility adapter and new enrichment service. Keep
+  it `false` (default) for the original behaviour while rolling out changes.
+
+### Cache Layout
+Enrichment responses are cached beneath `~/.cache/cowrieprocessor` (configurable)
+using sharded subdirectories per service. Each service has a default TTL:
+
+- VirusTotal hash lookups: 30 days (12 hours for unknown hashes)
+- DShield IP lookups: 7 days
+- URLHaus lookups: 3 days
+- SPUR lookups: 14 days
+
+Cache telemetry (hits, misses, stores) is published alongside status updates so
+long-running jobs can observe enrichment behaviour without additional tooling.
+
+Daily JSON reports now include an `enrichments.flagged` section summarising the
+sessions that triggered VirusTotal or DShield hits, including the top source IP
+intelligence and associated file hash verdicts.
+
 ### Performance Tuning
 - `--bulk-load`: Enable bulk loading mode
 - `--skip-enrich`: Skip API enrichments
@@ -451,11 +487,124 @@ pre-commit run --all-files
 ```
 
 ### Testing
-```bash
-uv sync  # Install dependencies
-uv run pytest  # Run tests
-uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80  # With coverage
+
+The project includes comprehensive test coverage for all enrichment workflows with 80%+ coverage requirement.
+
+#### Test Structure
+
 ```
+tests/
+├── unit/                    # Fast, isolated unit tests
+│   ├── test_enrichment_handlers.py      # Core enrichment function tests
+│   ├── test_mock_enrichment_handlers.py # Mock service tests
+│   └── test_*.py                        # Other unit tests
+├── integration/             # End-to-end integration tests
+│   ├── test_enrichment_integration.py   # Enrichment workflow tests
+│   ├── test_enrichment_reports.py       # Report generation tests
+│   └── test_*.py                        # Other integration tests
+├── performance/             # Performance and benchmark tests
+│   ├── test_enrichment_performance.py   # Enrichment performance tests
+│   └── test_*.py                        # Other performance tests
+├── fixtures/                # Test data and mock services
+│   ├── enrichment_fixtures.py           # Mock API responses
+│   ├── mock_enrichment_handlers.py      # Mock service implementations
+│   ├── mock_enrichment_server.py        # Mock HTTP server
+│   └── statistical_analysis.py          # Analysis tools
+└── conftest.py              # Shared test fixtures
+```
+
+#### Running Tests
+
+```bash
+# Install dependencies (including test dependencies)
+uv sync
+
+# Run all tests
+uv run pytest
+
+# Run specific test categories
+uv run pytest tests/unit/                    # Unit tests only
+uv run pytest tests/integration/             # Integration tests only
+uv run pytest tests/performance/             # Performance tests only
+
+# Run with coverage (80%+ required)
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80
+
+# Run specific test markers
+uv run pytest -m "unit"                     # Unit tests
+uv run pytest -m "integration"              # Integration tests
+uv run pytest -m "performance"              # Performance tests
+uv run pytest -m "enrichment"               # Enrichment-specific tests
+
+# Run with mock APIs (for testing without external dependencies)
+USE_MOCK_APIS=true uv run pytest
+
+# Performance benchmarking
+uv run pytest tests/performance/ --benchmark-only
+```
+
+#### Test Coverage Requirements
+
+- **Minimum 80% code coverage** across the entire codebase
+- **New features require 90%+ coverage**
+- **Bug fixes must include regression tests**
+- **All enrichment workflows** must have comprehensive test coverage
+
+#### Mock Testing Infrastructure
+
+The project includes comprehensive mock infrastructure for testing without external API dependencies:
+
+- **Mock enrichment handlers** for OTX, AbuseIPDB, and statistical analysis
+- **Mock HTTP server** for simulating API responses
+- **Pre-configured test fixtures** with realistic API responses
+- **Performance testing** with concurrent access simulation
+
+#### Enrichment Services Tested
+
+| Service | Status | Test Coverage | Notes |
+|---------|--------|---------------|-------|
+| VirusTotal | ✅ Active | 100% | File hash analysis, caching, rate limiting |
+| DShield | ✅ Active | 100% | IP reputation, ASN lookup, caching |
+| URLHaus | ✅ Active | 100% | Malicious URL detection, tag parsing |
+| SPUR.us | ⚠️ Mocked | 100% | No license - comprehensive mock implementation |
+| OTX | 🔧 Ready | 100% | Mock implementation ready for API key |
+| AbuseIPDB | 🔧 Ready | 100% | Mock implementation ready for API key |
+
+#### Test Data and Fixtures
+
+Test fixtures include realistic API responses for all services:
+
+- **VirusTotal**: Malware, clean, and unknown hash responses
+- **DShield**: Datacenter, residential, and VPN IP responses
+- **URLHaus**: Malicious URL and tag responses
+- **SPUR**: Infrastructure classification responses
+
+#### Phase 2 Enrichment Harness
+
+An offline harness for phase 2 lives under
+`tests/integration/test_enrichment_flow.py`. It provides deterministic stubs for
+all enrichment services, supports synthetic fixtures, and can optionally read
+from the archival snapshot at `/mnt/dshield/data/db/cowrieprocessor.sqlite`.
+Usage examples and safeguards are documented in
+`docs/enrichment_test_harness.md`.
+
+#### Contributing
+
+Refer to `CONTRIBUTING.md` for pull-request expectations, required lint/type
+checks, and the recommended pytest commands that must pass before a PR is
+submitted.
+- **OTX**: IP reputation and threat intelligence
+- **AbuseIPDB**: IP abuse scoring and categorization
+
+#### CI/CD Integration
+
+All tests run automatically in CI/CD with:
+
+- **Multi-Python version testing** (3.9-3.13)
+- **Coverage reporting** with Codecov integration
+- **Mock server integration** for external API testing
+- **Performance benchmarking** with historical comparison
+- **Security testing** for API key handling and data validation
 
 ## Output Files
 

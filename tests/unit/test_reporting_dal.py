@@ -38,6 +38,24 @@ def test_session_stats_and_top_commands(tmp_path):
                 vt_flagged=1,
                 dshield_flagged=0,
                 matcher="sensor-a",
+                enrichment={
+                    "session": {
+                        "1.2.3.4": {
+                            "dshield": {"ip": {"count": "10", "attacks": "12"}},
+                            "urlhaus": "malware",
+                        }
+                    },
+                    "virustotal": {
+                        "deadbeef": {
+                            "data": {
+                                "attributes": {
+                                    "last_analysis_stats": {"malicious": 5},
+                                    "popular_threat_classification": {"suggested_threat_label": "trojan"},
+                                }
+                            }
+                        }
+                    },
+                },
             )
         )
         session.add(
@@ -88,3 +106,46 @@ def test_session_stats_and_top_commands(tmp_path):
     assert downloads[0].url == "http://malicious"
 
     assert repo.sensors() == ["sensor-a"]
+
+
+def test_enriched_sessions(tmp_path):
+    """Repository returns enrichment payload metadata for flagged sessions."""
+    factory = _session_factory(tmp_path)
+    repo = ReportingRepository(factory)
+
+    start = datetime(2024, 1, 1, tzinfo=UTC)
+    end = datetime(2024, 1, 2, tzinfo=UTC)
+
+    with factory() as session:
+        session.add(
+            SessionSummary(
+                session_id="s1",
+                first_event_at=start,
+                last_event_at=end,
+                event_count=5,
+                command_count=3,
+                file_downloads=1,
+                login_attempts=1,
+                vt_flagged=1,
+                dshield_flagged=1,
+                matcher="sensor-a",
+                enrichment={
+                    "session": {
+                        "1.2.3.4": {
+                            "dshield": {"ip": {"count": "10", "attacks": "12"}},
+                            "urlhaus": "malware",
+                            "spur": ["", "", "", "DATACENTER"],
+                        }
+                    }
+                },
+            )
+        )
+        session.commit()
+
+    rows = repo.enriched_sessions(start, end, sensor="sensor-a", limit=5)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.session_id == "s1"
+    assert row.sensor == "sensor-a"
+    assert isinstance(row.enrichment, dict)
+    assert "session" in row.enrichment

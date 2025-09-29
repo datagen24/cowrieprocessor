@@ -11,9 +11,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping, Optional, Sequence, cast
+from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping, Optional, Protocol, Sequence, Set, cast
 
-from dateutil import parser as date_parser  # type: ignore[import-untyped]
+from dateutil import parser as date_parser
 from sqlalchemy import Table, func
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 
@@ -36,6 +36,16 @@ SUSPICIOUS_PATTERNS = {"/tmp/", "http://", "https://", ";", "&&", "|"}
 COMMAND_EVENT_HINTS = {"cowrie.command", "command"}
 FILE_EVENT_HINTS = {"file_download", "cowrie.session.file"}
 LOGIN_EVENT_HINTS = {"login", "cowrie.login"}
+
+
+class SessionEnricher(Protocol):
+    """Protocol describing the enrichment service used by the loaders."""
+
+    def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
+        """Return enrichment metadata for a session source IP."""
+
+    def enrich_file(self, file_hash: str, filename: str) -> dict[str, Any]:
+        """Return enrichment metadata for a downloaded file hash."""
 
 
 @dataclass(slots=True)
@@ -66,6 +76,14 @@ class SessionAggregate:
     last_event_at: Optional[datetime] = None
     highest_risk: int = 0
     source_files: set[str] = field(default_factory=set)
+    sensor: Optional[str] = None
+    src_ips: Set[str] = field(default_factory=set)
+    file_hashes: Set[str] = field(default_factory=set)
+    vt_flagged: bool = False
+    dshield_flagged: bool = False
+    urlhaus_flagged: bool = False
+    spur_flagged: bool = False
+    enrichment_payload: Dict[str, Any] = field(default_factory=dict)
 
     def update_timestamp(self, ts: Optional[datetime]) -> None:
         if ts is None:
@@ -131,12 +149,19 @@ class LoaderCircuitBreakerError(RuntimeError):
 class BulkLoader:
     """Stream Cowrie JSON lines into the structured database schema."""
 
-    def __init__(self, engine, config: Optional[BulkLoaderConfig] = None):
+    def __init__(
+        self,
+        engine,
+        config: Optional[BulkLoaderConfig] = None,
+        *,
+        enrichment_service: Optional[SessionEnricher] = None,
+    ):
         """Create a loader bound to a database engine."""
         self.engine = engine
         self.config = config or BulkLoaderConfig()
         self._session_factory: sessionmaker[Session] = create_session_maker(engine)
         self._failure_streak = 0
+        self._enrichment_service = enrichment_service
 
     def load_paths(
         self,
@@ -184,6 +209,14 @@ class BulkLoader:
                             if processed.session_id:
                                 agg = session_aggregates.setdefault(processed.session_id, SessionAggregate())
                                 agg.event_count += 1
+                                payload_ref = processed.payload
+                                if isinstance(payload_ref, Mapping):
+                                    sensor_val = payload_ref.get("sensor")
+                                    if isinstance(sensor_val, str) and sensor_val and agg.sensor is None:
+                                        agg.sensor = sensor_val
+                                    src_ip_val = payload_ref.get("src_ip") or payload_ref.get("peer_ip")
+                                    if isinstance(src_ip_val, str) and src_ip_val:
+                                        agg.src_ips.add(src_ip_val)
                                 if processed.event_type and any(
                                     hint in processed.event_type for hint in COMMAND_EVENT_HINTS
                                 ):
@@ -192,6 +225,10 @@ class BulkLoader:
                                     hint in processed.event_type for hint in FILE_EVENT_HINTS
                                 ):
                                     agg.file_downloads += 1
+                                    if isinstance(processed.payload, Mapping):
+                                        file_hash = self._extract_file_hash(processed.payload)
+                                        if file_hash:
+                                            agg.file_hashes.add(file_hash)
                                 if processed.event_type and any(
                                     hint in processed.event_type for hint in LOGIN_EVENT_HINTS
                                 ):
@@ -248,6 +285,9 @@ class BulkLoader:
         batch_risk = sum(record.get("risk_score", 0) or 0 for record in raw_event_records)
         if batch_risk >= self.config.batch_risk_threshold:
             metrics.batches_quarantined += 1
+
+        if self._enrichment_service:
+            self._apply_enrichment(session_aggregates)
 
         attempt = 0
         backoff = 1.0
@@ -316,6 +356,77 @@ class BulkLoader:
             self._upsert_session_summaries(session, session_aggregates)
         return inserted
 
+    def _apply_enrichment(self, session_aggregates: Dict[str, SessionAggregate]) -> None:
+        """Populate enrichment metadata and flags for the pending session aggregates."""
+        if not self._enrichment_service:
+            return
+
+        for session_id, aggregate in session_aggregates.items():
+            # Resolve and enrich each observed source IP
+            session_store = aggregate.enrichment_payload.setdefault("session", {})
+            for src_ip in aggregate.src_ips:
+                session_result = self._enrichment_service.enrich_session(session_id, src_ip)
+                enrichment = session_result.get("enrichment", {})
+                session_store[src_ip] = enrichment
+                self._update_session_flags(aggregate, enrichment)
+
+            # Resolve VirusTotal metadata for downloaded files
+            vt_store = aggregate.enrichment_payload.setdefault("virustotal", {})
+            for file_hash in aggregate.file_hashes:
+                file_result = self._enrichment_service.enrich_file(file_hash, file_hash)
+                vt_data = file_result.get("enrichment", {}).get("virustotal")
+                if vt_data is None:
+                    continue
+                vt_store[file_hash] = vt_data
+                self._update_vt_flag(aggregate, vt_data)
+
+    def _update_session_flags(self, aggregate: SessionAggregate, enrichment: Mapping[str, Any]) -> None:
+        """Set aggregate flags based on session-level enrichment payload."""
+        dshield_data = enrichment.get("dshield")
+        if isinstance(dshield_data, Mapping):
+            ip_info = dshield_data.get("ip", {})
+            if isinstance(ip_info, Mapping):
+                count = self._coerce_int(ip_info.get("count"))
+                attacks = self._coerce_int(ip_info.get("attacks"))
+                aggregate.dshield_flagged = aggregate.dshield_flagged or (count > 0 or attacks > 0)
+
+        urlhaus_tags = enrichment.get("urlhaus")
+        if isinstance(urlhaus_tags, str):
+            aggregate.urlhaus_flagged = aggregate.urlhaus_flagged or bool(urlhaus_tags.strip())
+
+        spur_data = enrichment.get("spur")
+        if isinstance(spur_data, list) and len(spur_data) > 3:
+            infrastructure = spur_data[3]
+            if isinstance(infrastructure, str):
+                aggregate.spur_flagged = aggregate.spur_flagged or infrastructure.upper() in {
+                    "DATACENTER",
+                    "VPN",
+                }
+
+    def _update_vt_flag(self, aggregate: SessionAggregate, vt_data: Mapping[str, Any]) -> None:
+        """Update the VirusTotal flag when a malicious verdict is observed."""
+        data_obj = vt_data.get("data")
+        if not isinstance(data_obj, Mapping):
+            return
+        attributes = data_obj.get("attributes")
+        if not isinstance(attributes, Mapping):
+            return
+        stats = attributes.get("last_analysis_stats")
+        if not isinstance(stats, Mapping):
+            return
+        malicious = self._coerce_int(stats.get("malicious"))
+        aggregate.vt_flagged = aggregate.vt_flagged or malicious > 0
+
+    @staticmethod
+    def _coerce_int(value: Any) -> int:
+        """Best-effort conversion of heterogeneous number representations to integers."""
+        if isinstance(value, bool):
+            return int(value)
+        try:
+            return int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
     def _bulk_insert_raw_events(self, session: Session, records: List[JsonDict]) -> int:
         if not records:
             return 0
@@ -366,6 +477,10 @@ class BulkLoader:
                     "last_event_at": agg.last_event_at,
                     "risk_score": agg.highest_risk,
                     "source_files": sorted(agg.source_files) or None,
+                    "matcher": agg.sensor,
+                    "vt_flagged": int(agg.vt_flagged),
+                    "dshield_flagged": int(agg.dshield_flagged),
+                    "enrichment": agg.enrichment_payload or None,
                 }
             )
 
@@ -383,6 +498,10 @@ class BulkLoader:
                     "last_event_at": func.max(SessionSummary.last_event_at, excluded.last_event_at),
                     "risk_score": func.max(SessionSummary.risk_score, excluded.risk_score),
                     "source_files": excluded.source_files,
+                    "matcher": func.coalesce(SessionSummary.matcher, excluded.matcher),
+                    "vt_flagged": func.max(SessionSummary.vt_flagged, excluded.vt_flagged),
+                    "dshield_flagged": func.max(SessionSummary.dshield_flagged, excluded.dshield_flagged),
+                    "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "updated_at": func.now(),
                 },
             )
@@ -403,6 +522,10 @@ class BulkLoader:
                     "last_event_at": func.greatest(SessionSummary.last_event_at, excluded.last_event_at),
                     "risk_score": func.greatest(SessionSummary.risk_score, excluded.risk_score),
                     "source_files": excluded.source_files,
+                    "matcher": func.coalesce(SessionSummary.matcher, excluded.matcher),
+                    "vt_flagged": func.greatest(SessionSummary.vt_flagged, excluded.vt_flagged),
+                    "dshield_flagged": func.greatest(SessionSummary.dshield_flagged, excluded.dshield_flagged),
+                    "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "updated_at": func.now(),
                 },
             )
@@ -602,6 +725,14 @@ class BulkLoader:
             return path.stat().st_ino
         except (OSError, FileNotFoundError):
             return None
+
+    def _extract_file_hash(self, payload: Mapping[str, Any]) -> Optional[str]:
+        """Extract a representative file hash from an event payload when available."""
+        for key in ("sha256", "shasum", "sha1", "sha512", "hash"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
 
 
 __all__ = ["BulkLoader", "BulkLoaderConfig", "BulkLoaderMetrics"]
