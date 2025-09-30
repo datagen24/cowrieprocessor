@@ -95,6 +95,13 @@ The system uses a central SQLite database to aggregate data from multiple honeyp
 
 ## Usage Guide
 
+### Command-Line Invocation
+
+Run the Cowrie processor directly via Python module:
+
+```bash
+python -m process_cowrie --db /data/db/cowrieprocessor.sqlite [other options]
+
 ### Single Sensor Processing
 
 Basic usage:
