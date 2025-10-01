@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional, Tuple
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 try:
     import tomllib  # Python 3.11+
@@ -20,6 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
+from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 DEFAULT_DB = Path("/mnt/dshield/data/db/cowrieprocessor.sqlite")
@@ -50,52 +53,90 @@ def load_sensor_credentials(sensor_index: int = 0) -> dict:
     return creds
 
 
-def open_database(db_path: Path) -> sqlite3.Connection:
-    """Open the Cowrie snapshot in read-only immutable mode."""
-    uri = f"file:{db_path}?mode=ro&immutable=1"
-    conn = sqlite3.connect(uri, uri=True)
-    conn.execute("PRAGMA query_only=1")
-    return conn
+def create_readonly_engine(db_url: str) -> Engine:
+    """Create a read-only engine for the database."""
+    if db_url.startswith("sqlite://"):
+        # For SQLite, add read-only parameters
+        if "?" in db_url:
+            db_url += "&mode=ro&immutable=1"
+        else:
+            db_url += "?mode=ro&immutable=1"
+    
+    engine = create_engine(db_url, connect_args={"check_same_thread": False})
+    
+    # Set read-only mode for SQLite
+    if db_url.startswith("sqlite://"):
+        @engine.event.listens_for(engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA query_only=1")
+            cursor.close()
+    
+    return engine
 
 
-def sample_sessions(conn: sqlite3.Connection, limit: int) -> Iterator[Tuple[str, str]]:
+def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
     """Yield session IDs and source IP tuples up to the requested limit."""
-    base_query = """
-        SELECT session_id,
-               MAX(json_extract(payload, '$.src_ip')) AS src_ip
-        FROM raw_events
-        WHERE json_extract(payload, '$.src_ip') IS NOT NULL
-          AND json_extract(payload, '$.src_ip') != ''
-        GROUP BY session_id
-    """
-    params: Tuple[int, ...] = ()
+    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    
+    if dialect_name == "postgresql":
+        base_query = """
+            SELECT session_id,
+                   MAX(payload->>'src_ip') AS src_ip
+            FROM raw_events
+            WHERE payload->>'src_ip' IS NOT NULL
+              AND payload->>'src_ip' != ''
+            GROUP BY session_id
+        """
+    else:
+        base_query = """
+            SELECT session_id,
+                   MAX(json_extract(payload, '$.src_ip')) AS src_ip
+            FROM raw_events
+            WHERE json_extract(payload, '$.src_ip') IS NOT NULL
+              AND json_extract(payload, '$.src_ip') != ''
+            GROUP BY session_id
+        """
+    
     if limit > 0:
-        base_query += " LIMIT ?"
-        params = (limit,)
-    cursor = conn.execute(base_query, params)
-    for session_id, src_ip in cursor:
-        if src_ip:
-            yield session_id, src_ip
+        base_query += f" LIMIT {limit}"
+    
+    with engine.connect() as conn:
+        for session_id, src_ip in conn.execute(text(base_query)):
+            if src_ip:
+                yield session_id, src_ip
 
 
-def sample_file_hashes(conn: sqlite3.Connection, limit: int) -> Iterator[str]:
+def sample_file_hashes(engine: Engine, limit: int) -> Iterator[str]:
     """Yield file hashes extracted from raw_events up to the limit."""
-    base_query = """
-        SELECT MAX(json_extract(payload, '$.shasum')) AS shasum
-        FROM raw_events
-        WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
-          AND json_extract(payload, '$.shasum') IS NOT NULL
-          AND json_extract(payload, '$.shasum') != ''
-        GROUP BY json_extract(payload, '$.shasum')
-    """
-    params: Tuple[int, ...] = ()
+    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    
+    if dialect_name == "postgresql":
+        base_query = """
+            SELECT MAX(payload->>'shasum') AS shasum
+            FROM raw_events
+            WHERE payload->>'eventid' = 'cowrie.session.file_download'
+              AND payload->>'shasum' IS NOT NULL
+              AND payload->>'shasum' != ''
+            GROUP BY payload->>'shasum'
+        """
+    else:
+        base_query = """
+            SELECT MAX(json_extract(payload, '$.shasum')) AS shasum
+            FROM raw_events
+            WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
+              AND json_extract(payload, '$.shasum') IS NOT NULL
+              AND json_extract(payload, '$.shasum') != ''
+            GROUP BY json_extract(payload, '$.shasum')
+        """
+    
     if limit > 0:
-        base_query += " LIMIT ?"
-        params = (limit,)
-    cursor = conn.execute(base_query, params)
-    for (shasum,) in cursor:
-        if shasum:
-            yield shasum
+        base_query += f" LIMIT {limit}"
+    
+    with engine.connect() as conn:
+        for (shasum,) in conn.execute(text(base_query)):
+            if shasum:
+                yield shasum
 
 
 def summarise_session_enrichment(enrichment: Mapping[str, object] | None) -> dict:
@@ -143,7 +184,7 @@ def summarise_file_enrichment(enrichment: Mapping[str, object] | None) -> dict:
 
 def run_enrichment(
     *,
-    db_path: Path,
+    db_url: str,
     cache_dir: Path,
     sensor_index: int,
     session_limit: int,
@@ -163,12 +204,11 @@ def run_enrichment(
         cache_manager=cache_manager,
     )
 
-    conn = open_database(db_path)
-    conn.row_factory = sqlite3.Row
+    engine = create_readonly_engine(db_url)
     try:
         session_total = 0
         print("Fetching session/IP pairs...")
-        for session_id, src_ip in sample_sessions(conn, session_limit):
+        for session_id, src_ip in sample_sessions(engine, session_limit):
             session_total += 1
             result = service.enrich_session(session_id, src_ip)
             summary = summarise_session_enrichment(result.get("enrichment", {}))
@@ -198,7 +238,7 @@ def run_enrichment(
 
         file_total = 0
         if (file_limit > 0 or file_limit == 0) and creds.get("vt_api"):
-            for shasum in sample_file_hashes(conn, file_limit):
+            for shasum in sample_file_hashes(engine, file_limit):
                 file_total += 1
                 result = service.enrich_file(shasum, shasum)
                 summary = summarise_file_enrichment(result.get("enrichment", {}))
@@ -228,13 +268,13 @@ def run_enrichment(
 
         print("Cache stats:", cache_manager.snapshot())
     finally:
-        conn.close()
+        engine.dispose()
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the live enrichment harness."""
     parser = argparse.ArgumentParser(description="Run live enrichment sample checks")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB, help="Path to SQLite database")
+    parser.add_argument("--db-url", default=f"sqlite:///{DEFAULT_DB}", help="Database URL (sqlite:///path or postgresql://user:pass@host/db)")
     parser.add_argument(
         "--cache-dir",
         type=Path,
@@ -257,7 +297,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     args = parse_args(list(argv) if argv is not None else None)
     try:
         run_enrichment(
-            db_path=args.db,
+            db_url=args.db_url,
             cache_dir=args.cache_dir,
             sensor_index=args.sensor_index,
             session_limit=args.sessions,
