@@ -15,6 +15,42 @@ from ..settings import DatabaseSettings
 _SQLITE_MEMORY_IDENTIFIERS = {":memory:", "file::memory:"}
 
 
+def detect_postgresql_support() -> bool:
+    """Detect if PostgreSQL driver is available.
+
+    Returns:
+        True if psycopg driver is installed, False otherwise.
+    """
+    try:
+        import psycopg  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+def _is_postgresql_url(url: str) -> bool:
+    """Check if URL is a PostgreSQL connection string."""
+    return url.startswith("postgresql://") or url.startswith("postgres://")
+
+
+def create_engine_with_fallback(settings: DatabaseSettings) -> Engine:
+    """Create engine with graceful PostgreSQL fallback.
+
+    Args:
+        settings: Database configuration settings.
+
+    Returns:
+        Configured SQLAlchemy engine.
+
+    Raises:
+        ValueError: If PostgreSQL URL is provided but driver is not installed.
+    """
+    if _is_postgresql_url(settings.url) and not detect_postgresql_support():
+        raise ValueError("PostgreSQL driver not installed. Install with: uv pip install -e '.[postgres]'")
+    return create_engine_from_settings(settings)
+
+
 def _is_sqlite_url(url: str) -> bool:
     return url.startswith("sqlite:")
 
@@ -69,6 +105,8 @@ def create_engine_from_settings(settings: DatabaseSettings) -> Engine:
         connect_args["check_same_thread"] = False
         if _needs_static_pool(settings.url):
             engine_kwargs["poolclass"] = StaticPool
+            # Remove pool_timeout for StaticPool as it's not supported
+            engine_kwargs.pop("pool_timeout", None)
         engine = create_engine(settings.url, connect_args=connect_args, **engine_kwargs)
         event.listen(engine, "connect", _sqlite_on_connect(settings))
         return engine
@@ -82,4 +120,9 @@ def create_session_maker(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False, autoflush=False, future=True)
 
 
-__all__ = ["create_engine_from_settings", "create_session_maker"]
+__all__ = [
+    "create_engine_from_settings",
+    "create_session_maker",
+    "detect_postgresql_support",
+    "create_engine_with_fallback",
+]

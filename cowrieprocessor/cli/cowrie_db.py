@@ -72,12 +72,12 @@ class CowrieDatabase:
         """
         # Check if database file exists
         db_exists = Path(self.db_path).exists()
-        
+
         if not db_exists:
             current_version = 0
         else:
             current_version = self.get_schema_version()
-            
+
         target = target_version or CURRENT_SCHEMA_VERSION
 
         result = {
@@ -399,7 +399,7 @@ class CowrieDatabase:
                 tables = conn.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
                 ).fetchall()
-                
+
                 if not tables:
                     raise Exception("Files table does not exist. Run 'cowrie-db migrate' first.")
 
@@ -416,12 +416,12 @@ class CowrieDatabase:
                       AND json_extract(payload, '$.shasum') != ''
                     ORDER BY id ASC
                 """)
-                
+
                 if limit:
                     query = text(str(query) + f" LIMIT {limit}")
 
                 events = conn.execute(query).fetchall()
-                
+
                 if not events:
                     result['message'] = "No file download events found to backfill"
                     return result
@@ -432,8 +432,9 @@ class CowrieDatabase:
                     try:
                         # Parse payload
                         import json
+
                         payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
-                        
+
                         # Extract file data
                         file_data = extract_file_data(payload, event.session_id)
                         if file_data:
@@ -458,7 +459,9 @@ class CowrieDatabase:
                     result['files_inserted'] += inserted
                     result['batches_processed'] += 1
 
-                result['message'] = f"Backfill completed: {result['files_inserted']} files inserted from {result['events_processed']} events"
+                result['message'] = (
+                    f"Backfill completed: {result['files_inserted']} files inserted from {result['events_processed']} events"
+                )
 
         except Exception as e:
             result['error'] = str(e)
@@ -475,7 +478,7 @@ class CowrieDatabase:
         try:
             with self._get_engine().begin() as conn:
                 from sqlalchemy.dialects.sqlite import insert
-                
+
                 # Convert Files objects to dictionaries
                 file_dicts = []
                 for file_record in files:
@@ -500,10 +503,8 @@ class CowrieDatabase:
 
                 # Use INSERT OR IGNORE for conflict resolution
                 stmt = insert(Files.__table__).values(file_dicts)
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=["session_id", "shasum"]
-                )
-                
+                stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
+
                 result = conn.execute(stmt)
                 return int(result.rowcount or 0)
 
@@ -681,7 +682,7 @@ def main():
         elif args.command == 'backfill':
             print("Backfilling files table from historical data...")
             result = db.backfill_files_table(batch_size=args.batch_size, limit=args.limit)
-            
+
             print(f"✓ {result['message']}")
             if result.get('events_processed', 0) > 0:
                 print(f"  Events processed: {result['events_processed']:,}")
@@ -689,20 +690,20 @@ def main():
                 print(f"  Batches processed: {result['batches_processed']:,}")
                 if result.get('errors', 0) > 0:
                     print(f"  Errors: {result['errors']:,}")
-            
+
             if 'error' in result:
                 print(f"❌ Backfill failed: {result['error']}", file=sys.stderr)
                 sys.exit(1)
 
         elif args.command == 'files':
             result = db.get_files_table_stats()
-            
+
             print("Files Table Statistics:")
             print(f"  Total files: {result['total_files']:,}")
             print(f"  Unique hashes: {result['unique_hashes']:,}")
             print(f"  Malicious files: {result['malicious_files']:,}")
             print(f"  Pending enrichment: {result['pending_enrichment']:,}")
-            
+
             if result['enrichment_status']:
                 print("  Enrichment status breakdown:")
                 for status, count in result['enrichment_status'].items():

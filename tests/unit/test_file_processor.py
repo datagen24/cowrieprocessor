@@ -28,9 +28,9 @@ class TestExtractFileData:
             "url": "http://example.com/test.txt",
             "timestamp": "2025-01-27T10:00:00Z",
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["session_id"] == "session123"
         assert result["shasum"] == "a" * 64
@@ -45,7 +45,7 @@ class TestExtractFileData:
             "eventid": "cowrie.command.input",
             "shasum": "a" * 64,
         }
-        
+
         result = extract_file_data(event, "session123")
         assert result is None
 
@@ -55,7 +55,7 @@ class TestExtractFileData:
             "eventid": "cowrie.session.file_download",
             "filename": "test.txt",
         }
-        
+
         result = extract_file_data(event, "session123")
         assert result is None
 
@@ -65,7 +65,7 @@ class TestExtractFileData:
             "eventid": "cowrie.session.file_download",
             "shasum": "invalid_hash",
         }
-        
+
         result = extract_file_data(event, "session123")
         assert result is None
 
@@ -75,7 +75,7 @@ class TestExtractFileData:
             "eventid": "cowrie.session.file_download",
             "shasum": "short",
         }
-        
+
         result = extract_file_data(event, "session123")
         assert result is None
 
@@ -85,9 +85,9 @@ class TestExtractFileData:
             "eventid": "cowrie.session.file_download",
             "shasum": "a" * 64,
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["filename"] is None
         assert result["file_size"] is None
@@ -100,9 +100,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "filename": "test\x00file.txt",  # Contains null byte
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["filename"] == "testfile.txt"
 
@@ -114,9 +114,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "filename": long_filename,
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert len(result["filename"]) == 512
         assert result["filename"] == "a" * 512
@@ -128,9 +128,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "size": -100,
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["file_size"] is None
 
@@ -141,9 +141,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "size": "not_a_number",
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["file_size"] is None
 
@@ -154,9 +154,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "url": "http://example.com/test\x00file.txt",
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert result["download_url"] == "http://example.com/testfile.txt"
 
@@ -168,9 +168,9 @@ class TestExtractFileData:
             "shasum": "a" * 64,
             "url": long_url,
         }
-        
+
         result = extract_file_data(event, "session123")
-        
+
         assert result is not None
         assert len(result["download_url"]) == 1024
 
@@ -218,9 +218,9 @@ class TestCreateFilesRecord:
             "first_seen": datetime.now(),
             "enrichment_status": "pending",
         }
-        
+
         record = create_files_record(file_data)
-        
+
         assert record.session_id == "session123"
         assert record.shasum == "a" * 64
         assert record.filename == "test.txt"

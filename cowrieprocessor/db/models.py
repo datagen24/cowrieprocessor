@@ -170,7 +170,7 @@ class Files(Base):
     filename = Column(String(512), nullable=True)
     file_size = Column(BigInteger, nullable=True)
     download_url = Column(String(1024), nullable=True)
-    
+
     # VirusTotal enrichment fields
     vt_classification = Column(String(128), nullable=True)
     vt_description = Column(Text, nullable=True)
@@ -180,7 +180,7 @@ class Files(Base):
     vt_positives = Column(Integer, nullable=True)
     vt_total = Column(Integer, nullable=True)
     vt_scan_date = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Metadata
     first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_updated = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
