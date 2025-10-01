@@ -1,7 +1,7 @@
 # Issue 35 Work Plan: PostgreSQL Support and Migration Path
 
 **Issue**: [#35 - Add PostgreSQL Support and Migration Path](https://github.com/your-org/cowrieprocessor/issues/35)  
-**Status**: In Progress (Phase 2, Day 6 Complete - Day 7 Ready)  
+**Status**: In Progress (Phase 2, Day 7 Complete - Day 8 Ready)  
 **Priority**: High  
 **Estimated Effort**: 3 weeks (15 days)  
 **Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)  
@@ -33,8 +33,9 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - **NEW**: Robust migration system with cross-backend compatibility
 - **NEW**: Migration helper functions with error handling and logging
 - **NEW**: Comprehensive migration system testing suite
-- **NEW**: Reporting queries updated to use JSON abstraction layer
-- **NEW**: Cross-backend reporting compatibility verified
+- **NEW**: CLI tools updated for cross-backend compatibility
+- **NEW**: Database-agnostic CLI interfaces with --db-url parameter
+- **NEW**: Comprehensive CLI testing suite (12 tests)
 
 ### ❌ What Needs Fixing
 - ~~No PostgreSQL driver in dependencies~~ ✅ **FIXED**: Optional dependencies added
@@ -42,6 +43,7 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - ~~Boolean defaults as `"0"` instead of proper booleans~~ ✅ **FIXED**: SQLAlchemy false() expressions
 - ~~Extensive `func.json_extract()` usage in reporting~~ ✅ **FIXED**: JSON abstraction layer
 - ~~Migration system compatibility issues~~ ✅ **FIXED**: Cross-backend migration system
+- ~~Direct `sqlite3` module calls in CLI tools~~ ✅ **FIXED**: Database-agnostic CLI tools
 - Direct `sqlite3` module calls in utility scripts
 - Missing indexes for computed/virtual columns
 
@@ -204,22 +206,44 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - All tests passing with proper data insertion and querying
 - Cross-backend compatibility verified through extensive testing
 
-#### Day 7: CLI Tool Updates
+#### Day 7: CLI Tool Updates ✅ COMPLETED
 **Tasks:**
-- [ ] Update CLI tools to work with PostgreSQL
-- [ ] Replace direct `sqlite3` module calls
-- [ ] Add database backend detection
-- [ ] Update CLI help documentation
+- [x] Update CLI tools to work with PostgreSQL
+- [x] Replace direct `sqlite3` module calls
+- [x] Add database backend detection
+- [x] Update CLI help documentation
 
 **Files to Modify:**
 - `cowrieprocessor/cli/cowrie_db.py`
-- `cowrieprocessor/cli/report.py`
 - `cowrieprocessor/cli/health.py`
+- `tests/integration/test_cli_tools.py` (new)
 
 **Deliverables:**
-- PostgreSQL-compatible CLI tools
-- Updated CLI documentation
-- Cross-backend CLI tests
+- ✅ PostgreSQL-compatible CLI tools
+- ✅ Updated CLI documentation
+- ✅ Cross-backend CLI tests
+
+**Implementation Details:**
+- Updated CowrieDatabase CLI for cross-backend compatibility:
+  - Changed db_path parameter to db_url for database-agnostic operation
+  - Added database type detection methods (_is_sqlite, _is_postgresql)
+  - Updated validate_schema() for both SQLite (file size) and PostgreSQL (system tables)
+  - Updated optimize() with VACUUM/REINDEX for SQLite and ANALYZE/REINDEX for PostgreSQL
+  - Updated create_backup() with file copy for SQLite and pg_dump for PostgreSQL
+  - Updated check_integrity() with backend-specific integrity checks
+  - Updated backfill_files_table() to use JSON abstraction layer
+- Updated Health Check CLI for cross-backend compatibility:
+  - Replaced direct sqlite3 usage with SQLAlchemy engine
+  - Added database type detection and appropriate health checks
+  - Added file existence check for SQLite before engine creation
+  - Updated _check_database() to handle both backend types
+- Added comprehensive CLI testing suite (12 tests):
+  - CowrieDatabase testing: migration, validation, optimization, backup, integrity, files stats, backfill
+  - Health check testing: valid databases, invalid databases, unsupported database types
+  - Integration testing: full CLI workflow, error handling
+  - PostgreSQL compatibility testing: database type detection, backup command generation
+- All CLI tools now use --db-url parameter instead of --db-path/--db
+- Removed all direct sqlite3 module calls from CLI tools
 
 #### Day 8: Bulk Loader Enhancements
 **Tasks:**
@@ -573,5 +597,5 @@ python scripts/benchmark_databases.py --sqlite production.sqlite --postgres post
 ---
 
 **Created**: 2025-01-27  
-**Last Updated**: 2025-01-27 (Phase 2, Day 6 Complete - Day 7 Ready)  
-**Status**: In Progress - Phase 2, Day 7 Ready
+**Last Updated**: 2025-01-27 (Phase 2, Day 7 Complete - Day 8 Ready)  
+**Status**: In Progress - Phase 2, Day 8 Ready
