@@ -1,0 +1,310 @@
+{
+  "timestamp": "2025-10-01T18:09:08.561475",
+  "migration_steps": {
+    "Pre-Migration Analysis": {
+      "success": true,
+      "analysis": {
+        "tables": [
+          "command_stats",
+          "dead_letter_events",
+          "files",
+          "ingest_cursors",
+          "raw_events",
+          "schema_state",
+          "session_summaries"
+        ],
+        "table_counts": {
+          "command_stats": 0,
+          "dead_letter_events": 0,
+          "files": 0,
+          "ingest_cursors": 0,
+          "raw_events": 0,
+          "schema_state": 1,
+          "session_summaries": 0
+        },
+        "database_size_mb": 0.13,
+        "schema_version": 6
+      }
+    },
+    "PostgreSQL Setup": {
+      "success": true,
+      "setup_info": {
+        "postgres_version": "PostgreSQL 17.6 (Debian 17.6-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "existing_tables": [
+          "schema_state",
+          "raw_events",
+          "session_summaries",
+          "command_stats",
+          "ingest_cursors",
+          "dead_letter_events",
+          "files"
+        ]
+      }
+    },
+    "Schema Migration": {
+      "success": true,
+      "migration_info": {
+        "migration_result": 6,
+        "schema_version": 6
+      }
+    },
+    "Data Export": {
+      "success": true,
+      "export_info": {
+        "tables_exported": [
+          "command_stats",
+          "dead_letter_events",
+          "files",
+          "ingest_cursors",
+          "raw_events",
+          "schema_state",
+          "session_summaries"
+        ],
+        "total_rows": 1,
+        "exported_data": {
+          "command_stats": {
+            "columns": [
+              "id",
+              "session_id",
+              "command_normalized",
+              "occurrences",
+              "first_seen",
+              "last_seen",
+              "high_risk"
+            ],
+            "rows": [],
+            "count": 0
+          },
+          "dead_letter_events": {
+            "columns": [
+              "id",
+              "ingest_id",
+              "source",
+              "source_offset",
+              "reason",
+              "payload",
+              "metadata_json",
+              "created_at",
+              "resolved",
+              "resolved_at"
+            ],
+            "rows": [],
+            "count": 0
+          },
+          "files": {
+            "columns": [
+              "id",
+              "session_id",
+              "shasum",
+              "filename",
+              "file_size",
+              "download_url",
+              "vt_classification",
+              "vt_description",
+              "vt_malicious",
+              "vt_first_seen",
+              "vt_last_analysis",
+              "vt_positives",
+              "vt_total",
+              "vt_scan_date",
+              "first_seen",
+              "last_updated",
+              "enrichment_status"
+            ],
+            "rows": [],
+            "count": 0
+          },
+          "ingest_cursors": {
+            "columns": [
+              "source",
+              "inode",
+              "last_offset",
+              "last_ingest_at",
+              "last_ingest_id",
+              "metadata_json"
+            ],
+            "rows": [],
+            "count": 0
+          },
+          "raw_events": {
+            "columns": [
+              "id",
+              "ingest_id",
+              "ingest_at",
+              "source",
+              "source_offset",
+              "source_inode",
+              "source_generation",
+              "payload",
+              "payload_hash",
+              "risk_score",
+              "quarantined",
+              "session_id",
+              "event_type",
+              "event_timestamp"
+            ],
+            "rows": [],
+            "count": 0
+          },
+          "schema_state": {
+            "columns": [
+              "key",
+              "value"
+            ],
+            "rows": [
+              {
+                "key": "schema_version",
+                "value": "6"
+              }
+            ],
+            "count": 1
+          },
+          "session_summaries": {
+            "columns": [
+              "session_id",
+              "first_event_at",
+              "last_event_at",
+              "event_count",
+              "command_count",
+              "file_downloads",
+              "login_attempts",
+              "vt_flagged",
+              "dshield_flagged",
+              "risk_score",
+              "matcher",
+              "source_files",
+              "enrichment",
+              "created_at",
+              "updated_at"
+            ],
+            "rows": [],
+            "count": 0
+          }
+        }
+      }
+    },
+    "Data Import": {
+      "success": true,
+      "import_info": {
+        "import_counts": {
+          "command_stats": 0,
+          "dead_letter_events": 0,
+          "files": 0,
+          "ingest_cursors": 0,
+          "raw_events": 0,
+          "schema_state": 0,
+          "session_summaries": 0
+        },
+        "total_imported": 0
+      }
+    },
+    "Data Validation": {
+      "success": true,
+      "validation_info": {
+        "table_validation": {
+          "command_stats": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "dead_letter_events": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "files": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "ingest_cursors": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "raw_events": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "schema_state": {
+            "sqlite_count": 1,
+            "postgres_count": 1,
+            "match": true
+          },
+          "session_summaries": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          }
+        },
+        "all_match": true
+      }
+    },
+    "Query Compatibility": {
+      "success": true,
+      "query_tests": {
+        "Basic Count Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM raw_events"
+        },
+        "JSON Field Extraction": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM raw_events WHERE payload->>'src_ip' IS NOT NULL"
+        },
+        "Session Summary Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM session_summaries"
+        },
+        "Files Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM files"
+        },
+        "Command Stats Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM command_stats"
+        }
+      }
+    },
+    "Performance Comparison": {
+      "success": true,
+      "performance_comparison": {
+        "Simple Count": {
+          "sqlite_time": 0.022204160690307617,
+          "postgres_time": 0.02948284149169922,
+          "sqlite_result": 0,
+          "postgres_result": 0,
+          "speed_ratio": 1.3278070674641096
+        },
+        "JSON Field Count": {
+          "sqlite_time": 0.0006082057952880859,
+          "postgres_time": 0.003171682357788086,
+          "sqlite_result": 0,
+          "postgres_result": 0,
+          "speed_ratio": 5.214817718541748
+        },
+        "Session Count": {
+          "sqlite_time": 0.00030541419982910156,
+          "postgres_time": 0.0027353763580322266,
+          "sqlite_result": 0,
+          "postgres_result": 0,
+          "speed_ratio": 8.956284153005464
+        }
+      }
+    }
+  },
+  "data_comparison": {},
+  "performance_comparison": {},
+  "summary": {
+    "total_steps": 8,
+    "successful_steps": 8,
+    "failed_steps": 0,
+    "success_rate": 100.0,
+    "migration_successful": true
+  }
+}
