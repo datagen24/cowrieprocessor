@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -14,11 +16,11 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     case,
+    false,
     func,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.elements import Case
-from typing import Any
 
 from .base import Base
 
@@ -47,7 +49,7 @@ class RawEvent(Base):
     payload = Column(JSON, nullable=False)
     payload_hash = Column(String(64), nullable=True)
     risk_score = Column(Integer, nullable=True)
-    quarantined = Column(Boolean, nullable=False, server_default="0")
+    quarantined = Column(Boolean, nullable=False, server_default=false())
 
     # Real columns for extracted JSON fields (replacing computed columns)
     session_id = Column(String(64), nullable=True, index=True)
@@ -142,8 +144,8 @@ class SessionSummary(Base):
     command_count = Column(Integer, nullable=False, server_default="0")
     file_downloads = Column(Integer, nullable=False, server_default="0")
     login_attempts = Column(Integer, nullable=False, server_default="0")
-    vt_flagged = Column(Boolean, nullable=False, server_default="0")
-    dshield_flagged = Column(Boolean, nullable=False, server_default="0")
+    vt_flagged = Column(Boolean, nullable=False, server_default=false())
+    dshield_flagged = Column(Boolean, nullable=False, server_default=false())
     risk_score = Column(Integer, nullable=True)
     matcher = Column(String(32), nullable=True)
     source_files = Column(JSON, nullable=True)
@@ -169,7 +171,7 @@ class CommandStat(Base):
     occurrences = Column(Integer, nullable=False, server_default="0")
     first_seen = Column(DateTime(timezone=True))
     last_seen = Column(DateTime(timezone=True))
-    high_risk = Column(Boolean, nullable=False, server_default="0")
+    high_risk = Column(Boolean, nullable=False, server_default=false())
 
     __table_args__ = (
         UniqueConstraint("session_id", "command_normalized", name="uq_command_stats_session_command"),
@@ -206,7 +208,7 @@ class DeadLetterEvent(Base):
     payload = Column(JSON, nullable=False)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    resolved = Column(Boolean, nullable=False, server_default="0")
+    resolved = Column(Boolean, nullable=False, server_default=false())
     resolved_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -230,7 +232,7 @@ class Files(Base):
     # VirusTotal enrichment fields
     vt_classification = Column(String(128), nullable=True)
     vt_description = Column(Text, nullable=True)
-    vt_malicious = Column(Boolean, nullable=False, server_default="0")
+    vt_malicious = Column(Boolean, nullable=False, server_default=false())
     vt_first_seen = Column(DateTime(timezone=True), nullable=True)
     vt_last_analysis = Column(DateTime(timezone=True), nullable=True)
     vt_positives = Column(Integer, nullable=True)
