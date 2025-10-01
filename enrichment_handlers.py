@@ -1,11 +1,4 @@
-<<<<<<< HEAD
-"""External enrichment helpers for Cowrie log analysis.
-
-This module exposes helper functions for enriching Cowrie log data with
-VirusTotal, DShield, URLHaus, and SPUR context. Each helper now separates
-cache-path resolution, network IO, and payload parsing so that consumers and
-unit tests can target the individual pieces.
-"""
+"""External enrichment helpers and orchestration utilities for Cowrie logs."""
 
 from __future__ import annotations
 
@@ -14,9 +7,11 @@ import logging
 import signal
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 
 import requests
+
+from cowrieprocessor.enrichment import EnrichmentCacheManager
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -32,14 +27,17 @@ SessionFactory = Callable[[], requests.Session]
 
 
 def _resolve_cache_base(cache_base: Optional[Path]) -> Path:
+    """Return the cache directory, defaulting to ``DEFAULT_CACHE_BASE``."""
     return cache_base if cache_base is not None else DEFAULT_CACHE_BASE
 
 
 def _cache_path(base: Path, name: str) -> Path:
+    """Return the full cache path for ``name`` within ``base``."""
     return base / name
 
 
 def _read_text(path: Path) -> Optional[str]:
+    """Read UTF-8 text from ``path`` returning ``None`` on failure."""
     try:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -50,6 +48,7 @@ def _read_text(path: Path) -> Optional[str]:
 
 
 def _write_text(path: Path, payload: str) -> None:
+    """Persist UTF-8 text to ``path`` creating parents when required."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(payload, encoding="utf-8")
@@ -58,11 +57,17 @@ def _write_text(path: Path, payload: str) -> None:
 
 
 def _stringify(value: Any) -> str:
+    """Coerce arbitrary values into a printable string."""
     if value is None:
         return ""
     if isinstance(value, (list, dict, set, tuple)):
         return str(value)
     return str(value)
+
+
+def _empty_dshield() -> dict[str, dict[str, str]]:
+    """Return the canonical empty DShield payload."""
+    return {"ip": {"asname": "", "ascountry": ""}}
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +76,7 @@ def _stringify(value: Any) -> str:
 
 
 def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
-    """Execute ``func`` with a timeout enforced via SIGALRM."""
+    """Execute ``func`` enforcing a wall-clock timeout via ``SIGALRM``."""
 
     def timeout_handler(signum, frame):  # pragma: no cover - signal handler
         raise TimeoutError("Operation timed out")
@@ -82,56 +87,10 @@ def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
     try:
         return func(*args, **kwargs)
     finally:
-=======
-"""External enrichment handlers for Cowrie log analysis.
-
-This module contains functions for enriching Cowrie log data with external
-API data from VirusTotal, DShield, URLHaus, and SPUR.
-"""
-
-import json
-import logging
-import time
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-import requests
-
-
-def with_timeout(timeout_seconds: float, func, *args, **kwargs):
-    """Execute a function with a timeout.
-    
-    Args:
-        timeout_seconds: Maximum time to wait for the function
-        func: Function to execute
-        *args: Arguments to pass to the function
-        **kwargs: Keyword arguments to pass to the function
-        
-    Returns:
-        Result of the function call
-        
-    Raises:
-        TimeoutError: If the function doesn't complete within the timeout
-    """
-    import signal
-    
-    def timeout_handler(signum, frame):
-        raise TimeoutError("Operation timed out")
-    
-    # Set the signal handler
-    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(int(timeout_seconds))
-    
-    try:
-        result = func(*args, **kwargs)
-        return result
-    finally:
-        # Restore the old handler
->>>>>>> 4b5ecbc (Add debug modules and identify JSON parsing issue)
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old_handler)
 
 
-<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # VirusTotal helpers
 # ---------------------------------------------------------------------------
@@ -145,19 +104,45 @@ def vt_query(
     *,
     session_factory: SessionFactory = requests.session,
     timeout: int = DEFAULT_TIMEOUT,
-) -> None:
+) -> Any:
     """Query VirusTotal for ``file_hash`` and persist the JSON response."""
     if skip_enrich or not vtapi:
-        return
+        return None
 
-    session = session_factory()
-    session.headers.update({"X-Apikey": vtapi})
     try:
-        response = session.get(f"https://www.virustotal.com/api/v3/files/{file_hash}", timeout=timeout)
+        session = session_factory()
+    except Exception:  # pragma: no cover - defensive logging
+        LOGGER.error("VT session factory failed for %s", file_hash, exc_info=True)
+        return None
+
+    headers = getattr(session, "headers", None)
+    if isinstance(headers, Mapping):
+        headers.update({"X-Apikey": vtapi})  # type: ignore
+    else:  # pragma: no cover - simple attribute assignment
+        session.headers = {"X-Apikey": vtapi}
+
+    try:
+        response = session.get(
+            f"https://www.virustotal.com/api/v3/files/{file_hash}",
+            timeout=timeout,
+        )
+        if getattr(response, "status_code", 0) == 429:
+            LOGGER.warning("VT query rate limited for %s", file_hash)
+            return None
         response.raise_for_status()
-        _write_text(cache_dir / file_hash, response.text)
+        _write_text(cache_dir / file_hash, getattr(response, "text", ""))
+        json_loader = getattr(response, "json", None)
+        if callable(json_loader):
+            try:
+                payload = json_loader()
+                return payload if isinstance(payload, dict) else None
+            except Exception:  # pragma: no cover - defensive logging
+                LOGGER.debug("Unable to parse VT JSON for %s", file_hash, exc_info=True)
+                return None
+        return None
     except Exception:  # pragma: no cover - exercised in integration
         LOGGER.error("VT query failed for %s", file_hash, exc_info=True)
+        return None
     finally:
         try:
             session.close()
@@ -182,7 +167,7 @@ def dshield_query(
 ) -> dict[str, Any]:
     """Return DShield metadata for ``ip_address`` with simple caching."""
     if skip_enrich:
-        return {"ip": {"asname": "", "ascountry": ""}}
+        return _empty_dshield()
 
     base = _resolve_cache_base(cache_base)
     cache_path = _cache_path(base, f"dshield_{ip_address}.json")
@@ -193,20 +178,34 @@ def dshield_query(
             cached = json.loads(payload)
             timestamp = cached.get("timestamp", 0)
             if now() - timestamp < ttl_seconds:
-                return cached.get("data", {"ip": {"asname": "", "ascountry": ""}})
+                data = cached.get("data", _empty_dshield())
+                return data if isinstance(data, dict) else _empty_dshield()
         except json.JSONDecodeError:
             LOGGER.debug("Ignoring malformed DShield cache for %s", ip_address)
 
-    session = session_factory()
     try:
-        response = session.get(f"https://dshield.org/api/ip/{ip_address}?email={email}", timeout=DEFAULT_TIMEOUT)
+        session = session_factory()
+    except Exception:
+        LOGGER.error("DShield session factory failed for %s", ip_address, exc_info=True)
+        return _empty_dshield()
+
+    try:
+        url = f"https://isc.sans.edu/api/ip/{ip_address}?email={email}&json"
+        response = session.get(url, timeout=DEFAULT_TIMEOUT)
         response.raise_for_status()
-        data = response.json()
+        json_loader = getattr(response, "json", None)
+        if callable(json_loader):
+            data = json_loader()
+        else:
+            try:
+                data = json.loads(getattr(response, "text", ""))
+            except json.JSONDecodeError:
+                data = _empty_dshield()
         _write_text(cache_path, json.dumps({"timestamp": now(), "data": data}))
-        return data
+        return data if isinstance(data, dict) else _empty_dshield()
     except Exception:
         LOGGER.error("DShield query failed for %s", ip_address, exc_info=True)
-        return {"ip": {"asname": "", "ascountry": ""}}
+        return _empty_dshield()
     finally:
         try:
             session.close()
@@ -275,7 +274,14 @@ def _fetch_urlhaus_payload(
     session_factory: SessionFactory,
     timeout: int,
 ) -> Optional[str]:
-    session = session_factory()
+    try:
+        session = session_factory()
+    except Exception:
+        LOGGER.error("URLHaus session factory failed for %s", ip_address, exc_info=True)
+        return None
+
+    if not hasattr(session, "headers"):
+        session.headers = {}
     session.headers.update({"Auth-Key": uh_api})
     try:
         response = session.post(
@@ -285,7 +291,7 @@ def _fetch_urlhaus_payload(
             timeout=timeout,
         )
         response.raise_for_status()
-        return response.text
+        return getattr(response, "text", "")
     except Exception:
         LOGGER.error("URLHaus query failed for %s", ip_address, exc_info=True)
         return None
@@ -297,6 +303,7 @@ def _fetch_urlhaus_payload(
 
 
 def _parse_urlhaus_tags(payload: str) -> str:
+    """Parse unique URLHaus tags from ``payload`` JSON."""
     try:
         data = json.loads(payload)
     except json.JSONDecodeError:
@@ -341,7 +348,9 @@ def read_spur_data(
     if payload is None:
         payload = _fetch_spur_payload(ip_address, spurapi, session_factory, timeout)
         if payload is None:
-            return list(_SPUR_EMPTY_PAYLOAD)
+            payload = _load_spur_fallback(base, ip_address)
+            if payload is None:
+                return list(_SPUR_EMPTY_PAYLOAD)
         _write_text(cache_path, payload)
 
     return _parse_spur_payload(payload)
@@ -353,12 +362,19 @@ def _fetch_spur_payload(
     session_factory: SessionFactory,
     timeout: int,
 ) -> Optional[str]:
-    session = session_factory()
+    try:
+        session = session_factory()
+    except Exception:
+        LOGGER.error("SPUR session factory failed for %s", ip_address, exc_info=True)
+        return None
+
+    if not hasattr(session, "headers"):
+        session.headers = {}
     session.headers.update({"Token": spurapi})
     try:
         response = session.get(f"https://spur.us/api/v1/context/{ip_address}", timeout=timeout)
         response.raise_for_status()
-        return response.text
+        return getattr(response, "text", "")
     except Exception:
         LOGGER.error("SPUR query failed for %s", ip_address, exc_info=True)
         return None
@@ -370,6 +386,7 @@ def _fetch_spur_payload(
 
 
 def _parse_spur_payload(payload: str) -> list[str]:
+    """Parse SPUR JSON payload into the legacy list representation."""
     try:
         data = json.loads(payload) if payload else {}
     except json.JSONDecodeError:
@@ -435,288 +452,268 @@ def _parse_spur_payload(payload: str) -> list[str]:
     result[14:18] = tunnel_info
 
     return result
-=======
-def vt_query(hash: str, cache_dir: Path, vtapi: str, skip_enrich: bool = False) -> None:
-    """Query VirusTotal for a file hash and write the JSON response.
-    
-    Args:
-        hash: SHA-256 string of the file to look up
-        cache_dir: Directory to write/read cached VT responses
-        vtapi: VirusTotal API key
-        skip_enrich: If True, skip the API call
-    """
-    if skip_enrich or not vtapi:
-        return
-        
-    vt_session = requests.session()
-    vt_session.headers.update({'X-Apikey': vtapi})
-    url = "https://www.virustotal.com/api/v3/files/" + hash
-    
-    try:
-        response = vt_session.get(url, timeout=30)
-        response.raise_for_status()
-        
-        vt_path = cache_dir / hash
-        with open(vt_path, 'w', encoding='utf-8') as f:
-            f.write(response.text)
-    except Exception as e:
-        logging.error(f"VT query failed for {hash}: {e}")
-    finally:
-        vt_session.close()
 
 
-def dshield_query(ip_address: str, email: str, skip_enrich: bool = False) -> Dict[str, Any]:
-    """Query DShield for information about an IP address.
-    
-    Args:
-        ip_address: IP address string
-        email: Email address for DShield API
-        skip_enrich: If True, return empty data
-        
-    Returns:
-        Parsed JSON response as a dictionary
-    """
-    if skip_enrich:
-        return {"ip": {"asname": "", "ascountry": ""}}
-        
-    # Check cache
-    cache_dir = Path('/mnt/dshield/data/cache')
-    cache_file = cache_dir / f"dshield_{ip_address}.json"
-    
-    if cache_file.exists():
+def _load_spur_fallback(base: Path, ip_address: str) -> Optional[str]:
+    """Return cached SPUR payload that matches the IP prefix when exact file is missing."""
+    sanitized = ip_address.replace(":", "_")
+    prefix = sanitized
+    if "." in sanitized:
+        prefix = sanitized.rsplit(".", 1)[0]
+
+    for candidate in base.glob(f"spur_{prefix}*.json"):
+        payload = _read_text(candidate)
+        if payload:
+            return payload
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Enrichment service façade
+# ---------------------------------------------------------------------------
+
+
+class EnrichmentService:
+    """Coordinate external enrichment lookups with shared caching."""
+
+    def __init__(
+        self,
+        cache_dir: Path | str,
+        *,
+        vt_api: str | None,
+        dshield_email: str | None,
+        urlhaus_api: str | None,
+        spur_api: str | None,
+        cache_manager: EnrichmentCacheManager | None = None,
+        session_factory: SessionFactory = requests.session,
+        timeout: int = DEFAULT_TIMEOUT,
+        skip_enrich: bool = False,
+    ) -> None:
+        """Initialise the enrichment service."""
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        self.vt_api = vt_api or ""
+        self.dshield_email = dshield_email or ""
+        self.urlhaus_api = urlhaus_api or ""
+        self.spur_api = spur_api or ""
+        self.skip_enrich = skip_enrich
+
+        self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
+        self._session_factory = session_factory
+        self._timeout = timeout
+
+    def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
+        """Return enrichment payload for a session/IP pair."""
+        enrichment: dict[str, Any] = {}
+        if self.skip_enrich:
+            enrichment["dshield"] = _empty_dshield()
+            enrichment["urlhaus"] = ""
+            enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
+        else:
+            enrichment["dshield"] = (
+                dshield_query(
+                    src_ip,
+                    self.dshield_email,
+                    skip_enrich=False,
+                    cache_base=self.cache_dir,
+                    session_factory=self._session_factory,
+                    ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
+                    now=time.time,
+                )
+                if self.dshield_email
+                else _empty_dshield()
+            )
+            enrichment["urlhaus"] = (
+                safe_read_uh_data(
+                    src_ip,
+                    self.urlhaus_api,
+                    cache_base=self.cache_dir,
+                    session_factory=self._session_factory,
+                    timeout=self._timeout,
+                )
+                if self.urlhaus_api
+                else ""
+            )
+            enrichment["spur"] = (
+                read_spur_data(
+                    src_ip,
+                    self.spur_api,
+                    cache_base=self.cache_dir,
+                    session_factory=self._session_factory,
+                    timeout=self._timeout,
+                )
+                if self.spur_api
+                else list(_SPUR_EMPTY_PAYLOAD)
+            )
+
+        return {
+            "session_id": session_id,
+            "src_ip": src_ip,
+            "enrichment": enrichment,
+        }
+
+    def enrich_file(self, file_hash: str, filename: str) -> dict[str, Any]:
+        """Return VirusTotal enrichment payload for a file hash."""
+        enrichment: dict[str, Any] = {"virustotal": None}
+        if self.skip_enrich or not self.vt_api:
+            return {
+                "file_hash": file_hash,
+                "filename": filename,
+                "enrichment": enrichment,
+            }
+
+        payload = self._load_vt_payload(file_hash)
+        if payload is None:
+            payload = self._fetch_vt_payload(file_hash)
+        enrichment["virustotal"] = payload
+        return {
+            "file_hash": file_hash,
+            "filename": filename,
+            "enrichment": enrichment,
+        }
+
+    def cache_snapshot(self) -> dict[str, int]:
+        """Expose cache statistics collected by the cache manager."""
+        return self.cache_manager.snapshot()
+
+    def get_session_flags(self, session_result: Mapping[str, Any]) -> dict[str, bool]:
+        """Derive boolean enrichment flags from ``session_result``."""
+        enrichment_obj = session_result.get("enrichment") if isinstance(session_result, Mapping) else {}
+        enrichment = enrichment_obj if isinstance(enrichment_obj, Mapping) else {}
+
+        dshield_flagged = False
+        urlhaus_flagged = False
+        spur_flagged = False
+        for payload in self._iter_session_enrichments(enrichment):
+            dshield_flagged = dshield_flagged or self._dshield_flag(payload.get("dshield"))
+            urlhaus_flagged = urlhaus_flagged or self._urlhaus_flag(payload.get("urlhaus"))
+            spur_flagged = spur_flagged or self._spur_flag(payload.get("spur"))
+
+        vt_flagged = self._vt_flag(enrichment.get("virustotal"))
+
+        return {
+            "dshield_flagged": dshield_flagged,
+            "urlhaus_flagged": urlhaus_flagged,
+            "spur_flagged": spur_flagged,
+            "vt_flagged": vt_flagged,
+        }
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _load_vt_payload(self, file_hash: str) -> Optional[dict[str, Any]]:
+        """Load a cached VirusTotal payload from disk."""
+        payload = _read_text(self.cache_dir / file_hash)
+        if payload is None:
+            return None
         try:
-            with open(cache_file, 'r') as f:
-                cached_data = json.load(f)
-                if time.time() - cached_data.get('timestamp', 0) < 86400:  # 24 hours
-                    return cached_data.get('data', {"ip": {"asname": "", "ascountry": ""}})
-        except Exception:
-            pass
-    
-    dshield_session = requests.session()
-    url = f"https://dshield.org/api/ip/{ip_address}?email={email}"
-    
-    try:
-        response = dshield_session.get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Cache the result
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_file, 'w') as f:
-                json.dump({'timestamp': time.time(), 'data': data}, f)
-        except Exception:
-            pass
-            
-        return data
-    except Exception as e:
-        logging.error(f"DShield query failed for {ip_address}: {e}")
-        return {"ip": {"asname": "", "ascountry": ""}}
-    finally:
-        dshield_session.close()
+            data = json.loads(payload)
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            LOGGER.debug("Malformed VT cache for %s", file_hash)
+            return None
+
+    def _fetch_vt_payload(self, file_hash: str) -> Optional[dict[str, Any]]:
+        """Fetch a fresh VirusTotal payload and persist it to disk."""
+        response = vt_query(
+            file_hash,
+            self.cache_dir,
+            self.vt_api,
+            session_factory=self._session_factory,
+            timeout=self._timeout,
+        )
+        if isinstance(response, dict):
+            try:
+                _write_text(self.cache_dir / file_hash, json.dumps(response))
+            except Exception:  # pragma: no cover - defensive logging
+                LOGGER.debug("Failed to persist VT payload for %s", file_hash, exc_info=True)
+            return response
+        return self._load_vt_payload(file_hash)
+
+    def _iter_session_enrichments(self, enrichment: Mapping[str, Any]) -> Iterator[Mapping[str, Any]]:
+        """Yield per-IP enrichment payloads from ``enrichment`` mapping."""
+        session_section = enrichment.get("session") if isinstance(enrichment, Mapping) else None
+        if isinstance(session_section, Mapping):
+            for payload in session_section.values():
+                if isinstance(payload, Mapping):
+                    yield payload
+        else:
+            yield enrichment
+
+    @staticmethod
+    def _dshield_flag(payload: Any) -> bool:
+        """Return True when DShield metadata indicates prior activity."""
+        if not isinstance(payload, Mapping):
+            return False
+        ip_obj = payload.get("ip")
+        if not isinstance(ip_obj, Mapping):
+            return False
+        count = _coerce_int(ip_obj.get("count"))
+        attacks = _coerce_int(ip_obj.get("attacks"))
+        return count > 0 or attacks > 0
+
+    @staticmethod
+    def _urlhaus_flag(payload: Any) -> bool:
+        """Return True when URLHaus tags are present."""
+        return isinstance(payload, str) and bool(payload.strip())
+
+    @staticmethod
+    def _spur_flag(payload: Any) -> bool:
+        """Return True when SPUR identifies risky infrastructure."""
+        if not isinstance(payload, list) or len(payload) < 4:
+            return False
+        infrastructure = payload[3]
+        if not isinstance(infrastructure, str):
+            return False
+        return infrastructure.upper() in {"DATACENTER", "VPN"}
+
+    def _vt_flag(self, payload: Any) -> bool:
+        """Return True when VirusTotal verdicts indicate malicious files."""
+        for vt_payload in self._iter_vt_payloads(payload):
+            stats = self._extract_vt_stats(vt_payload)
+            if _coerce_int(stats.get("malicious")) > 0:
+                return True
+        return False
+
+    def _iter_vt_payloads(self, payload: Any) -> Iterator[Mapping[str, Any]]:
+        """Yield individual VirusTotal payloads from arbitrary structures."""
+        if isinstance(payload, Mapping):
+            data = payload.get("data")
+            if isinstance(data, Mapping):
+                yield payload
+            else:
+                for value in payload.values():
+                    yield from self._iter_vt_payloads(value)
+        elif isinstance(payload, Iterable) and not isinstance(payload, (str, bytes)):
+            for item in payload:
+                yield from self._iter_vt_payloads(item)
+
+    @staticmethod
+    def _extract_vt_stats(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Extract the ``last_analysis_stats`` block from a VT payload."""
+        data = payload.get("data") if isinstance(payload, Mapping) else None
+        attributes = data.get("attributes") if isinstance(data, Mapping) else None
+        stats = attributes.get("last_analysis_stats") if isinstance(attributes, Mapping) else None
+        return stats if isinstance(stats, Mapping) else {}
 
 
-def safe_read_uh_data(ip_address: str, urlhausapi: str, skip_enrich: bool = False) -> str:
-    """Safely read URLHaus data with timeout handling.
-    
-    Args:
-        ip_address: IP address to query
-        urlhausapi: URLHaus API key
-        skip_enrich: If True, return empty string
-        
-    Returns:
-        Comma-separated string of unique URLHaus tags, or empty string
-    """
-    if skip_enrich:
-        return ""
-        
+def _coerce_int(value: Any) -> int:
+    """Best-effort coercion of mixed numeric types into integers."""
     try:
-        return with_timeout(30, read_uh_data, ip_address, urlhausapi)
-    except TimeoutError:
-        logging.warning(f"URLHaus query timed out for IP {ip_address}")
-        return "TIMEOUT"
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
-def read_uh_data(ip_address: str, uh_api: str) -> str:
-    """Read URLHaus data for an IP address.
-    
-    Args:
-        ip_address: IP address string
-        uh_api: URLHaus API key
-        
-    Returns:
-        Comma-separated string of unique URLHaus tags, or empty string
-    """
-    cache_dir = Path('/mnt/dshield/data/cache')
-    uh_path = cache_dir / ("uh_" + ip_address)
-    
-    if not uh_path.exists():
-        uh_session = requests.session()
-        uh_header = {'Auth-Key': uh_api}
-        host = {'host': ip_address}
-        
-        try:
-            response = uh_session.post('https://urlhaus-api.abuse.ch/v1/host/', 
-                                     headers=uh_header, data=host, timeout=30)
-            response.raise_for_status()
-            
-            with open(uh_path, 'w', encoding='utf-8') as f:
-                f.write(response.text)
-        except Exception as e:
-            logging.error(f"URLHaus query failed for {ip_address}: {e}")
-            return ""
-        finally:
-            uh_session.close()
-    
-    try:
-        with open(uh_path, 'r', encoding='utf-8') as f:
-            uh_data = f.readlines()
-    except FileNotFoundError:
-        return ""
-    
-    tags = ""
-    file = ""
-    for eachline in uh_data:
-        file += eachline
-    uh_data.close()
-    
-    try:
-        json_data = json.loads(file)
-        tags = set()
-        for eachurl in json_data['urls']:
-            if eachurl['tags']:
-                for eachtag in eachurl['tags']:
-                    tags.add(eachtag)
-        stringtags = ""
-        for eachtag in tags:
-            stringtags += eachtag + ", "
-        return stringtags[:-2]
-    except Exception:
-        return ""
-
-
-def read_spur_data(ip_address: str, spurapi: str, skip_enrich: bool = False) -> List[str]:
-    """Read cached SPUR.us data and return normalized fields.
-    
-    Args:
-        ip_address: IP address string
-        spurapi: SPUR API key
-        skip_enrich: If True, return empty data
-        
-    Returns:
-        List of SPUR attributes in the following order:
-        [asn, asn_org, organization, infrastructure, client_behaviors,
-         client_proxies, client_types, client_count, client_concentration,
-         client_countries, client_geo_spread, risks, services, location,
-         tunnel_anonymous, tunnel_entries, tunnel_operator, tunnel_type]
-    """
-    if skip_enrich:
-        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-        
-    cache_dir = Path('/mnt/dshield/data/cache')
-    spur_path = cache_dir / ("spur_" + ip_address.replace(":", "_") + ".json")
-    
-    if not spur_path.exists():
-        spur_session = requests.session()
-        spur_session.headers = {'Token': spurapi}
-        
-        try:
-            response = spur_session.get(f"https://spur.us/api/v1/context/{ip_address}", timeout=30)
-            response.raise_for_status()
-            
-            with open(spur_path, 'w', encoding='utf-8') as f:
-                f.write(response.text)
-        except Exception as e:
-            logging.error(f"SPUR query failed for {ip_address}: {e}")
-            return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-        finally:
-            spur_session.close()
-    
-    try:
-        with open(spur_path, 'r', encoding='utf-8') as f:
-            spur_data = f.readlines()
-    except FileNotFoundError:
-        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    
-    file = ""
-    for eachline in spur_data:
-        file += eachline
-    spur_data.close()
-    
-    try:
-        json_data = json.loads(file)
-    except Exception:
-        return ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
-    
-    # Extract SPUR data fields
-    spur_list = []
-    
-    # ASN data
-    asn = json_data.get('asn', '')
-    spur_list.append(str(asn))
-    
-    asn_org = json_data.get('asn_organization', '')
-    spur_list.append(str(asn_org))
-    
-    organization = json_data.get('organization', '')
-    spur_list.append(str(organization))
-    
-    infrastructure = json_data.get('infrastructure', '')
-    spur_list.append(str(infrastructure))
-    
-    # Client data
-    client_behaviors = json_data.get('client_behaviors', '')
-    spur_list.append(str(client_behaviors))
-    
-    client_proxies = json_data.get('client_proxies', '')
-    spur_list.append(str(client_proxies))
-    
-    client_types = json_data.get('client_types', '')
-    spur_list.append(str(client_types))
-    
-    client_count = json_data.get('client_count', '')
-    spur_list.append(str(client_count))
-    
-    client_concentration = json_data.get('client_concentration', '')
-    spur_list.append(str(client_concentration))
-    
-    client_countries = json_data.get('client_countries', '')
-    spur_list.append(str(client_countries))
-    
-    client_geo_spread = json_data.get('client_geo_spread', '')
-    spur_list.append(str(client_geo_spread))
-    
-    # Risk and service data
-    risks = json_data.get('risks', '')
-    spur_list.append(str(risks))
-    
-    services = json_data.get('services', '')
-    spur_list.append(str(services))
-    
-    location = json_data.get('location', '')
-    spur_list.append(str(location))
-    
-    # Tunnel data
-    tunnel_anonymous = ""
-    tunnel_entries = ""
-    tunnel_operator = ""
-    tunnel_type = ""
-    
-    if "tunnels" in json_data:
-        for each_tunnel in json_data['tunnels']:
-            if "anonymous" in each_tunnel:
-                tunnel_anonymous = each_tunnel['anonymous']
-            if "entries" in each_tunnel:
-                tunnel_entries = each_tunnel['entries']
-            if "operator" in each_tunnel:
-                tunnel_operator = each_tunnel['operator']
-            if "type" in each_tunnel:
-                tunnel_type = each_tunnel['type']
-    
-    spur_list.append(tunnel_anonymous)
-    spur_list.append(tunnel_entries)
-    spur_list.append(tunnel_operator)
-    spur_list.append(tunnel_type)
-    
-    return spur_list
->>>>>>> 4b5ecbc (Add debug modules and identify JSON parsing issue)
+__all__ = [
+    "EnrichmentService",
+    "vt_query",
+    "dshield_query",
+    "safe_read_uh_data",
+    "read_uh_data",
+    "read_spur_data",
+    "with_timeout",
+    "_SPUR_EMPTY_PAYLOAD",
+]

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from .loader.bulk import LoaderCheckpoint
+# LoaderCheckpoint imported lazily to avoid circular imports
 
 _DEFAULT_STATUS_DIR = Path("/mnt/dshield/data/logs/status")
 
@@ -70,8 +70,10 @@ class StatusEmitter:
             self._state["last_updated"] = datetime.now(UTC).isoformat()
             self._write_state()
 
-    def record_checkpoint(self, checkpoint: LoaderCheckpoint) -> None:
+    def record_checkpoint(self, checkpoint: Any) -> None:
         """Update the emitted status with the latest batch checkpoint."""
+        # Lazy import to avoid circular dependency
+
         with self._lock:
             checkpoint_dict = _to_dict(checkpoint)
             self._state["checkpoint"] = checkpoint_dict
