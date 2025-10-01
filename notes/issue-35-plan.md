@@ -1,7 +1,7 @@
 # Issue 35 Work Plan: PostgreSQL Support and Migration Path
 
 **Issue**: [#35 - Add PostgreSQL Support and Migration Path](https://github.com/your-org/cowrieprocessor/issues/35)  
-**Status**: In Progress (Phase 1, Day 2 Complete)  
+**Status**: In Progress (Phase 1, Day 3 Complete)  
 **Priority**: High  
 **Estimated Effort**: 3 weeks (15 days)  
 **Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)  
@@ -25,11 +25,13 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - **NEW**: Real columns replacing SQLite-specific computed columns
 - **NEW**: Hybrid properties for backward compatibility
 - **NEW**: Migration v5 for computed column transition
+- **NEW**: Proper boolean defaults using SQLAlchemy false() expressions
+- **NEW**: Migration v6 for boolean default updates
 
 ### ❌ What Needs Fixing
 - ~~No PostgreSQL driver in dependencies~~ ✅ **FIXED**: Optional dependencies added
 - ~~SQLite-specific `Computed` columns using `json_extract()`~~ ✅ **FIXED**: Real columns with hybrid properties
-- Boolean defaults as `"0"` instead of proper booleans
+- ~~Boolean defaults as `"0"` instead of proper booleans~~ ✅ **FIXED**: SQLAlchemy false() expressions
 - Extensive `func.json_extract()` usage in reporting
 - Direct `sqlite3` module calls in utility scripts
 - Missing indexes for computed/virtual columns
@@ -92,21 +94,29 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - Added proper indexes for new real columns
 - Maintained backward compatibility through hybrid properties
 
-#### Day 3: Boolean Default Fixes
+#### Day 3: Boolean Default Fixes ✅ COMPLETED
 **Tasks:**
-- [ ] Replace string defaults (`"0"`, `"1"`) with proper boolean types
-- [ ] Update `server_default` values using SQLAlchemy expressions
-- [ ] Test boolean handling across both backends
-- [ ] Update migration scripts for boolean columns
+- [x] Replace string defaults (`"0"`, `"1"`) with proper boolean types
+- [x] Update `server_default` values using SQLAlchemy expressions
+- [x] Test boolean handling across both backends
+- [x] Update migration scripts for boolean columns
 
 **Files to Modify:**
 - `cowrieprocessor/db/models.py`
 - `cowrieprocessor/db/migrations.py`
 
 **Deliverables:**
-- Proper boolean column definitions
-- Updated migrations for boolean handling
-- Cross-backend compatibility tests
+- ✅ Proper boolean column definitions
+- ✅ Updated migrations for boolean handling
+- ✅ Cross-backend compatibility tests
+
+**Implementation Details:**
+- Replaced string defaults ("0", "1") with SQLAlchemy false() expressions
+- Updated boolean columns: quarantined, vt_flagged, dshield_flagged, high_risk, resolved, vt_malicious
+- Created migration v6 to handle boolean default updates for both PostgreSQL and SQLite
+- Updated schema version to 6
+- Comprehensive testing verified all boolean defaults work correctly
+- Cross-backend compatibility maintained through proper migration handling
 
 #### Day 4: JSON Access Abstraction Layer
 **Tasks:**
@@ -527,5 +537,5 @@ python scripts/benchmark_databases.py --sqlite production.sqlite --postgres post
 ---
 
 **Created**: 2025-01-27  
-**Last Updated**: 2025-01-27 (Phase 1, Day 2 Complete)  
-**Status**: In Progress - Phase 1, Day 3 Ready
+**Last Updated**: 2025-01-27 (Phase 1, Day 3 Complete)  
+**Status**: In Progress - Phase 1, Day 4 Ready
