@@ -9,6 +9,7 @@ import os
 import sqlite3
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
@@ -38,9 +39,11 @@ SESSION_QUERY = """
 """
 
 FILE_QUERY = """
-    SELECT DISTINCT shasum, filename
+    SELECT DISTINCT shasum, filename, session_id
     FROM files
     WHERE shasum IS NOT NULL AND shasum != ''
+      AND enrichment_status IN ('pending', 'failed')
+    ORDER BY first_seen ASC
 """
 
 
@@ -57,17 +60,17 @@ def iter_sessions(conn: sqlite3.Connection, limit: int) -> Iterator[tuple[str, s
             yield session_id, src_ip
 
 
-def iter_files(conn: sqlite3.Connection, limit: int) -> Iterator[tuple[str, Optional[str]]]:
-    """Yield file hashes and filenames up to the requested limit."""
+def iter_files(conn: sqlite3.Connection, limit: int) -> Iterator[tuple[str, Optional[str], str]]:
+    """Yield file hashes, filenames, and session IDs up to the requested limit."""
     query = FILE_QUERY
     params: tuple[int, ...] = ()
     if limit > 0:
         query += " LIMIT ?"
         params = (limit,)
     for row in conn.execute(query, params):
-        shasum, filename = row
+        shasum, filename, session_id = row
         if shasum:
-            yield shasum, filename
+            yield shasum, filename, session_id
 
 
 def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -113,25 +116,67 @@ def update_file(
     """Persist refreshed VirusTotal fields for a given file hash."""
     vt_data = enrichment_payload.get("virustotal") if isinstance(enrichment_payload, dict) else None
     if vt_data is None:
+        # Mark as failed if no VT data
+        conn.execute(
+            "UPDATE files SET enrichment_status = 'failed' WHERE shasum = ?",
+            (file_hash,)
+        )
         return
+    
     attributes = vt_data.get("data", {}).get("attributes", {}) if isinstance(vt_data, dict) else {}
     classification = attributes.get("popular_threat_classification", {})
     last_analysis = attributes.get("last_analysis_stats", {})
+    
+    # Extract VT data with proper type conversion
+    vt_classification = classification.get("suggested_threat_label") if isinstance(classification, dict) else None
+    vt_description = attributes.get("type_description")
+    vt_malicious = bool(last_analysis.get("malicious", 0) > 0) if isinstance(last_analysis, dict) else False
+    vt_positives = last_analysis.get("malicious", 0) if isinstance(last_analysis, dict) else 0
+    vt_total = sum(last_analysis.values()) if isinstance(last_analysis, dict) else 0
+    
+    # Parse timestamps
+    vt_first_seen = None
+    vt_last_analysis = None
+    vt_scan_date = None
+    
+    if attributes.get("first_submission_date"):
+        try:
+            vt_first_seen = datetime.fromtimestamp(int(attributes["first_submission_date"]))
+        except (ValueError, TypeError):
+            pass
+    
+    if attributes.get("last_analysis_date"):
+        try:
+            vt_last_analysis = datetime.fromtimestamp(int(attributes["last_analysis_date"]))
+            vt_scan_date = vt_last_analysis
+        except (ValueError, TypeError):
+            pass
+    
     sql = """
         UPDATE files
         SET vt_classification = ?,
             vt_description = ?,
             vt_malicious = ?,
-            vt_first_seen = ?
+            vt_first_seen = ?,
+            vt_last_analysis = ?,
+            vt_positives = ?,
+            vt_total = ?,
+            vt_scan_date = ?,
+            enrichment_status = 'enriched',
+            last_updated = CURRENT_TIMESTAMP
         WHERE shasum = ?
     """
     conn.execute(
         sql,
         (
-            classification.get("suggested_threat_label") if isinstance(classification, dict) else None,
-            attributes.get("type_description"),
-            last_analysis.get("malicious") if isinstance(last_analysis, dict) else None,
-            attributes.get("first_submission_date"),
+            vt_classification,
+            vt_description,
+            vt_malicious,
+            vt_first_seen,
+            vt_last_analysis,
+            vt_positives,
+            vt_total,
+            vt_scan_date,
             file_hash,
         ),
     )
@@ -270,7 +315,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
         vt_api_key = resolved.get("vt_api")
         if file_limit != 0 and vt_api_key:
-            for file_hash, filename in iter_files(conn, file_limit):
+            for file_hash, filename, session_id in iter_files(conn, file_limit):
                 file_count += 1
                 result = service.enrich_file(file_hash, filename or file_hash)
                 enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
