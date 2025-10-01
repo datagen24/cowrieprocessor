@@ -88,6 +88,12 @@ def _sqlite_on_connect(settings: DatabaseSettings):
 
 def create_engine_from_settings(settings: DatabaseSettings) -> Engine:
     """Create a SQLAlchemy engine configured for the target backend."""
+    url = settings.url
+    
+    # Convert PostgreSQL URLs to use psycopg driver explicitly
+    if _is_postgresql_url(url) and not url.startswith("postgresql+psycopg://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://").replace("postgres://", "postgresql+psycopg://")
+    
     engine_kwargs: dict[str, Any] = {
         "echo": settings.echo,
         "future": True,
@@ -101,17 +107,17 @@ def create_engine_from_settings(settings: DatabaseSettings) -> Engine:
 
     connect_args: dict[str, Any] = {}
 
-    if _is_sqlite_url(settings.url):
+    if _is_sqlite_url(url):
         connect_args["check_same_thread"] = False
-        if _needs_static_pool(settings.url):
+        if _needs_static_pool(url):
             engine_kwargs["poolclass"] = StaticPool
             # Remove pool_timeout for StaticPool as it's not supported
             engine_kwargs.pop("pool_timeout", None)
-        engine = create_engine(settings.url, connect_args=connect_args, **engine_kwargs)
+        engine = create_engine(url, connect_args=connect_args, **engine_kwargs)
         event.listen(engine, "connect", _sqlite_on_connect(settings))
         return engine
 
-    engine = create_engine(settings.url, connect_args=connect_args or None, **engine_kwargs)
+    engine = create_engine(url, connect_args=connect_args, **engine_kwargs)
     return engine
 
 
