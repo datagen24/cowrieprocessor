@@ -159,6 +159,43 @@ class DeadLetterEvent(Base):
     )
 
 
+class Files(Base):
+    """Normalized files table with VirusTotal enrichment data."""
+
+    __tablename__ = "files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), nullable=False)
+    shasum = Column(String(64), nullable=False)  # SHA-256 hash
+    filename = Column(String(512), nullable=True)
+    file_size = Column(BigInteger, nullable=True)
+    download_url = Column(String(1024), nullable=True)
+    
+    # VirusTotal enrichment fields
+    vt_classification = Column(String(128), nullable=True)
+    vt_description = Column(Text, nullable=True)
+    vt_malicious = Column(Boolean, nullable=False, server_default="0")
+    vt_first_seen = Column(DateTime(timezone=True), nullable=True)
+    vt_last_analysis = Column(DateTime(timezone=True), nullable=True)
+    vt_positives = Column(Integer, nullable=True)
+    vt_total = Column(Integer, nullable=True)
+    vt_scan_date = Column(DateTime(timezone=True), nullable=True)
+    
+    # Metadata
+    first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_updated = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    enrichment_status = Column(String(32), nullable=False, server_default="pending")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "shasum", name="uq_files_session_hash"),
+        Index("ix_files_shasum", "shasum"),
+        Index("ix_files_vt_malicious", "vt_malicious"),
+        Index("ix_files_enrichment_status", "enrichment_status"),
+        Index("ix_files_first_seen", "first_seen"),
+        Index("ix_files_session_id", "session_id"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "RawEvent",
@@ -166,4 +203,5 @@ __all__ = [
     "CommandStat",
     "IngestCursor",
     "DeadLetterEvent",
+    "Files",
 ]
