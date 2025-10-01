@@ -12,7 +12,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 @contextmanager
@@ -63,6 +63,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v3(connection)
             _set_schema_version(connection, 3)
             version = 3
+
+        if version < 4:
+            _upgrade_to_v4(connection)
+            _set_schema_version(connection, 4)
+            version = 4
     return version
 
 
@@ -93,6 +98,20 @@ def _upgrade_to_v3(connection: Connection) -> None:
         column_type = "JSON"
 
     connection.execute(text(f"ALTER TABLE session_summaries ADD COLUMN enrichment {column_type}"))
+
+
+def _upgrade_to_v4(connection: Connection) -> None:
+    """Upgrade to v4 schema by creating the files table."""
+    inspector = inspect(connection)
+    
+    # Check if files table already exists
+    if "files" in inspector.get_table_names():
+        return
+    
+    # Create the files table using SQLAlchemy's create_all
+    # This will create the table with all the proper constraints and indexes
+    from .models import Files
+    Files.__table__.create(connection, checkfirst=True)
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]
