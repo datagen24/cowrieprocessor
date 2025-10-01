@@ -1,7 +1,7 @@
 # Issue 35 Work Plan: PostgreSQL Support and Migration Path
 
 **Issue**: [#35 - Add PostgreSQL Support and Migration Path](https://github.com/your-org/cowrieprocessor/issues/35)  
-**Status**: In Progress (Phase 1, Day 1 Complete)  
+**Status**: In Progress (Phase 1, Day 2 Complete)  
 **Priority**: High  
 **Estimated Effort**: 3 weeks (15 days)  
 **Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)  
@@ -22,10 +22,13 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - **NEW**: PostgreSQL driver detection and graceful fallback
 - **NEW**: Optional PostgreSQL dependencies in pyproject.toml
 - **NEW**: Runtime validation of PostgreSQL driver availability
+- **NEW**: Real columns replacing SQLite-specific computed columns
+- **NEW**: Hybrid properties for backward compatibility
+- **NEW**: Migration v5 for computed column transition
 
 ### ❌ What Needs Fixing
 - ~~No PostgreSQL driver in dependencies~~ ✅ **FIXED**: Optional dependencies added
-- SQLite-specific `Computed` columns using `json_extract()`
+- ~~SQLite-specific `Computed` columns using `json_extract()`~~ ✅ **FIXED**: Real columns with hybrid properties
 - Boolean defaults as `"0"` instead of proper booleans
 - Extensive `func.json_extract()` usage in reporting
 - Direct `sqlite3` module calls in utility scripts
@@ -65,21 +68,29 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - Fixed SQLite StaticPool compatibility issue with pool_timeout
 - Verified both default and PostgreSQL installations work correctly
 
-#### Day 2: Schema Refactoring - Computed Columns
+#### Day 2: Schema Refactoring - Computed Columns ✅ COMPLETED
 **Tasks:**
-- [ ] Analyze current `Computed` column usage in `cowrieprocessor/db/models.py`
-- [ ] Replace SQLite-specific computed columns with real columns
-- [ ] Implement hybrid properties for backward compatibility
-- [ ] Update model definitions for `RawEvent`, `SessionSummary`, etc.
+- [x] Analyze current `Computed` column usage in `cowrieprocessor/db/models.py`
+- [x] Replace SQLite-specific computed columns with real columns
+- [x] Implement hybrid properties for backward compatibility
+- [x] Update model definitions for `RawEvent`, `SessionSummary`, etc.
 
 **Files to Modify:**
 - `cowrieprocessor/db/models.py`
 - `cowrieprocessor/db/migrations.py`
 
 **Deliverables:**
-- Refactored models with real columns
-- Backward compatibility layer
-- Updated migration scripts
+- ✅ Refactored models with real columns
+- ✅ Backward compatibility layer
+- ✅ Updated migration scripts
+
+**Implementation Details:**
+- Replaced SQLite Computed columns with real columns: session_id, event_type, event_timestamp
+- Added hybrid properties: session_id_computed, event_type_computed, event_timestamp_computed
+- Created migration v5 to handle transition from computed to real columns
+- Updated schema version to 5
+- Added proper indexes for new real columns
+- Maintained backward compatibility through hybrid properties
 
 #### Day 3: Boolean Default Fixes
 **Tasks:**
@@ -516,5 +527,5 @@ python scripts/benchmark_databases.py --sqlite production.sqlite --postgres post
 ---
 
 **Created**: 2025-01-27  
-**Last Updated**: 2025-01-27 (Phase 1, Day 1 Complete)  
-**Status**: In Progress - Phase 1, Day 2 Ready
+**Last Updated**: 2025-01-27 (Phase 1, Day 2 Complete)  
+**Status**: In Progress - Phase 1, Day 3 Ready
