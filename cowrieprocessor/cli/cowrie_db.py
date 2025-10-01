@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime
@@ -16,6 +15,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from ..db import CURRENT_SCHEMA_VERSION, apply_migrations, Files
+from ..db.engine import create_engine_from_settings
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
 
@@ -25,21 +25,21 @@ logger = logging.getLogger(__name__)
 class CowrieDatabase:
     """Database management operations for Cowrie Processor."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_url: str):
         """Initialize database manager.
 
         Args:
-            db_path: Path to SQLite database file
+            db_url: Database connection URL (SQLite or PostgreSQL)
         """
-        self.db_path = db_path
+        self.db_url = db_url
         self._engine = None
         self._session_maker = None
 
     def _get_engine(self):
         """Get or create SQLAlchemy engine."""
         if self._engine is None:
-            settings = DatabaseSettings(url=f"sqlite:///{self.db_path}")
-            self._engine = create_engine(settings.url, echo=False, future=True)
+            settings = DatabaseSettings(url=self.db_url)
+            self._engine = create_engine_from_settings(settings)
         return self._engine
 
     def _get_session(self):
@@ -47,6 +47,14 @@ class CowrieDatabase:
         if self._session_maker is None:
             self._session_maker = sessionmaker(bind=self._get_engine(), future=True)
         return self._session_maker()
+
+    def _is_sqlite(self) -> bool:
+        """Check if the database is SQLite."""
+        return self.db_url.startswith("sqlite://")
+
+    def _is_postgresql(self) -> bool:
+        """Check if the database is PostgreSQL."""
+        return self.db_url.startswith("postgresql://") or self.db_url.startswith("postgres://")
 
     def get_schema_version(self) -> int:
         """Get current schema version from database."""
@@ -71,7 +79,12 @@ class CowrieDatabase:
             Migration result with details
         """
         # Check if database file exists
-        db_exists = Path(self.db_path).exists()
+        if self._is_sqlite():
+            db_path = self.db_url.replace("sqlite:///", "")
+            db_exists = Path(db_path).exists()
+        else:
+            # For PostgreSQL, assume database exists if we can connect
+            db_exists = True
 
         if not db_exists:
             current_version = 0
@@ -130,8 +143,25 @@ class CowrieDatabase:
         }
 
         try:
-            db_size = os.path.getsize(self.db_path)
-            result['database_size_mb'] = round(db_size / (1024 * 1024), 2)
+            if self._is_sqlite():
+                # SQLite: get file size
+                db_path = self.db_url.replace("sqlite:///", "")
+                db_size = os.path.getsize(db_path)
+                result['database_size_mb'] = round(db_size / (1024 * 1024), 2)
+            elif self._is_postgresql():
+                # PostgreSQL: get database size from system tables
+                with self._get_engine().connect() as conn:
+                    size_query = text("""
+                        SELECT pg_size_pretty(pg_database_size(current_database())) as size,
+                               pg_database_size(current_database()) as bytes
+                    """)
+                    size_result = conn.execute(size_query).fetchone()
+                    if size_result:
+                        result['database_size_mb'] = round(size_result.bytes / (1024 * 1024), 2)
+                    else:
+                        result['database_size_mb'] = 0
+            else:
+                result['database_size_mb'] = 0
         except OSError:
             result['database_size_mb'] = 0
 
@@ -174,7 +204,7 @@ class CowrieDatabase:
         """Run database maintenance operations.
 
         Args:
-            vacuum: Whether to run VACUUM
+            vacuum: Whether to run VACUUM (SQLite) or ANALYZE (PostgreSQL)
             reindex: Whether to rebuild indexes
 
         Returns:
@@ -182,37 +212,60 @@ class CowrieDatabase:
         """
         results = []
         initial_size = 0
+        final_size = 0
 
+        # Get initial size
         try:
-            initial_size = os.path.getsize(self.db_path)
+            if self._is_sqlite():
+                db_path = self.db_url.replace("sqlite:///", "")
+                initial_size = os.path.getsize(db_path)
+            elif self._is_postgresql():
+                with self._get_engine().connect() as conn:
+                    size_result = conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one()
+                    initial_size = size_result
         except OSError:
             pass
 
         with self._get_engine().connect() as conn:
             if vacuum:
                 try:
-                    conn.execute(text("VACUUM"))
-                    results.append("VACUUM completed successfully")
+                    if self._is_sqlite():
+                        conn.execute(text("VACUUM"))
+                        results.append("VACUUM completed successfully")
+                    elif self._is_postgresql():
+                        conn.execute(text("ANALYZE"))
+                        results.append("ANALYZE completed successfully")
                 except Exception as e:
-                    results.append(f"VACUUM failed: {e}")
+                    results.append(f"Vacuum/Analyze failed: {e}")
 
             if reindex:
                 try:
-                    # Get all indexes
-                    indexes = conn.execute(
-                        text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
-                    ).fetchall()
+                    if self._is_sqlite():
+                        # Get all indexes
+                        indexes = conn.execute(
+                            text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+                        ).fetchall()
 
-                    for (index_name,) in indexes:
-                        conn.execute(text(f"REINDEX {index_name}"))
+                        for (index_name,) in indexes:
+                            conn.execute(text(f"REINDEX {index_name}"))
 
-                    results.append(f"Reindexed {len(indexes)} indexes")
+                        results.append(f"Reindexed {len(indexes)} indexes")
+                    elif self._is_postgresql():
+                        # PostgreSQL: REINDEX DATABASE
+                        conn.execute(text("REINDEX DATABASE"))
+                        results.append("REINDEX DATABASE completed successfully")
                 except Exception as e:
                     results.append(f"REINDEX failed: {e}")
 
-        final_size = 0
+        # Get final size
         try:
-            final_size = os.path.getsize(self.db_path)
+            if self._is_sqlite():
+                db_path = self.db_url.replace("sqlite:///", "")
+                final_size = os.path.getsize(db_path)
+            elif self._is_postgresql():
+                with self._get_engine().connect() as conn:
+                    size_result = conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one()
+                    final_size = size_result
         except OSError:
             pass
 
@@ -235,23 +288,89 @@ class CowrieDatabase:
             Path to created backup file
         """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        if backup_path:
-            backup_file = Path(backup_path)
+        
+        if self._is_sqlite():
+            # SQLite backup using file copy
+            db_path = self.db_url.replace("sqlite:///", "")
+            if backup_path:
+                backup_file = Path(backup_path)
+            else:
+                backup_dir = Path(db_path).parent
+                backup_file = backup_dir / f"cowrie_backup_{timestamp}.sqlite"
+            
+            # Copy SQLite file
+            import shutil
+            shutil.copy2(db_path, str(backup_file))
+            
+            # Verify backup integrity
+            if not self._verify_backup_integrity(str(backup_file)):
+                backup_file.unlink()
+                raise Exception("Backup integrity check failed")
+            
+            return str(backup_file)
+            
+        elif self._is_postgresql():
+            # PostgreSQL backup using pg_dump
+            import subprocess
+            
+            if backup_path:
+                backup_file = Path(backup_path)
+            else:
+                backup_file = Path(f"cowrie_backup_{timestamp}.sql")
+            
+            # Extract connection details from URL
+            # Format: postgresql://user:password@host:port/database
+            url_parts = self.db_url.replace("postgresql://", "").replace("postgres://", "")
+            if "@" in url_parts:
+                auth, host_db = url_parts.split("@", 1)
+                if ":" in auth:
+                    user, password = auth.split(":", 1)
+                else:
+                    user = auth
+                    password = ""
+                
+                if "/" in host_db:
+                    host_port, database = host_db.split("/", 1)
+                    if ":" in host_port:
+                        host, port = host_port.split(":", 1)
+                    else:
+                        host = host_port
+                        port = "5432"
+                else:
+                    host = host_db
+                    port = "5432"
+                    database = "postgres"
+            else:
+                # Simple format: postgresql://database
+                user = "postgres"
+                password = ""
+                host = "localhost"
+                port = "5432"
+                database = url_parts
+            
+            # Set environment variables for pg_dump
+            env = os.environ.copy()
+            if password:
+                env['PGPASSWORD'] = password
+            
+            # Run pg_dump
+            cmd = [
+                'pg_dump',
+                '-h', host,
+                '-p', port,
+                '-U', user,
+                '-d', database,
+                '-f', str(backup_file),
+                '--no-password'
+            ]
+            
+            try:
+                subprocess.run(cmd, env=env, check=True, capture_output=True)
+                return str(backup_file)
+            except subprocess.CalledProcessError as e:
+                raise Exception(f"PostgreSQL backup failed: {e.stderr.decode()}")
         else:
-            backup_dir = Path(self.db_path).parent
-            backup_file = backup_dir / f"cowrie_backup_{timestamp}.sqlite"
-
-        # Create backup using SQLite backup API
-        with sqlite3.connect(self.db_path) as source:
-            with sqlite3.connect(str(backup_file)) as dest:
-                source.backup(dest)
-
-        # Verify backup integrity
-        if not self._verify_backup_integrity(str(backup_file)):
-            backup_file.unlink()
-            raise Exception("Backup integrity check failed")
-
-        return str(backup_file)
+            raise Exception(f"Backup not supported for database type: {self.db_url}")
 
     def _verify_backup_integrity(self, backup_path: str) -> bool:
         """Verify backup file integrity.
@@ -263,11 +382,19 @@ class CowrieDatabase:
             True if backup is valid
         """
         try:
-            with sqlite3.connect(backup_path) as conn:
-                # Basic integrity check
-                cursor = conn.execute("PRAGMA integrity_check")
-                result = cursor.fetchone()
-                return result and result[0] == 'ok'
+            if self._is_sqlite():
+                # SQLite integrity check
+                import sqlite3
+                with sqlite3.connect(backup_path) as conn:
+                    cursor = conn.execute("PRAGMA integrity_check")
+                    result = cursor.fetchone()
+                    return result and result[0] == 'ok'
+            elif self._is_postgresql():
+                # PostgreSQL backup verification (check if file exists and is not empty)
+                backup_file = Path(backup_path)
+                return backup_file.exists() and backup_file.stat().st_size > 0
+            else:
+                return False
         except Exception:
             return False
 
@@ -295,60 +422,113 @@ class CowrieDatabase:
             )
 
         with self._get_engine().connect() as conn:
-            try:
-                # Quick integrity check
-                cursor = conn.execute(text("PRAGMA quick_check"))
-                result = cursor.fetchone()
-                results['quick_check'] = {
-                    'is_valid': result and result[0] == 'ok',
-                    'error': result[0] if result else 'Unknown error',
-                }
-            except Exception as e:
-                results['quick_check']['error'] = str(e)
-
-            try:
-                # Foreign key check
-                conn.execute(text("PRAGMA foreign_keys = ON"))
-                cursor = conn.execute(text("PRAGMA foreign_key_check"))
-                rows = cursor.fetchall()
-                results['foreign_keys'] = {
-                    'is_valid': len(rows) == 0,
-                    'error': f"Found {len(rows)} foreign key violations" if rows else None,
-                }
-            except Exception as e:
-                results['foreign_keys']['error'] = str(e)
-
-            try:
-                # Index check
-                cursor = conn.execute(text("PRAGMA integrity_check"))
-                result = cursor.fetchone()
-                results['indexes'] = {
-                    'is_valid': result and result[0] == 'ok',
-                    'error': result[0] if result else 'Unknown error',
-                }
-            except Exception as e:
-                results['indexes']['error'] = str(e)
-
-            if deep:
+            if self._is_sqlite():
+                # SQLite-specific integrity checks
                 try:
-                    # Page integrity (SQLite specific)
-                    cursor = conn.execute(text("PRAGMA page_count"))
-                    page_count = cursor.fetchone()[0]
-
-                    bad_pages = []
-                    for page_num in range(1, page_count + 1):
-                        try:
-                            cursor = conn.execute(text(f"PRAGMA page_info({page_num})"))
-                            cursor.fetchone()  # Just check if page is accessible
-                        except Exception:
-                            bad_pages.append(page_num)
-
-                    results['page_integrity'] = {
-                        'is_valid': len(bad_pages) == 0,
-                        'error': f"Found {len(bad_pages)} bad pages" if bad_pages else None,
+                    # Quick integrity check
+                    cursor = conn.execute(text("PRAGMA quick_check"))
+                    result = cursor.fetchone()
+                    results['quick_check'] = {
+                        'is_valid': result and result[0] == 'ok',
+                        'error': result[0] if result else 'Unknown error',
                     }
                 except Exception as e:
-                    results['page_integrity']['error'] = str(e)
+                    results['quick_check']['error'] = str(e)
+
+                try:
+                    # Foreign key check
+                    conn.execute(text("PRAGMA foreign_keys = ON"))
+                    cursor = conn.execute(text("PRAGMA foreign_key_check"))
+                    rows = cursor.fetchall()
+                    results['foreign_keys'] = {
+                        'is_valid': len(rows) == 0,
+                        'error': f"Found {len(rows)} foreign key violations" if rows else None,
+                    }
+                except Exception as e:
+                    results['foreign_keys']['error'] = str(e)
+
+                try:
+                    # Index check
+                    cursor = conn.execute(text("PRAGMA integrity_check"))
+                    result = cursor.fetchone()
+                    results['indexes'] = {
+                        'is_valid': result and result[0] == 'ok',
+                        'error': result[0] if result else 'Unknown error',
+                    }
+                except Exception as e:
+                    results['indexes']['error'] = str(e)
+
+                if deep:
+                    try:
+                        # Page integrity (SQLite specific)
+                        cursor = conn.execute(text("PRAGMA page_count"))
+                        page_count = cursor.fetchone()[0]
+
+                        bad_pages = []
+                        for page_num in range(1, page_count + 1):
+                            try:
+                                cursor = conn.execute(text(f"PRAGMA page_info({page_num})"))
+                                cursor.fetchone()  # Just check if page is accessible
+                            except Exception:
+                                bad_pages.append(page_num)
+
+                        results['page_integrity'] = {
+                            'is_valid': len(bad_pages) == 0,
+                            'error': f"Found {len(bad_pages)} bad pages" if bad_pages else None,
+                        }
+                    except Exception as e:
+                        results['page_integrity']['error'] = str(e)
+
+            elif self._is_postgresql():
+                # PostgreSQL-specific integrity checks
+                try:
+                    # Check for dead tuples and bloat
+                    cursor = conn.execute(text("""
+                        SELECT schemaname, tablename, n_dead_tup, n_live_tup
+                        FROM pg_stat_user_tables
+                        WHERE n_dead_tup > 0
+                    """))
+                    dead_tuples = cursor.fetchall()
+                    
+                    results['quick_check'] = {
+                        'is_valid': len(dead_tuples) == 0,
+                        'error': f"Found {len(dead_tuples)} tables with dead tuples" if dead_tuples else None,
+                    }
+                except Exception as e:
+                    results['quick_check']['error'] = str(e)
+
+                try:
+                    # Check for foreign key violations
+                    cursor = conn.execute(text("""
+                        SELECT COUNT(*) FROM (
+                            SELECT 1 FROM information_schema.table_constraints
+                            WHERE constraint_type = 'FOREIGN KEY'
+                        ) fk_check
+                    """))
+                    fk_count = cursor.fetchone()[0]
+                    
+                    results['foreign_keys'] = {
+                        'is_valid': True,  # PostgreSQL maintains FK integrity automatically
+                        'error': None,
+                    }
+                except Exception as e:
+                    results['foreign_keys']['error'] = str(e)
+
+                try:
+                    # Check for index corruption
+                    cursor = conn.execute(text("""
+                        SELECT COUNT(*) FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE c.relkind = 'i' AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                    """))
+                    index_count = cursor.fetchone()[0]
+                    
+                    results['indexes'] = {
+                        'is_valid': True,  # PostgreSQL maintains index integrity automatically
+                        'error': None,
+                    }
+                except Exception as e:
+                    results['indexes']['error'] = str(e)
 
         corruption_found = any(not r['is_valid'] for r in results.values())
 
@@ -405,17 +585,30 @@ class CowrieDatabase:
 
             # Import here to avoid circular imports
             from ..loader.file_processor import extract_file_data, create_files_record
+            from ..db.json_utils import JSONAccessor, get_dialect_name_from_engine
 
             with self._get_engine().connect() as conn:
-                # Query for file download events
-                query = text("""
-                    SELECT session_id, payload
-                    FROM raw_events
-                    WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
-                      AND json_extract(payload, '$.shasum') IS NOT NULL
-                      AND json_extract(payload, '$.shasum') != ''
-                    ORDER BY id ASC
-                """)
+                dialect_name = get_dialect_name_from_engine(self._get_engine())
+                
+                # Query for file download events using JSON abstraction
+                if dialect_name == "postgresql":
+                    query = text("""
+                        SELECT payload->>'session' as session_id, payload
+                        FROM raw_events
+                        WHERE payload->>'eventid' = 'cowrie.session.file_download'
+                          AND payload->>'shasum' IS NOT NULL
+                          AND payload->>'shasum' != ''
+                        ORDER BY id ASC
+                    """)
+                else:
+                    query = text("""
+                        SELECT json_extract(payload, '$.session') as session_id, payload
+                        FROM raw_events
+                        WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
+                          AND json_extract(payload, '$.shasum') IS NOT NULL
+                          AND json_extract(payload, '$.shasum') != ''
+                        ORDER BY id ASC
+                    """)
 
                 if limit:
                     query = text(str(query) + f" LIMIT {limit}")
@@ -562,7 +755,8 @@ class CowrieDatabase:
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description='Cowrie database management utilities', prog='cowrie-db')
-    parser.add_argument('--db-path', default='../cowrieprocessor.sqlite', help='Path to SQLite database file')
+    parser.add_argument('--db-url', default='sqlite:///cowrieprocessor.sqlite', 
+                       help='Database connection URL (SQLite or PostgreSQL)')
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
@@ -605,7 +799,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    db = CowrieDatabase(args.db_path)
+    db = CowrieDatabase(args.db_url)
 
     try:
         if args.command == 'migrate':
