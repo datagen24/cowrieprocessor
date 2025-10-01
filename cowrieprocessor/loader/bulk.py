@@ -25,7 +25,8 @@ except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..db import RawEvent, SessionSummary, create_session_maker
+from ..db import Files, RawEvent, SessionSummary, create_session_maker
+from .file_processor import extract_file_data
 from ..telemetry import start_span
 
 JsonDict = Dict[str, Any]
@@ -177,6 +178,7 @@ class BulkLoader:
 
         pending_records: List[JsonDict] = []
         session_aggregates: Dict[str, SessionAggregate] = {}
+        pending_files: List[Files] = []
         telemetry_counter = 0
 
         with start_span("cowrie.bulk.load", {"ingest.id": ingest_ref, "sources": len(sources)}):
@@ -229,6 +231,13 @@ class BulkLoader:
                                         file_hash = self._extract_file_hash(processed.payload)
                                         if file_hash:
                                             agg.file_hashes.add(file_hash)
+                                        
+                                        # Extract file data for Files table
+                                        file_data = extract_file_data(processed.payload, processed.session_id)
+                                        if file_data:
+                                            from .file_processor import create_files_record
+                                            file_record = create_files_record(file_data)
+                                            pending_files.append(file_record)
                                 if processed.event_type and any(
                                     hint in processed.event_type for hint in LOGIN_EVENT_HINTS
                                 ):
@@ -245,6 +254,7 @@ class BulkLoader:
                                     session,
                                     pending_records,
                                     session_aggregates,
+                                    pending_files,
                                     metrics,
                                     ingest_ref,
                                     metrics.batches_committed + 1,
@@ -252,6 +262,7 @@ class BulkLoader:
                                 )
                                 pending_records = []
                                 session_aggregates = {}
+                                pending_files = []
                                 telemetry_counter += 1
                                 if telemetry_cb and telemetry_counter % self.config.telemetry_interval == 0:
                                     telemetry_cb(metrics)
@@ -261,6 +272,7 @@ class BulkLoader:
                         session,
                         pending_records,
                         session_aggregates,
+                        pending_files,
                         metrics,
                         ingest_ref,
                         metrics.batches_committed + 1,
@@ -277,6 +289,7 @@ class BulkLoader:
         session: Session,
         raw_event_records: List[JsonDict],
         session_aggregates: Dict[str, SessionAggregate],
+        pending_files: List[Files],
         metrics: BulkLoaderMetrics,
         ingest_id: str,
         batch_index: int,
@@ -301,7 +314,7 @@ class BulkLoader:
         ):
             while True:
                 try:
-                    inserted = self._execute_flush(session, raw_event_records, session_aggregates)
+                    inserted = self._execute_flush(session, raw_event_records, session_aggregates, pending_files)
                     break
                 except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
                     session.rollback()
@@ -349,11 +362,13 @@ class BulkLoader:
         session: Session,
         raw_event_records: List[JsonDict],
         session_aggregates: Dict[str, SessionAggregate],
+        pending_files: List[Files],
     ) -> int:
         """Execute a single flush attempt returning inserted event count."""
         with session.begin():
             inserted = self._bulk_insert_raw_events(session, raw_event_records)
             self._upsert_session_summaries(session, session_aggregates)
+            self._bulk_insert_files(session, pending_files)
         return inserted
 
     def _apply_enrichment(self, session_aggregates: Dict[str, SessionAggregate]) -> None:
@@ -457,6 +472,59 @@ class BulkLoader:
             except IntegrityError:
                 session.rollback()
         return inserted
+
+    def _bulk_insert_files(self, session: Session, files: List[Files]) -> int:
+        """Bulk insert files with conflict resolution."""
+        if not files:
+            return 0
+
+        dialect_name = session.bind.dialect.name if session.bind else ""
+        table = cast(Table, Files.__table__)
+
+        if dialect_name == "sqlite":
+            stmt = sqlite_dialect.insert(table)
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["session_id", "shasum"]
+            )
+            result = session.execute(stmt, [self._files_to_dict(f) for f in files])
+            return int(result.rowcount or 0)
+        if dialect_name == "postgresql" and postgres_dialect is not None:
+            pg_stmt = postgres_dialect.insert(table)
+            pg_stmt = pg_stmt.on_conflict_do_nothing(
+                index_elements=["session_id", "shasum"]
+            )
+            result = session.execute(pg_stmt, [self._files_to_dict(f) for f in files])
+            return int(result.rowcount or 0)
+
+        inserted = 0
+        for file_record in files:
+            try:
+                session.execute(table.insert().values(**self._files_to_dict(file_record)))
+                inserted += 1
+            except IntegrityError:
+                session.rollback()
+        return inserted
+
+    def _files_to_dict(self, file_record: Files) -> Dict[str, Any]:
+        """Convert Files ORM object to dictionary for bulk insert."""
+        return {
+            "session_id": file_record.session_id,
+            "shasum": file_record.shasum,
+            "filename": file_record.filename,
+            "file_size": file_record.file_size,
+            "download_url": file_record.download_url,
+            "vt_classification": file_record.vt_classification,
+            "vt_description": file_record.vt_description,
+            "vt_malicious": file_record.vt_malicious,
+            "vt_first_seen": file_record.vt_first_seen,
+            "vt_last_analysis": file_record.vt_last_analysis,
+            "vt_positives": file_record.vt_positives,
+            "vt_total": file_record.vt_total,
+            "vt_scan_date": file_record.vt_scan_date,
+            "first_seen": file_record.first_seen,
+            "last_updated": file_record.last_updated,
+            "enrichment_status": file_record.enrichment_status,
+        }
 
     def _upsert_session_summaries(self, session: Session, aggregates: Dict[str, SessionAggregate]) -> None:
         if not aggregates:
