@@ -376,3 +376,61 @@ uv run python scripts/enrichment_refresh.py --files --db "sqlite:////mnt/dshield
 - Batch processing for large backfill operations
 - Memory management for file enrichment operations
 - Connection pooling for database operations during migration
+
+## Implementation Status
+
+### ✅ Completed Tasks
+
+- [x] Create feature branch `feature/issue-36-files-table` and push to GitHub
+- [x] Design v4 schema with `files` table and indexes
+- [x] Implement `Files` ORM model with proper constraints and defaults
+- [x] Create migration system to upgrade from v3 to v4
+- [x] Update bulk loader to extract and store file metadata during ingestion
+- [x] Re-enable file enrichment in `enrichment_refresh.py` with new table structure
+- [x] Create comprehensive test suite (unit, integration, performance)
+- [x] Create migration and backfill functionality integrated into `cowrie_db` CLI
+- [x] Run end-to-end tests to validate complete workflow
+- [x] Remove standalone migration and backfill scripts (integrated into CLI)
+
+### 🔄 Integration with cowrie_db CLI
+
+The migration and backfill functionality has been successfully integrated into the existing `cowrie_db` CLI command:
+
+**New Commands Available:**
+```bash
+# Migrate database to v4 schema (creates files table)
+uv run python -m cowrieprocessor.cli.cowrie_db migrate
+
+# Backfill files table from historical data
+uv run python -m cowrieprocessor.cli.cowrie_db backfill --batch-size 1000
+
+# Display files table statistics
+uv run python -m cowrieprocessor.cli.cowrie_db files
+
+# Display general database information (now includes files table count)
+uv run python -m cowrieprocessor.cli.cowrie_db info
+```
+
+**CLI Integration Benefits:**
+- Consistent interface with existing database management commands
+- Built-in error handling and logging
+- Integration with existing database connection management
+- Unified help system and command structure
+- No need for separate standalone scripts
+
+### 🧪 Testing Results
+
+All tests passing successfully:
+- Unit tests: File processing, ORM model, validation
+- Integration tests: End-to-end workflow from ingestion to enrichment
+- Performance tests: Bulk operations and backfill efficiency
+- CLI integration: All new commands working correctly
+
+### 📋 Ready for Production
+
+The implementation is complete and ready for production deployment:
+- Schema migration system handles v3 → v4 upgrade
+- Bulk loader processes file download events during ingestion
+- Enrichment system works with new files table structure
+- CLI provides easy migration and management tools
+- Comprehensive test coverage ensures reliability
