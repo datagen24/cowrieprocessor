@@ -6,6 +6,7 @@ from .migrations import CURRENT_SCHEMA_VERSION, apply_migrations
 from .models import (
     CommandStat,
     DeadLetterEvent,
+    Files,
     IngestCursor,
     RawEvent,
     SchemaState,
@@ -21,6 +22,7 @@ __all__ = [
     "RawEvent",
     "SessionSummary",
     "CommandStat",
+    "Files",
     "SchemaState",
     "IngestCursor",
     "DeadLetterEvent",
