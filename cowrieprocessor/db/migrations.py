@@ -18,6 +18,60 @@ CURRENT_SCHEMA_VERSION = 6
 logger = logging.getLogger(__name__)
 
 
+def _safe_execute_sql(connection: Connection, sql: str, description: str = "") -> bool:
+    """Safely execute SQL with error handling and logging.
+    
+    Args:
+        connection: Database connection
+        sql: SQL statement to execute
+        description: Description for logging
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        connection.execute(text(sql))
+        if description:
+            logger.info(f"Successfully executed: {description}")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to execute SQL ({description}): {e}")
+        return False
+
+
+def _table_exists(connection: Connection, table_name: str) -> bool:
+    """Check if a table exists in the database.
+    
+    Args:
+        connection: Database connection
+        table_name: Name of the table to check
+        
+    Returns:
+        True if table exists, False otherwise
+    """
+    inspector = inspect(connection)
+    return inspector.has_table(table_name)
+
+
+def _column_exists(connection: Connection, table_name: str, column_name: str) -> bool:
+    """Check if a column exists in a table.
+    
+    Args:
+        connection: Database connection
+        table_name: Name of the table
+        column_name: Name of the column
+        
+    Returns:
+        True if column exists, False otherwise
+    """
+    if not _table_exists(connection, table_name):
+        return False
+    
+    inspector = inspect(connection)
+    columns = {col["name"] for col in inspector.get_columns(table_name)}
+    return column_name in columns
+
+
 @contextmanager
 def begin_connection(engine: Engine) -> Iterator[Connection]:
     """Context manager that yields a transactional connection."""
@@ -85,99 +139,98 @@ def apply_migrations(engine: Engine) -> int:
 
 
 def _upgrade_to_v2(connection: Connection) -> None:
-    inspector = inspect(connection)
-    columns = {column["name"] for column in inspector.get_columns("raw_events")}
-    if "source_generation" not in columns:
-        connection.execute(text("ALTER TABLE raw_events ADD COLUMN source_generation INTEGER NOT NULL DEFAULT 0"))
-    connection.execute(text("UPDATE raw_events SET source_generation=0 WHERE source_generation IS NULL"))
-    connection.execute(
-        text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_raw_events_source_gen "
-            "ON raw_events(source, source_inode, source_generation, source_offset)"
+    """Upgrade to v2 schema by adding source_generation column and unique index."""
+    if not _column_exists(connection, "raw_events", "source_generation"):
+        _safe_execute_sql(
+            connection,
+            "ALTER TABLE raw_events ADD COLUMN source_generation INTEGER NOT NULL DEFAULT 0",
+            "Add source_generation column"
         )
+    
+    _safe_execute_sql(
+        connection,
+        "UPDATE raw_events SET source_generation=0 WHERE source_generation IS NULL",
+        "Set default source_generation values"
+    )
+    
+    _safe_execute_sql(
+        connection,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_raw_events_source_gen "
+        "ON raw_events(source, source_inode, source_generation, source_offset)",
+        "Create unique index on raw_events"
     )
 
 
 def _upgrade_to_v3(connection: Connection) -> None:
-    inspector = inspect(connection)
-    columns = {column["name"] for column in inspector.get_columns("session_summaries")}
-    if "enrichment" in columns:
-        return
-
+    """Upgrade to v3 schema by adding enrichment column to session_summaries."""
+    if _column_exists(connection, "session_summaries", "enrichment"):
+        return  # Already exists
+    
     dialect_name = connection.dialect.name
     if dialect_name == "postgresql":
         column_type = "JSONB"
     else:
         column_type = "JSON"
-
-    connection.execute(text(f"ALTER TABLE session_summaries ADD COLUMN enrichment {column_type}"))
+    
+    _safe_execute_sql(
+        connection,
+        f"ALTER TABLE session_summaries ADD COLUMN enrichment {column_type}",
+        f"Add enrichment column ({column_type})"
+    )
 
 
 def _upgrade_to_v4(connection: Connection) -> None:
     """Upgrade to v4 schema by creating the files table."""
-    inspector = inspect(connection)
-
-    # Check if files table already exists
-    if "files" in inspector.get_table_names():
-        return
-
+    if _table_exists(connection, "files"):
+        return  # Already exists
+    
     # Create the files table using SQLAlchemy's create_all
     # This will create the table with all the proper constraints and indexes
     from .models import Files
-
-    Files.__table__.create(connection, checkfirst=True)
+    
+    try:
+        Files.__table__.create(connection, checkfirst=True)
+        logger.info("Successfully created files table")
+    except Exception as e:
+        logger.warning(f"Failed to create files table: {e}")
 
 
 def _upgrade_to_v6(connection: Connection) -> None:
     """Upgrade to schema version 6: Fix boolean defaults from string to proper boolean."""
-    inspector = inspect(connection)
-    
-    # Check if we're using PostgreSQL
     dialect_name = connection.dialect.name
     
-    if dialect_name == "postgresql":
-        # PostgreSQL: Update boolean columns to use proper boolean defaults
-        boolean_updates = [
-            ("raw_events", "quarantined", "false"),
-            ("session_summaries", "vt_flagged", "false"),
-            ("session_summaries", "dshield_flagged", "false"),
-            ("command_stats", "high_risk", "false"),
-            ("dead_letter_events", "resolved", "false"),
-            ("files", "vt_malicious", "false"),
-        ]
+    # Define boolean columns to update
+    boolean_updates = [
+        ("raw_events", "quarantined"),
+        ("session_summaries", "vt_flagged"),
+        ("session_summaries", "dshield_flagged"),
+        ("command_stats", "high_risk"),
+        ("dead_letter_events", "resolved"),
+        ("files", "vt_malicious"),
+    ]
+    
+    for table_name, column_name in boolean_updates:
+        if not _table_exists(connection, table_name):
+            logger.info(f"Table {table_name} does not exist, skipping boolean default update")
+            continue
+            
+        if not _column_exists(connection, table_name, column_name):
+            logger.info(f"Column {table_name}.{column_name} does not exist, skipping")
+            continue
         
-        for table_name, column_name, default_value in boolean_updates:
-            try:
-                # Check if column exists
-                columns = {col["name"] for col in inspector.get_columns(table_name)}
-                if column_name in columns:
-                    # Update the column default
-                    connection.execute(
-                        text(f"ALTER TABLE {table_name} ALTER COLUMN {column_name} SET DEFAULT {default_value}")
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to update {table_name}.{column_name}: {e}")
-    else:
-        # SQLite: Update boolean columns to use proper boolean defaults
-        # SQLite doesn't support ALTER COLUMN SET DEFAULT, so we need to recreate the table
-        boolean_tables = [
-            ("raw_events", ["quarantined"]),
-            ("session_summaries", ["vt_flagged", "dshield_flagged"]),
-            ("command_stats", ["high_risk"]),
-            ("dead_letter_events", ["resolved"]),
-            ("files", ["vt_malicious"]),
-        ]
-        
-        for table_name, boolean_columns in boolean_tables:
-            try:
-                # Check if table exists
-                if inspector.has_table(table_name):
-                    # For SQLite, we need to recreate the table with proper defaults
-                    # This is a complex operation, so we'll just log a warning for now
-                    # In practice, the new schema will be created with proper defaults
-                    logger.info(f"SQLite boolean defaults for {table_name} will be set on next schema creation")
-            except Exception as e:
-                logger.warning(f"Failed to update SQLite boolean defaults for {table_name}: {e}")
+        if dialect_name == "postgresql":
+            # PostgreSQL: Update boolean columns to use proper boolean defaults
+            _safe_execute_sql(
+                connection,
+                f"ALTER TABLE {table_name} ALTER COLUMN {column_name} SET DEFAULT false",
+                f"Update {table_name}.{column_name} default to false (PostgreSQL)"
+            )
+        else:
+            # SQLite: Update boolean columns to use proper boolean defaults
+            # SQLite doesn't support ALTER COLUMN SET DEFAULT, so we need to recreate the table
+            # This is a complex operation, so we'll just log a warning for now
+            # In practice, the new schema will be created with proper defaults
+            logger.info(f"SQLite boolean defaults for {table_name}.{column_name} will be set on next schema creation")
 
 
 def _upgrade_to_v5(connection: Connection) -> None:
@@ -186,41 +239,85 @@ def _upgrade_to_v5(connection: Connection) -> None:
     This migration replaces SQLite-specific computed columns with real columns
     that work across both SQLite and PostgreSQL backends.
     """
-    inspector = inspect(connection)
-    columns = {column["name"] for column in inspector.get_columns("raw_events")}
+    dialect_name = connection.dialect.name
     
     # Add real columns for extracted JSON fields if they don't exist
-    if "session_id" not in columns:
-        connection.execute(text("ALTER TABLE raw_events ADD COLUMN session_id VARCHAR(64)"))
-        connection.execute(text("CREATE INDEX ix_raw_events_session_id ON raw_events(session_id)"))
+    if not _column_exists(connection, "raw_events", "session_id"):
+        _safe_execute_sql(
+            connection,
+            "ALTER TABLE raw_events ADD COLUMN session_id VARCHAR(64)",
+            "Add session_id column"
+        )
+        _safe_execute_sql(
+            connection,
+            "CREATE INDEX ix_raw_events_session_id ON raw_events(session_id)",
+            "Create session_id index"
+        )
     
-    if "event_type" not in columns:
-        connection.execute(text("ALTER TABLE raw_events ADD COLUMN event_type VARCHAR(128)"))
-        connection.execute(text("CREATE INDEX ix_raw_events_event_type ON raw_events(event_type)"))
+    if not _column_exists(connection, "raw_events", "event_type"):
+        _safe_execute_sql(
+            connection,
+            "ALTER TABLE raw_events ADD COLUMN event_type VARCHAR(128)",
+            "Add event_type column"
+        )
+        _safe_execute_sql(
+            connection,
+            "CREATE INDEX ix_raw_events_event_type ON raw_events(event_type)",
+            "Create event_type index"
+        )
     
-    if "event_timestamp" not in columns:
-        connection.execute(text("ALTER TABLE raw_events ADD COLUMN event_timestamp VARCHAR(64)"))
-        connection.execute(text("CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)"))
+    if not _column_exists(connection, "raw_events", "event_timestamp"):
+        _safe_execute_sql(
+            connection,
+            "ALTER TABLE raw_events ADD COLUMN event_timestamp VARCHAR(64)",
+            "Add event_timestamp column"
+        )
+        _safe_execute_sql(
+            connection,
+            "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
+            "Create event_timestamp index"
+        )
     
     # Populate the new columns with data extracted from JSON payload
-    # This uses SQLite's json_extract function for backward compatibility
-    connection.execute(text("""
-        UPDATE raw_events 
-        SET session_id = json_extract(payload, '$.session')
-        WHERE session_id IS NULL
-    """))
-    
-    connection.execute(text("""
-        UPDATE raw_events 
-        SET event_type = json_extract(payload, '$.eventid')
-        WHERE event_type IS NULL
-    """))
-    
-    connection.execute(text("""
-        UPDATE raw_events 
-        SET event_timestamp = json_extract(payload, '$.timestamp')
-        WHERE event_timestamp IS NULL
-    """))
+    # Use dialect-aware JSON extraction
+    if dialect_name == "postgresql":
+        # PostgreSQL JSON extraction
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET session_id = payload->>'session' WHERE session_id IS NULL",
+            "Populate session_id from JSON (PostgreSQL)"
+        )
+        
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET event_type = payload->>'eventid' WHERE event_type IS NULL",
+            "Populate event_type from JSON (PostgreSQL)"
+        )
+        
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET event_timestamp = payload->>'timestamp' WHERE event_timestamp IS NULL",
+            "Populate event_timestamp from JSON (PostgreSQL)"
+        )
+    else:
+        # SQLite JSON extraction
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET session_id = json_extract(payload, '$.session') WHERE session_id IS NULL",
+            "Populate session_id from JSON (SQLite)"
+        )
+        
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET event_type = json_extract(payload, '$.eventid') WHERE event_type IS NULL",
+            "Populate event_type from JSON (SQLite)"
+        )
+        
+        _safe_execute_sql(
+            connection,
+            "UPDATE raw_events SET event_timestamp = json_extract(payload, '$.timestamp') WHERE event_timestamp IS NULL",
+            "Populate event_timestamp from JSON (SQLite)"
+        )
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]
