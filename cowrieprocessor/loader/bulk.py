@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping, Optional, Protocol, Sequence, Set, cast
 
 from dateutil import parser as date_parser
-from sqlalchemy import Table, func
+from sqlalchemy import Table, func, select
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 
 try:  # pragma: no cover - optional dependency
@@ -478,8 +478,8 @@ class BulkLoader:
                     "risk_score": agg.highest_risk,
                     "source_files": sorted(agg.source_files) or None,
                     "matcher": agg.sensor,
-                    "vt_flagged": int(agg.vt_flagged),
-                    "dshield_flagged": int(agg.dshield_flagged),
+                    "vt_flagged": agg.vt_flagged,  # Keep as boolean, not int
+                    "dshield_flagged": agg.dshield_flagged,  # Keep as boolean, not int
                     "enrichment": agg.enrichment_payload or None,
                 }
             )
@@ -499,8 +499,8 @@ class BulkLoader:
                     "risk_score": func.max(SessionSummary.risk_score, excluded.risk_score),
                     "source_files": excluded.source_files,
                     "matcher": func.coalesce(SessionSummary.matcher, excluded.matcher),
-                    "vt_flagged": func.max(SessionSummary.vt_flagged, excluded.vt_flagged),
-                    "dshield_flagged": func.max(SessionSummary.dshield_flagged, excluded.dshield_flagged),
+                    "vt_flagged": excluded.vt_flagged,  # Use excluded value directly (boolean)
+                    "dshield_flagged": excluded.dshield_flagged,  # Use excluded value directly (boolean)
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "updated_at": func.now(),
                 },
@@ -523,8 +523,8 @@ class BulkLoader:
                     "risk_score": func.greatest(SessionSummary.risk_score, excluded.risk_score),
                     "source_files": excluded.source_files,
                     "matcher": func.coalesce(SessionSummary.matcher, excluded.matcher),
-                    "vt_flagged": func.greatest(SessionSummary.vt_flagged, excluded.vt_flagged),
-                    "dshield_flagged": func.greatest(SessionSummary.dshield_flagged, excluded.dshield_flagged),
+                    "vt_flagged": excluded.vt_flagged,  # Use excluded value directly (boolean)
+                    "dshield_flagged": excluded.dshield_flagged,  # Use excluded value directly (boolean)
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "updated_at": func.now(),
                 },
@@ -532,16 +532,31 @@ class BulkLoader:
             session.execute(pg_stmt)
             return
 
-        for value in values:
-            try:
-                session.execute(table.insert().values(**value))
-            except IntegrityError:
-                session.rollback()
-                session.execute(
-                    table.update()
-                    .where(SessionSummary.session_id == value["session_id"])
-                    .values(**{k: value[k] for k in value if k != "session_id"})
-                )
+        # Use proper upsert for all database types to avoid race conditions
+        # The SQLite and PostgreSQL versions already use on_conflict_do_update
+        # For other databases, implement a more robust approach
+        if dialect_name not in ("sqlite", "postgresql"):
+            # For other databases, use a safer approach with explicit locking
+            for value in values:
+                current_session_id: str = str(value["session_id"])
+                try:
+                    # Try to insert first
+                    session.execute(table.insert().values(**value))
+                except IntegrityError:
+                    # If it fails due to constraint violation, update instead
+                    session.rollback()
+                    # Use SELECT FOR UPDATE to lock the row during update
+                    existing = session.execute(
+                        select(SessionSummary).where(SessionSummary.session_id == current_session_id).with_for_update()
+                    ).first()
+                    if existing:
+                        update_values = {k: value[k] for k in value if k != "session_id"}
+                        session.execute(
+                            table.update().where(table.c.session_id == current_session_id).values(**update_values)
+                        )
+                    else:
+                        # If no existing row found, try insert again
+                        session.execute(table.insert().values(**value))
 
     def _process_event(self, payload: Any) -> ProcessedEvent:
         validation_errors: List[str] = []
