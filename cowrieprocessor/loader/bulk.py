@@ -515,15 +515,15 @@ class BulkLoader:
             "download_url": file_record.download_url,
             "vt_classification": file_record.vt_classification,
             "vt_description": file_record.vt_description,
-            "vt_malicious": file_record.vt_malicious,
+            "vt_malicious": file_record.vt_malicious or False,  # Default to False for NOT NULL field
             "vt_first_seen": file_record.vt_first_seen,
             "vt_last_analysis": file_record.vt_last_analysis,
             "vt_positives": file_record.vt_positives,
             "vt_total": file_record.vt_total,
             "vt_scan_date": file_record.vt_scan_date,
             "first_seen": file_record.first_seen,
-            "last_updated": file_record.last_updated,
-            "enrichment_status": file_record.enrichment_status,
+            # Don't include last_updated - let the database set it with server_default
+            "enrichment_status": file_record.enrichment_status or "pending",  # Default to pending
         }
 
     def _upsert_session_summaries(self, session: Session, aggregates: Dict[str, SessionAggregate]) -> None:
