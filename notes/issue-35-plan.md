@@ -1,10 +1,11 @@
 # Issue 35 Work Plan: PostgreSQL Support and Migration Path
 
 **Issue**: [#35 - Add PostgreSQL Support and Migration Path](https://github.com/your-org/cowrieprocessor/issues/35)  
-**Status**: Open  
+**Status**: In Progress (Phase 1, Day 1 Complete)  
 **Priority**: High  
 **Estimated Effort**: 3 weeks (15 days)  
-**Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)
+**Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)  
+**Current Branch**: `feature/postgresql-support`
 
 ## Overview
 
@@ -18,9 +19,12 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - Migration system has JSONB branching for Postgres
 - Bulk loaders have dialect-specific UPSERT implementations
 - Connection pooling configuration exists
+- **NEW**: PostgreSQL driver detection and graceful fallback
+- **NEW**: Optional PostgreSQL dependencies in pyproject.toml
+- **NEW**: Runtime validation of PostgreSQL driver availability
 
 ### ❌ What Needs Fixing
-- No PostgreSQL driver in dependencies
+- ~~No PostgreSQL driver in dependencies~~ ✅ **FIXED**: Optional dependencies added
 - SQLite-specific `Computed` columns using `json_extract()`
 - Boolean defaults as `"0"` instead of proper booleans
 - Extensive `func.json_extract()` usage in reporting
@@ -31,9 +35,9 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 
 ### Phase 1: Core Compatibility (Week 1 - Days 1-5)
 
-#### Day 1: Dependencies & Configuration Setup
+#### Day 1: Dependencies & Configuration Setup ✅ COMPLETED
 **Tasks:**
-- [ ] Add PostgreSQL dependencies as optional extras to `pyproject.toml`
+- [x] Add PostgreSQL dependencies as optional extras to `pyproject.toml`
   ```toml
   [project.optional-dependencies]
   postgres = [
@@ -41,17 +45,25 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
       "psycopg-pool>=3.1",
   ]
   ```
-- [ ] Implement runtime detection of PostgreSQL driver availability
-- [ ] Add graceful fallback when PostgreSQL driver is not installed
-- [ ] Update installation documentation with optional PostgreSQL setup
-- [ ] Add PostgreSQL connection string examples to `sensors.toml`
-- [ ] Test basic PostgreSQL connection in development environment
+- [x] Implement runtime detection of PostgreSQL driver availability
+- [x] Add graceful fallback when PostgreSQL driver is not installed
+- [x] Update installation documentation with optional PostgreSQL setup
+- [x] Add PostgreSQL connection string examples to `sensors.toml`
+- [x] Test basic PostgreSQL connection in development environment
 
 **Deliverables:**
-- Updated `pyproject.toml` with optional PostgreSQL dependencies
-- Runtime driver detection and graceful fallback
-- Documentation for optional PostgreSQL installation
-- Basic connection test script
+- ✅ Updated `pyproject.toml` with optional PostgreSQL dependencies
+- ✅ Runtime driver detection and graceful fallback
+- ✅ Documentation for optional PostgreSQL installation
+- ✅ Basic connection test script (temporary, removed after validation)
+
+**Implementation Details:**
+- Added `detect_postgresql_support()` function in `cowrieprocessor/db/engine.py`
+- Added `create_engine_with_fallback()` function for graceful error handling
+- Updated README.md with PostgreSQL installation instructions
+- Updated sensors.example.toml with PostgreSQL connection examples
+- Fixed SQLite StaticPool compatibility issue with pool_timeout
+- Verified both default and PostgreSQL installations work correctly
 
 #### Day 2: Schema Refactoring - Computed Columns
 **Tasks:**
@@ -504,5 +516,5 @@ python scripts/benchmark_databases.py --sqlite production.sqlite --postgres post
 ---
 
 **Created**: 2025-01-27  
-**Last Updated**: 2025-01-27  
-**Status**: Planning Complete - Ready for Implementation
+**Last Updated**: 2025-01-27 (Phase 1, Day 1 Complete)  
+**Status**: In Progress - Phase 1, Day 2 Ready
