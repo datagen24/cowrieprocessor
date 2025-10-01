@@ -27,6 +27,7 @@ def engine(test_db_path):
     engine = create_engine_from_settings(load_database_settings())
     # Override with test database path
     from sqlalchemy import create_engine
+
     engine = create_engine(test_db_path)
     apply_migrations(engine)
     return engine
@@ -86,38 +87,39 @@ class TestFileEnrichmentFlow:
         with open(json_file, "w") as f:
             for event in sample_file_download_events:
                 f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         metrics = loader.load_paths([json_file])
-        
+
         # Verify metrics
         assert metrics.events_read == len(sample_file_download_events)
         assert metrics.events_invalid == 0
         assert metrics.batches_committed > 0
-        
+
         # Verify files were inserted
         with engine.connect() as conn:
             from sqlalchemy import text
+
             result = conn.execute(text("SELECT COUNT(*) FROM files"))
             file_count = result.scalar_one()
             assert file_count == 3  # 3 file download events
-            
+
             # Verify specific files
             result = conn.execute(text("SELECT shasum, filename, session_id FROM files ORDER BY first_seen"))
             files = result.fetchall()
-            
+
             assert len(files) == 3
             assert files[0][0] == "a" * 64  # First file hash
             assert files[0][1] == "test1.txt"
             assert files[0][2] == "session001"
-            
+
             assert files[1][0] == "b" * 64  # Second file hash
             assert files[1][1] == "malware.exe"
             assert files[1][2] == "session002"
-            
+
             assert files[2][0] == "c" * 64  # Third file hash
             assert files[2][1] == "test2.txt"
             assert files[2][2] == "session001"
@@ -129,19 +131,20 @@ class TestFileEnrichmentFlow:
         with open(json_file, "w") as f:
             for event in sample_file_download_events:
                 f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         loader.load_paths([json_file])
-        
+
         # Verify enrichment status
         with engine.connect() as conn:
             from sqlalchemy import text
+
             result = conn.execute(text("SELECT enrichment_status FROM files"))
             statuses = [row[0] for row in result.fetchall()]
-            
+
             # All files should have 'pending' status initially
             assert all(status == "pending" for status in statuses)
 
@@ -170,22 +173,23 @@ class TestFileEnrichmentFlow:
                 "url": "http://example.com/test.txt",
             },
         ]
-        
+
         # Create temporary JSON file with events
         json_file = tmp_path / "events.json"
         with open(json_file, "w") as f:
             for event in events:
                 f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         loader.load_paths([json_file])
-        
+
         # Verify only one file record was created
         with engine.connect() as conn:
             from sqlalchemy import text
+
             result = conn.execute(text("SELECT COUNT(*) FROM files"))
             file_count = result.scalar_one()
             assert file_count == 1
@@ -203,24 +207,25 @@ class TestFileEnrichmentFlow:
             "size": 2048,
             "url": "http://example.com/path/test_file.txt",
         }
-        
+
         # Create temporary JSON file with event
         json_file = tmp_path / "events.json"
         with open(json_file, "w") as f:
             f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         loader.load_paths([json_file])
-        
+
         # Verify metadata preservation
         with engine.connect() as conn:
             from sqlalchemy import text
+
             result = conn.execute(text("SELECT shasum, filename, file_size, download_url FROM files"))
             row = result.fetchone()
-            
+
             assert row[0] == "a" * 64
             assert row[1] == "test_file.txt"
             assert row[2] == 2048
@@ -255,26 +260,27 @@ class TestFileEnrichmentFlow:
                 "filename": "valid.txt",
             },
         ]
-        
+
         # Create temporary JSON file with events
         json_file = tmp_path / "events.json"
         with open(json_file, "w") as f:
             for event in events:
                 f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         loader.load_paths([json_file])
-        
+
         # Verify only valid file was inserted
         with engine.connect() as conn:
             from sqlalchemy import text
+
             result = conn.execute(text("SELECT COUNT(*) FROM files"))
             file_count = result.scalar_one()
             assert file_count == 1
-            
+
             # Verify it's the valid file
             result = conn.execute(text("SELECT filename FROM files"))
             filename = result.scalar_one()
@@ -287,22 +293,22 @@ class TestFileEnrichmentFlow:
         with open(json_file, "w") as f:
             for event in sample_file_download_events:
                 f.write(json.dumps(event) + "\n")
-        
+
         # Create bulk loader
         loader = BulkLoader(engine)
-        
+
         # Process the file
         loader.load_paths([json_file])
-        
+
         # Verify session summaries
         with engine.connect() as conn:
             from sqlalchemy import text
-            
+
             # Check session001 (should have 2 files)
             result = conn.execute(text("SELECT file_downloads FROM session_summaries WHERE session_id = 'session001'"))
             file_count = result.scalar_one()
             assert file_count == 2
-            
+
             # Check session002 (should have 1 file)
             result = conn.execute(text("SELECT file_downloads FROM session_summaries WHERE session_id = 'session002'"))
             file_count = result.scalar_one()
@@ -312,19 +318,19 @@ class TestFileEnrichmentFlow:
         """Test that Files table has proper indexes for performance."""
         with engine.connect() as conn:
             from sqlalchemy import text
-            
+
             # Check indexes exist
             result = conn.execute(text("PRAGMA index_list('files')"))
             indexes = [row[1] for row in result.fetchall()]
-            
+
             # Should have indexes for common queries
             expected_indexes = [
                 "ix_files_shasum",
-                "ix_files_vt_malicious", 
+                "ix_files_vt_malicious",
                 "ix_files_enrichment_status",
                 "ix_files_first_seen",
                 "ix_files_session_id",
             ]
-            
+
             for expected_idx in expected_indexes:
                 assert expected_idx in indexes

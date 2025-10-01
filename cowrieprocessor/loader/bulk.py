@@ -231,11 +231,12 @@ class BulkLoader:
                                         file_hash = self._extract_file_hash(processed.payload)
                                         if file_hash:
                                             agg.file_hashes.add(file_hash)
-                                        
+
                                         # Extract file data for Files table
                                         file_data = extract_file_data(processed.payload, processed.session_id)
                                         if file_data:
                                             from .file_processor import create_files_record
+
                                             file_record = create_files_record(file_data)
                                             pending_files.append(file_record)
                                 if processed.event_type and any(
@@ -483,16 +484,12 @@ class BulkLoader:
 
         if dialect_name == "sqlite":
             stmt = sqlite_dialect.insert(table)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=["session_id", "shasum"]
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(stmt, [self._files_to_dict(f) for f in files])
             return int(result.rowcount or 0)
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table)
-            pg_stmt = pg_stmt.on_conflict_do_nothing(
-                index_elements=["session_id", "shasum"]
-            )
+            pg_stmt = pg_stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(pg_stmt, [self._files_to_dict(f) for f in files])
             return int(result.rowcount or 0)
 

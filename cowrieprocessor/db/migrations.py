@@ -103,14 +103,15 @@ def _upgrade_to_v3(connection: Connection) -> None:
 def _upgrade_to_v4(connection: Connection) -> None:
     """Upgrade to v4 schema by creating the files table."""
     inspector = inspect(connection)
-    
+
     # Check if files table already exists
     if "files" in inspector.get_table_names():
         return
-    
+
     # Create the files table using SQLAlchemy's create_all
     # This will create the table with all the proper constraints and indexes
     from .models import Files
+
     Files.__table__.create(connection, checkfirst=True)
 
 

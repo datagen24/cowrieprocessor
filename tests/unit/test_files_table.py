@@ -41,10 +41,10 @@ class TestFilesTable:
             download_url="http://example.com/test.txt",
             enrichment_status="pending",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         # Verify record was created
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result is not None
@@ -65,7 +65,7 @@ class TestFilesTable:
         )
         session.add(file_record1)
         session.commit()
-        
+
         # Try to create duplicate
         file_record2 = Files(
             session_id="session123",
@@ -74,7 +74,7 @@ class TestFilesTable:
             enrichment_status="pending",
         )
         session.add(file_record2)
-        
+
         with pytest.raises(Exception):  # IntegrityError or similar
             session.commit()
 
@@ -88,7 +88,7 @@ class TestFilesTable:
             enrichment_status="pending",
         )
         session.add(file_record1)
-        
+
         # Create record for session2 with same hash
         file_record2 = Files(
             session_id="session2",
@@ -97,9 +97,9 @@ class TestFilesTable:
             enrichment_status="pending",
         )
         session.add(file_record2)
-        
+
         session.commit()
-        
+
         # Verify both records exist
         results = session.query(Files).filter_by(shasum="a" * 64).all()
         assert len(results) == 2
@@ -111,10 +111,10 @@ class TestFilesTable:
             shasum="a" * 64,
             filename="test.txt",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.enrichment_status == "pending"
 
@@ -122,7 +122,7 @@ class TestFilesTable:
         """Test VirusTotal enrichment fields."""
         vt_first_seen = datetime.now()
         vt_last_analysis = datetime.now()
-        
+
         file_record = Files(
             session_id="session123",
             shasum="a" * 64,
@@ -137,10 +137,10 @@ class TestFilesTable:
             vt_scan_date=vt_last_analysis,
             enrichment_status="enriched",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.vt_classification == "malware"
         assert result.vt_description == "Trojan"
@@ -159,10 +159,10 @@ class TestFilesTable:
             shasum="a" * 64,
             filename="test.txt",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.first_seen is not None
         assert result.last_updated is not None
@@ -177,10 +177,10 @@ class TestFilesTable:
             # filename, file_size, download_url are None
             enrichment_status="pending",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.filename is None
         assert result.file_size is None
@@ -196,10 +196,10 @@ class TestFilesTable:
             shasum="a" * 64,
             filename="test.txt",
         )
-        
+
         session.add(file_record)
         session.commit()
-        
+
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.vt_malicious is False
 
@@ -212,29 +212,29 @@ class TestFilesTable:
             filename="pending.txt",
             enrichment_status="pending",
         )
-        
+
         enriched_file = Files(
             session_id="session2",
             shasum="b" * 64,
             filename="enriched.txt",
             enrichment_status="enriched",
         )
-        
+
         failed_file = Files(
             session_id="session3",
             shasum="c" * 64,
             filename="failed.txt",
             enrichment_status="failed",
         )
-        
+
         session.add_all([pending_file, enriched_file, failed_file])
         session.commit()
-        
+
         # Query pending files
         pending_files = session.query(Files).filter_by(enrichment_status="pending").all()
         assert len(pending_files) == 1
         assert pending_files[0].filename == "pending.txt"
-        
+
         # Query enriched files
         enriched_files = session.query(Files).filter_by(enrichment_status="enriched").all()
         assert len(enriched_files) == 1
@@ -250,7 +250,7 @@ class TestFilesTable:
             vt_malicious=False,
             enrichment_status="enriched",
         )
-        
+
         malicious_file = Files(
             session_id="session2",
             shasum="b" * 64,
@@ -258,15 +258,15 @@ class TestFilesTable:
             vt_malicious=True,
             enrichment_status="enriched",
         )
-        
+
         session.add_all([clean_file, malicious_file])
         session.commit()
-        
+
         # Query malicious files
         malicious_files = session.query(Files).filter_by(vt_malicious=True).all()
         assert len(malicious_files) == 1
         assert malicious_files[0].filename == "malware.exe"
-        
+
         # Query clean files
         clean_files = session.query(Files).filter_by(vt_malicious=False).all()
         assert len(clean_files) == 1
@@ -281,30 +281,30 @@ class TestFilesTable:
             filename="file1.txt",
             enrichment_status="pending",
         )
-        
+
         session1_file2 = Files(
             session_id="session1",
             shasum="b" * 64,
             filename="file2.txt",
             enrichment_status="pending",
         )
-        
+
         session2_file1 = Files(
             session_id="session2",
             shasum="c" * 64,
             filename="file3.txt",
             enrichment_status="pending",
         )
-        
+
         session.add_all([session1_file1, session1_file2, session2_file1])
         session.commit()
-        
+
         # Query files for session1
         session1_files = session.query(Files).filter_by(session_id="session1").all()
         assert len(session1_files) == 2
         filenames = {f.filename for f in session1_files}
         assert filenames == {"file1.txt", "file2.txt"}
-        
+
         # Query files for session2
         session2_files = session.query(Files).filter_by(session_id="session2").all()
         assert len(session2_files) == 1

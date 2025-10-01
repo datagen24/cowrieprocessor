@@ -117,41 +117,38 @@ def update_file(
     vt_data = enrichment_payload.get("virustotal") if isinstance(enrichment_payload, dict) else None
     if vt_data is None:
         # Mark as failed if no VT data
-        conn.execute(
-            "UPDATE files SET enrichment_status = 'failed' WHERE shasum = ?",
-            (file_hash,)
-        )
+        conn.execute("UPDATE files SET enrichment_status = 'failed' WHERE shasum = ?", (file_hash,))
         return
-    
+
     attributes = vt_data.get("data", {}).get("attributes", {}) if isinstance(vt_data, dict) else {}
     classification = attributes.get("popular_threat_classification", {})
     last_analysis = attributes.get("last_analysis_stats", {})
-    
+
     # Extract VT data with proper type conversion
     vt_classification = classification.get("suggested_threat_label") if isinstance(classification, dict) else None
     vt_description = attributes.get("type_description")
     vt_malicious = bool(last_analysis.get("malicious", 0) > 0) if isinstance(last_analysis, dict) else False
     vt_positives = last_analysis.get("malicious", 0) if isinstance(last_analysis, dict) else 0
     vt_total = sum(last_analysis.values()) if isinstance(last_analysis, dict) else 0
-    
+
     # Parse timestamps
     vt_first_seen = None
     vt_last_analysis = None
     vt_scan_date = None
-    
+
     if attributes.get("first_submission_date"):
         try:
             vt_first_seen = datetime.fromtimestamp(int(attributes["first_submission_date"]))
         except (ValueError, TypeError):
             pass
-    
+
     if attributes.get("last_analysis_date"):
         try:
             vt_last_analysis = datetime.fromtimestamp(int(attributes["last_analysis_date"]))
             vt_scan_date = vt_last_analysis
         except (ValueError, TypeError):
             pass
-    
+
     sql = """
         UPDATE files
         SET vt_classification = ?,
