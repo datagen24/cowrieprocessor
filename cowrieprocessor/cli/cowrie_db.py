@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from ..db import CURRENT_SCHEMA_VERSION, apply_migrations
+from ..db import CURRENT_SCHEMA_VERSION, apply_migrations, Files
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
 
@@ -70,7 +70,14 @@ class CowrieDatabase:
         Returns:
             Migration result with details
         """
-        current_version = self.get_schema_version()
+        # Check if database file exists
+        db_exists = Path(self.db_path).exists()
+        
+        if not db_exists:
+            current_version = 0
+        else:
+            current_version = self.get_schema_version()
+            
         target = target_version or CURRENT_SCHEMA_VERSION
 
         result = {
@@ -90,40 +97,13 @@ class CowrieDatabase:
             return result
 
         try:
-            with self._get_engine().begin() as conn:
-                # Create advisory lock to prevent concurrent migrations
-                conn.execute(text("BEGIN IMMEDIATE"))
-                try:
-                    # Check for existing migration lock
-                    existing_lock = conn.execute(
-                        text("SELECT value FROM schema_state WHERE key = 'migration_lock'")
-                    ).scalar_one_or_none()
-
-                    if existing_lock:
-                        lock_time = float(existing_lock)
-                        if time.time() - lock_time < 300:  # 5 minute timeout
-                            raise Exception("Migration already in progress by another process")
-
-                    # Set migration lock
-                    conn.execute(
-                        text("INSERT OR REPLACE INTO schema_state (key, value) VALUES ('migration_lock', :lock_time)"),
-                        {'lock_time': str(time.time())},
-                    )
-
-                    # Apply migrations
-                    final_version = apply_migrations(self._get_engine())
-                    result['final_version'] = final_version
-                    result['migrations_applied'] = [
-                        f"Applied migration to version {v}" for v in range(current_version + 1, final_version + 1)
-                    ]
-                    result['message'] = f"Successfully migrated to version {final_version}"
-
-                    # Remove migration lock
-                    conn.execute(text("DELETE FROM schema_state WHERE key = 'migration_lock'"))
-
-                except Exception as e:
-                    conn.execute(text("ROLLBACK"))
-                    raise e
+            # Apply migrations directly - this handles creating tables if they don't exist
+            final_version = apply_migrations(self._get_engine())
+            result['final_version'] = final_version
+            result['migrations_applied'] = [
+                f"Applied migration to version {v}" for v in range(current_version + 1, final_version + 1)
+            ]
+            result['message'] = f"Successfully migrated to version {final_version}"
 
         except Exception as e:
             result['error'] = str(e)
@@ -169,6 +149,12 @@ class CowrieDatabase:
 
                 # Check file count (downloads)
                 result['file_count'] = session.query(SessionSummary).filter(SessionSummary.file_downloads > 0).count()
+
+                # Check files table count if it exists
+                try:
+                    result['files_table_count'] = session.query(Files).count()
+                except Exception:
+                    result['files_table_count'] = 0
 
         except Exception as e:
             logger.warning(f"Could not get table counts: {e}")
@@ -390,6 +376,187 @@ class CowrieDatabase:
 
         return recommendations
 
+    def backfill_files_table(self, batch_size: int = 1000, limit: Optional[int] = None) -> Dict[str, Any]:
+        """Backfill files table from historical raw_events data.
+
+        Args:
+            batch_size: Number of records to process in each batch
+            limit: Maximum number of events to process (None for all)
+
+        Returns:
+            Backfill result with statistics
+        """
+        result = {
+            'events_processed': 0,
+            'files_inserted': 0,
+            'errors': 0,
+            'batches_processed': 0,
+        }
+
+        try:
+            # Check if files table exists
+            with self._get_engine().connect() as conn:
+                tables = conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
+                ).fetchall()
+                
+                if not tables:
+                    raise Exception("Files table does not exist. Run 'cowrie-db migrate' first.")
+
+            # Import here to avoid circular imports
+            from ..loader.file_processor import extract_file_data, create_files_record
+
+            with self._get_engine().connect() as conn:
+                # Query for file download events
+                query = text("""
+                    SELECT session_id, payload
+                    FROM raw_events
+                    WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
+                      AND json_extract(payload, '$.shasum') IS NOT NULL
+                      AND json_extract(payload, '$.shasum') != ''
+                    ORDER BY id ASC
+                """)
+                
+                if limit:
+                    query = text(str(query) + f" LIMIT {limit}")
+
+                events = conn.execute(query).fetchall()
+                
+                if not events:
+                    result['message'] = "No file download events found to backfill"
+                    return result
+
+                # Process events in batches
+                batch = []
+                for event in events:
+                    try:
+                        # Parse payload
+                        import json
+                        payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
+                        
+                        # Extract file data
+                        file_data = extract_file_data(payload, event.session_id)
+                        if file_data:
+                            file_record = create_files_record(file_data)
+                            batch.append(file_record)
+                            result['events_processed'] += 1
+
+                        # Process batch when it reaches batch_size
+                        if len(batch) >= batch_size:
+                            inserted = self._insert_files_batch(batch)
+                            result['files_inserted'] += inserted
+                            result['batches_processed'] += 1
+                            batch = []
+
+                    except Exception as e:
+                        logger.warning(f"Error processing event: {e}")
+                        result['errors'] += 1
+
+                # Process remaining batch
+                if batch:
+                    inserted = self._insert_files_batch(batch)
+                    result['files_inserted'] += inserted
+                    result['batches_processed'] += 1
+
+                result['message'] = f"Backfill completed: {result['files_inserted']} files inserted from {result['events_processed']} events"
+
+        except Exception as e:
+            result['error'] = str(e)
+            result['message'] = f"Backfill failed: {e}"
+            raise Exception(f"Backfill failed: {e}") from e
+
+        return result
+
+    def _insert_files_batch(self, files: list[Files]) -> int:
+        """Insert a batch of files with conflict resolution."""
+        if not files:
+            return 0
+
+        try:
+            with self._get_engine().begin() as conn:
+                from sqlalchemy.dialects.sqlite import insert
+                
+                # Convert Files objects to dictionaries
+                file_dicts = []
+                for file_record in files:
+                    file_dict = {
+                        "session_id": file_record.session_id,
+                        "shasum": file_record.shasum,
+                        "filename": file_record.filename,
+                        "file_size": file_record.file_size,
+                        "download_url": file_record.download_url,
+                        "vt_classification": file_record.vt_classification,
+                        "vt_description": file_record.vt_description,
+                        "vt_malicious": file_record.vt_malicious or False,
+                        "vt_first_seen": file_record.vt_first_seen,
+                        "vt_last_analysis": file_record.vt_last_analysis,
+                        "vt_positives": file_record.vt_positives,
+                        "vt_total": file_record.vt_total,
+                        "vt_scan_date": file_record.vt_scan_date,
+                        "first_seen": file_record.first_seen,
+                        "enrichment_status": file_record.enrichment_status or "pending",
+                    }
+                    file_dicts.append(file_dict)
+
+                # Use INSERT OR IGNORE for conflict resolution
+                stmt = insert(Files.__table__).values(file_dicts)
+                stmt = stmt.on_conflict_do_nothing(
+                    index_elements=["session_id", "shasum"]
+                )
+                
+                result = conn.execute(stmt)
+                return int(result.rowcount or 0)
+
+        except Exception as e:
+            logger.error(f"Error inserting files batch: {e}")
+            return 0
+
+    def get_files_table_stats(self) -> Dict[str, Any]:
+        """Get statistics about the files table.
+
+        Returns:
+            Files table statistics
+        """
+        result = {
+            'total_files': 0,
+            'unique_hashes': 0,
+            'enrichment_status': {},
+            'malicious_files': 0,
+            'pending_enrichment': 0,
+        }
+
+        try:
+            with self._get_engine().connect() as conn:
+                # Total files
+                result['total_files'] = conn.execute(text("SELECT COUNT(*) FROM files")).scalar_one()
+
+                # Unique hashes
+                result['unique_hashes'] = conn.execute(text("SELECT COUNT(DISTINCT shasum) FROM files")).scalar_one()
+
+                # Enrichment status breakdown
+                status_query = text("""
+                    SELECT enrichment_status, COUNT(*) as count
+                    FROM files
+                    GROUP BY enrichment_status
+                """)
+                for row in conn.execute(status_query):
+                    result['enrichment_status'][row.enrichment_status] = row.count
+
+                # Malicious files
+                result['malicious_files'] = conn.execute(
+                    text("SELECT COUNT(*) FROM files WHERE vt_malicious = 1")
+                ).scalar_one()
+
+                # Pending enrichment
+                result['pending_enrichment'] = conn.execute(
+                    text("SELECT COUNT(*) FROM files WHERE enrichment_status IN ('pending', 'failed')")
+                ).scalar_one()
+
+        except Exception as e:
+            logger.warning(f"Could not get files table stats: {e}")
+
+        return result
+
 
 def main():
     """Main CLI entry point."""
@@ -419,6 +586,14 @@ def main():
     # Integrity command
     integrity_parser = subparsers.add_parser('integrity', help='Check database integrity and detect corruption')
     integrity_parser.add_argument('--deep', action='store_true', help='Perform deep integrity check')
+
+    # Backfill command
+    backfill_parser = subparsers.add_parser('backfill', help='Backfill files table from historical data')
+    backfill_parser.add_argument('--batch-size', type=int, default=1000, help='Batch size for processing')
+    backfill_parser.add_argument('--limit', type=int, help='Limit number of events to process')
+
+    # Files command
+    files_parser = subparsers.add_parser('files', help='Display files table statistics')
 
     # Info command
     subparsers.add_parser('info', help='Display database information and statistics')
@@ -503,6 +678,36 @@ def main():
             else:
                 print("✓ Database integrity verified")
 
+        elif args.command == 'backfill':
+            print("Backfilling files table from historical data...")
+            result = db.backfill_files_table(batch_size=args.batch_size, limit=args.limit)
+            
+            print(f"✓ {result['message']}")
+            if result.get('events_processed', 0) > 0:
+                print(f"  Events processed: {result['events_processed']:,}")
+                print(f"  Files inserted: {result['files_inserted']:,}")
+                print(f"  Batches processed: {result['batches_processed']:,}")
+                if result.get('errors', 0) > 0:
+                    print(f"  Errors: {result['errors']:,}")
+            
+            if 'error' in result:
+                print(f"❌ Backfill failed: {result['error']}", file=sys.stderr)
+                sys.exit(1)
+
+        elif args.command == 'files':
+            result = db.get_files_table_stats()
+            
+            print("Files Table Statistics:")
+            print(f"  Total files: {result['total_files']:,}")
+            print(f"  Unique hashes: {result['unique_hashes']:,}")
+            print(f"  Malicious files: {result['malicious_files']:,}")
+            print(f"  Pending enrichment: {result['pending_enrichment']:,}")
+            
+            if result['enrichment_status']:
+                print("  Enrichment status breakdown:")
+                for status, count in result['enrichment_status'].items():
+                    print(f"    {status}: {count:,}")
+
         elif args.command == 'info':
             result = db.validate_schema()
 
@@ -513,6 +718,7 @@ def main():
             print(f"  Sessions: {result['session_count']:,}")
             print(f"  Commands: {result['command_count']:,}")
             print(f"  Files downloaded: {result['file_count']:,}")
+            print(f"  Files table entries: {result.get('files_table_count', 0):,}")
 
             if result['needs_optimization']:
                 print("  Status: May benefit from optimization")
