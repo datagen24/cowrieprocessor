@@ -12,7 +12,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 @contextmanager
@@ -68,6 +68,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v4(connection)
             _set_schema_version(connection, 4)
             version = 4
+
+        if version < 5:
+            _upgrade_to_v5(connection)
+            _set_schema_version(connection, 5)
+            version = 5
     return version
 
 
@@ -113,6 +118,49 @@ def _upgrade_to_v4(connection: Connection) -> None:
     from .models import Files
 
     Files.__table__.create(connection, checkfirst=True)
+
+
+def _upgrade_to_v5(connection: Connection) -> None:
+    """Upgrade to v5 schema by adding real columns for extracted JSON fields.
+    
+    This migration replaces SQLite-specific computed columns with real columns
+    that work across both SQLite and PostgreSQL backends.
+    """
+    inspector = inspect(connection)
+    columns = {column["name"] for column in inspector.get_columns("raw_events")}
+    
+    # Add real columns for extracted JSON fields if they don't exist
+    if "session_id" not in columns:
+        connection.execute(text("ALTER TABLE raw_events ADD COLUMN session_id VARCHAR(64)"))
+        connection.execute(text("CREATE INDEX ix_raw_events_session_id ON raw_events(session_id)"))
+    
+    if "event_type" not in columns:
+        connection.execute(text("ALTER TABLE raw_events ADD COLUMN event_type VARCHAR(128)"))
+        connection.execute(text("CREATE INDEX ix_raw_events_event_type ON raw_events(event_type)"))
+    
+    if "event_timestamp" not in columns:
+        connection.execute(text("ALTER TABLE raw_events ADD COLUMN event_timestamp VARCHAR(64)"))
+        connection.execute(text("CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)"))
+    
+    # Populate the new columns with data extracted from JSON payload
+    # This uses SQLite's json_extract function for backward compatibility
+    connection.execute(text("""
+        UPDATE raw_events 
+        SET session_id = json_extract(payload, '$.session')
+        WHERE session_id IS NULL
+    """))
+    
+    connection.execute(text("""
+        UPDATE raw_events 
+        SET event_type = json_extract(payload, '$.eventid')
+        WHERE event_type IS NULL
+    """))
+    
+    connection.execute(text("""
+        UPDATE raw_events 
+        SET event_timestamp = json_extract(payload, '$.timestamp')
+        WHERE event_timestamp IS NULL
+    """))
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]
