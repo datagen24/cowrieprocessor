@@ -1,5 +1,10 @@
 [global]
-db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+# PostgreSQL database (primary)
+db = "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor"
+
+# SQLite test database for compatibility testing
+# sqlite_test_db = "/mnt/dshield/data/db/cowrieprocessors.sqlite"
+
 report_dir = "/mnt/dshield/reports"
 
 [[sensor]]

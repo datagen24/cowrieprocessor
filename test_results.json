@@ -1,0 +1,100 @@
+{
+  "timestamp": "2025-10-01T18:05:00.144279",
+  "tests": {
+    "Driver Detection": {
+      "passed": true,
+      "details": {
+        "driver_available": true,
+        "fallback_works": true
+      }
+    },
+    "Connection Tests": {
+      "passed": true,
+      "details": {
+        "postgres_version": "PostgreSQL 17.6 (Debian 17.6-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "sqlite_version": "3.50.4"
+      }
+    },
+    "Schema Migration": {
+      "passed": true,
+      "details": {
+        "postgres_migration": 6,
+        "postgres_schema_version": 6,
+        "sqlite_migration": 6
+      }
+    },
+    "JSON Operations": {
+      "passed": true,
+      "details": {
+        "postgres_dialect": "postgresql",
+        "postgres_json_ops": {
+          "field_extraction": "raw_events.payload ->> :payload_1",
+          "nested_extraction": "((raw_events.payload -> :payload_1) -> :param_1) ->> :param_2"
+        },
+        "sqlite_dialect": "sqlite",
+        "sqlite_json_ops": {
+          "field_extraction": "json_extract(raw_events.payload, :json_extract_1)",
+          "nested_extraction": "json_extract(raw_events.payload, :json_extract_1)"
+        }
+      }
+    },
+    "CLI Tools": {
+      "passed": true,
+      "details": {
+        "postgres_health": {
+          "ok": true,
+          "message": "postgresql connection ok"
+        },
+        "sqlite_health": {
+          "ok": true,
+          "message": "sqlite integrity ok"
+        },
+        "postgres_validation": {
+          "is_valid": true,
+          "schema_version": 6,
+          "expected_version": 6,
+          "needs_optimization": false,
+          "database_size_mb": 7.79,
+          "session_count": 0,
+          "command_count": 0,
+          "file_count": 0,
+          "files_table_count": 0
+        },
+        "sqlite_validation": {
+          "is_valid": true,
+          "schema_version": 6,
+          "expected_version": 6,
+          "needs_optimization": false,
+          "database_size_mb": 0.13,
+          "session_count": 0,
+          "command_count": 0,
+          "file_count": 0,
+          "files_table_count": 0
+        }
+      }
+    },
+    "Utility Scripts": {
+      "passed": true,
+      "details": {
+        "scripts/enrichment_refresh.py": "help_command_works",
+        "scripts/enrichment_live_check.py": "help_command_works",
+        "debug_stuck_session.py": "help_command_works"
+      }
+    },
+    "Performance": {
+      "passed": true,
+      "details": {
+        "connection_times": {
+          "postgresql": 0.02823805809020996,
+          "sqlite": 0.0022749900817871094
+        }
+      }
+    }
+  },
+  "summary": {
+    "total_tests": 7,
+    "passed_tests": 7,
+    "failed_tests": 0,
+    "success_rate": 100.0
+  }
+}
