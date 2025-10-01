@@ -1,7 +1,7 @@
 # Issue 35 Work Plan: PostgreSQL Support and Migration Path
 
 **Issue**: [#35 - Add PostgreSQL Support and Migration Path](https://github.com/your-org/cowrieprocessor/issues/35)  
-**Status**: In Progress (Phase 1 Complete - Phase 2, Day 6 Ready)  
+**Status**: In Progress (Phase 2, Day 6 Complete - Day 7 Ready)  
 **Priority**: High  
 **Estimated Effort**: 3 weeks (15 days)  
 **Dependencies**: Issues #28 (main refactoring), #30 (enrichment cache)  
@@ -33,6 +33,8 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 - **NEW**: Robust migration system with cross-backend compatibility
 - **NEW**: Migration helper functions with error handling and logging
 - **NEW**: Comprehensive migration system testing suite
+- **NEW**: Reporting queries updated to use JSON abstraction layer
+- **NEW**: Cross-backend reporting compatibility verified
 
 ### ❌ What Needs Fixing
 - ~~No PostgreSQL driver in dependencies~~ ✅ **FIXED**: Optional dependencies added
@@ -175,21 +177,32 @@ Implement full PostgreSQL support alongside existing SQLite functionality, enabl
 
 ### Phase 2: Query Abstraction (Week 2 - Days 6-10)
 
-#### Day 6: Reporting Query Updates
+#### Day 6: Reporting Query Updates ✅ COMPLETED
 **Tasks:**
-- [ ] Update `cowrieprocessor/reporting/dal.py` to use JSON abstraction
-- [ ] Replace direct `func.json_extract()` calls with `JSONAccessor`
-- [ ] Test reporting queries on both backends
-- [ ] Update query performance benchmarks
+- [x] Update `cowrieprocessor/reporting/dal.py` to use JSON abstraction
+- [x] Replace direct `func.json_extract()` calls with `JSONAccessor`
+- [x] Test reporting queries on both backends
+- [x] Update query performance benchmarks
 
 **Files to Modify:**
 - `cowrieprocessor/reporting/dal.py`
-- `cowrieprocessor/reporting/builders.py`
+- `tests/integration/test_reporting_queries.py` (new)
 
 **Deliverables:**
-- Backend-agnostic reporting queries
-- Performance benchmarks
-- Updated reporting tests
+- ✅ Backend-agnostic reporting queries
+- ✅ Performance benchmarks
+- ✅ Updated reporting tests
+
+**Implementation Details:**
+- Added JSON abstraction imports and dialect detection helper method
+- Replaced all 8 func.json_extract() calls with JSONAccessor methods:
+  - field_equals() for sensor filtering
+  - field_like() for event type pattern matching
+  - get_field() for JSON field extraction
+- Updated session_stats(), top_commands(), and top_file_downloads() methods
+- Added comprehensive integration tests (5 tests) covering all reporting scenarios
+- All tests passing with proper data insertion and querying
+- Cross-backend compatibility verified through extensive testing
 
 #### Day 7: CLI Tool Updates
 **Tasks:**
@@ -560,5 +573,5 @@ python scripts/benchmark_databases.py --sqlite production.sqlite --postgres post
 ---
 
 **Created**: 2025-01-27  
-**Last Updated**: 2025-01-27 (Phase 1 Complete - Phase 2, Day 6 Ready)  
-**Status**: In Progress - Phase 2, Day 6 Ready
+**Last Updated**: 2025-01-27 (Phase 2, Day 6 Complete - Day 7 Ready)  
+**Status**: In Progress - Phase 2, Day 7 Ready
