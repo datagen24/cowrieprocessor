@@ -16,6 +16,8 @@ dependencies = [
   "tomli>=2.0.1; python_version < '3.11'",
   "types-python-dateutil>=2.9.0.20250822",
   "pip>=25.2",
+  "tqdm>=4.67.1",
+  "psutil>=7.1.0",
 ]
 
 [build-system]
