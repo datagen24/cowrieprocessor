@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
     Column,
-    Computed,
     DateTime,
     Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    case,
+    false,
     func,
 )
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.sql.elements import Case
 
 from .base import Base
 
@@ -30,7 +35,7 @@ class SchemaState(Base):
 
 
 class RawEvent(Base):
-    """Persistent copy of raw Cowrie events with JSON payloads and virtual columns."""
+    """Persistent copy of raw Cowrie events with JSON payloads and extracted columns."""
 
     __tablename__ = "raw_events"
 
@@ -44,20 +49,68 @@ class RawEvent(Base):
     payload = Column(JSON, nullable=False)
     payload_hash = Column(String(64), nullable=True)
     risk_score = Column(Integer, nullable=True)
-    quarantined = Column(Boolean, nullable=False, server_default="0")
+    quarantined = Column(Boolean, nullable=False, server_default=false())
 
-    session_id = Column(
-        String(64),
-        Computed("json_extract(payload, '$.session')", persisted=False),
-    )
-    event_type = Column(
-        String(128),
-        Computed("json_extract(payload, '$.eventid')", persisted=False),
-    )
-    event_timestamp = Column(
-        String(64),
-        Computed("json_extract(payload, '$.timestamp')", persisted=False),
-    )
+    # Real columns for extracted JSON fields (replacing computed columns)
+    session_id = Column(String(64), nullable=True, index=True)
+    event_type = Column(String(128), nullable=True, index=True)
+    event_timestamp = Column(String(64), nullable=True, index=True)
+
+    @hybrid_property
+    def session_id_computed(self) -> Any:
+        """Backward compatibility for computed access to session_id.
+
+        Returns:
+            The session_id from the real column, or extracted from payload if null.
+        """
+        return self.session_id or (self.payload.get("session") if self.payload else None)
+
+    @session_id_computed.expression
+    def session_id_computed_expr(cls) -> Case:
+        """SQL expression for backward compatibility with computed session_id.
+
+        Returns:
+            SQLAlchemy case expression that uses real column or extracts from JSON.
+        """
+        return case((cls.session_id.isnot(None), cls.session_id), else_=func.json_extract(cls.payload, "$.session"))
+
+    @hybrid_property
+    def event_type_computed(self) -> Any:
+        """Backward compatibility for computed access to event_type.
+
+        Returns:
+            The event_type from the real column, or extracted from payload if null.
+        """
+        return self.event_type or (self.payload.get("eventid") if self.payload else None)
+
+    @event_type_computed.expression
+    def event_type_computed_expr(cls) -> Case:
+        """SQL expression for backward compatibility with computed event_type.
+
+        Returns:
+            SQLAlchemy case expression that uses real column or extracts from JSON.
+        """
+        return case((cls.event_type.isnot(None), cls.event_type), else_=func.json_extract(cls.payload, "$.eventid"))
+
+    @hybrid_property
+    def event_timestamp_computed(self) -> Any:
+        """Backward compatibility for computed access to event_timestamp.
+
+        Returns:
+            The event_timestamp from the real column, or extracted from payload if null.
+        """
+        return self.event_timestamp or (self.payload.get("timestamp") if self.payload else None)
+
+    @event_timestamp_computed.expression
+    def event_timestamp_computed_expr(cls) -> Case:
+        """SQL expression for backward compatibility with computed event_timestamp.
+
+        Returns:
+            SQLAlchemy case expression that uses real column or extracts from JSON.
+        """
+        return case(
+            (cls.event_timestamp.isnot(None), cls.event_timestamp), else_=func.json_extract(cls.payload, "$.timestamp")
+        )
 
     __table_args__ = (
         UniqueConstraint(
@@ -67,9 +120,7 @@ class RawEvent(Base):
             "source_offset",
             name="uq_raw_events_source_offset",
         ),
-        Index("ix_raw_events_session_id", "session_id"),
-        Index("ix_raw_events_event_type", "event_type"),
-        Index("ix_raw_events_event_timestamp", "event_timestamp"),
+        # Indexes are now defined inline with the columns above
         Index("ix_raw_events_ingest_at", "ingest_at"),
     )
 
@@ -86,8 +137,8 @@ class SessionSummary(Base):
     command_count = Column(Integer, nullable=False, server_default="0")
     file_downloads = Column(Integer, nullable=False, server_default="0")
     login_attempts = Column(Integer, nullable=False, server_default="0")
-    vt_flagged = Column(Boolean, nullable=False, server_default="0")
-    dshield_flagged = Column(Boolean, nullable=False, server_default="0")
+    vt_flagged = Column(Boolean, nullable=False, server_default=false())
+    dshield_flagged = Column(Boolean, nullable=False, server_default=false())
     risk_score = Column(Integer, nullable=True)
     matcher = Column(String(32), nullable=True)
     source_files = Column(JSON, nullable=True)
@@ -113,7 +164,7 @@ class CommandStat(Base):
     occurrences = Column(Integer, nullable=False, server_default="0")
     first_seen = Column(DateTime(timezone=True))
     last_seen = Column(DateTime(timezone=True))
-    high_risk = Column(Boolean, nullable=False, server_default="0")
+    high_risk = Column(Boolean, nullable=False, server_default=false())
 
     __table_args__ = (
         UniqueConstraint("session_id", "command_normalized", name="uq_command_stats_session_command"),
@@ -150,7 +201,7 @@ class DeadLetterEvent(Base):
     payload = Column(JSON, nullable=False)
     metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    resolved = Column(Boolean, nullable=False, server_default="0")
+    resolved = Column(Boolean, nullable=False, server_default=false())
     resolved_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
@@ -170,17 +221,17 @@ class Files(Base):
     filename = Column(String(512), nullable=True)
     file_size = Column(BigInteger, nullable=True)
     download_url = Column(String(1024), nullable=True)
-    
+
     # VirusTotal enrichment fields
     vt_classification = Column(String(128), nullable=True)
     vt_description = Column(Text, nullable=True)
-    vt_malicious = Column(Boolean, nullable=False, server_default="0")
+    vt_malicious = Column(Boolean, nullable=False, server_default=false())
     vt_first_seen = Column(DateTime(timezone=True), nullable=True)
     vt_last_analysis = Column(DateTime(timezone=True), nullable=True)
     vt_positives = Column(Integer, nullable=True)
     vt_total = Column(Integer, nullable=True)
     vt_scan_date = Column(DateTime(timezone=True), nullable=True)
-    
+
     # Metadata
     first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_updated = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

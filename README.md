@@ -44,7 +44,10 @@ This project began as a fork of the original [cowrieprocessor](https://github.co
 
 - Python 3.9 or higher
 - Virtual environment (recommended)
-- SQLite3
+- SQLite3 (default database)
+- PostgreSQL (optional - for production deployments)
+  - `psycopg[binary]>=3.1`
+  - `psycopg-pool>=3.1`
 - For Elasticsearch reporting:
   - `elasticsearch>=8,<9`
   - `tomli` (if Python < 3.11)
@@ -66,8 +69,25 @@ source venv/bin/activate  # On Linux/Mac
 ```
 
 3. Install dependencies:
+
+**Default installation (SQLite only):**
 ```bash
 pip install -r requirements.txt
+```
+
+**With PostgreSQL support (optional):**
+```bash
+pip install -r requirements.txt
+pip install -e ".[postgres]"
+```
+
+**Using uv (recommended):**
+```bash
+# Default installation (SQLite only)
+uv pip install -e .
+
+# With PostgreSQL support
+uv pip install -e ".[postgres]"
 ```
 
 ## Architecture Overview

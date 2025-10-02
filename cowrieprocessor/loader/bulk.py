@@ -26,12 +26,14 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import Files, RawEvent, SessionSummary, create_session_maker
-from .file_processor import extract_file_data
 from ..telemetry import start_span
+from .defanging import CommandDefanger, get_command_risk_score
+from .file_processor import extract_file_data
 
 JsonDict = Dict[str, Any]
 TelemetryCallback = Callable[["BulkLoaderMetrics"], None]
 
+# Legacy patterns - kept for backward compatibility but now using intelligent defanging
 COMMAND_KEYWORDS = {"curl", "wget", "powershell", "dubious", "nc", "bash", "sh", "python", "perl"}
 SUSPICIOUS_PATTERNS = {"/tmp/", "http://", "https://", ";", "&&", "|"}
 COMMAND_EVENT_HINTS = {"cowrie.command", "command"}
@@ -54,15 +56,18 @@ class BulkLoaderConfig:
     """Configuration knobs for the bulk loader."""
 
     batch_size: int = 500
-    quarantine_threshold: int = 80
+    quarantine_threshold: int = 90  # Increased from 80 to be less aggressive
     batch_risk_threshold: int = 400
     neutralize_commands: bool = True
+    use_intelligent_defanging: bool = True  # New: Use intelligent defanging instead of simple neutralization
+    preserve_original_commands: bool = True  # New: Keep original commands for analysis
     telemetry_interval: int = 5  # batches
     max_flush_retries: int = 3
     flush_retry_backoff: float = 1.5
     max_failure_streak: int = 5
     failure_cooldown_seconds: float = 10.0
     multiline_json: bool = False
+    hybrid_json: bool = False  # Auto-detect and handle both single-line and multiline JSON
 
 
 @dataclass(slots=True)
@@ -163,6 +168,7 @@ class BulkLoader:
         self._session_factory: sessionmaker[Session] = create_session_maker(engine)
         self._failure_streak = 0
         self._enrichment_service = enrichment_service
+        self._defanger = CommandDefanger() if self.config.use_intelligent_defanging else None
 
     def load_paths(
         self,
@@ -177,6 +183,7 @@ class BulkLoader:
         start_time = time.perf_counter()
 
         pending_records: List[JsonDict] = []
+        pending_dead_letters: List[JsonDict] = []
         session_aggregates: Dict[str, SessionAggregate] = {}
         pending_files: List[Files] = []
         telemetry_counter = 0
@@ -193,6 +200,22 @@ class BulkLoader:
                     ):
                         for offset, payload in self._iter_source(source_path):
                             metrics.events_read += 1
+
+                            # Check if this is a dead letter event
+                            if isinstance(payload, dict) and payload.get("_dead_letter"):
+                                # Handle dead letter events
+                                dead_letter_record = self._make_dead_letter_record(
+                                    ingest_ref,
+                                    source_path,
+                                    source_inode,
+                                    offset,
+                                    payload,
+                                )
+                                pending_dead_letters.append(dead_letter_record)
+                                metrics.events_quarantined += 1
+                                continue
+
+                            # Process as regular event
                             processed = self._process_event(payload)
                             if processed.validation_errors:
                                 metrics.events_invalid += 1
@@ -231,11 +254,12 @@ class BulkLoader:
                                         file_hash = self._extract_file_hash(processed.payload)
                                         if file_hash:
                                             agg.file_hashes.add(file_hash)
-                                        
+
                                         # Extract file data for Files table
                                         file_data = extract_file_data(processed.payload, processed.session_id)
                                         if file_data:
                                             from .file_processor import create_files_record
+
                                             file_record = create_files_record(file_data)
                                             pending_files.append(file_record)
                                 if processed.event_type and any(
@@ -253,6 +277,7 @@ class BulkLoader:
                                 self._flush(
                                     session,
                                     pending_records,
+                                    pending_dead_letters,
                                     session_aggregates,
                                     pending_files,
                                     metrics,
@@ -261,16 +286,18 @@ class BulkLoader:
                                     checkpoint_cb,
                                 )
                                 pending_records = []
+                                pending_dead_letters = []
                                 session_aggregates = {}
                                 pending_files = []
                                 telemetry_counter += 1
                                 if telemetry_cb and telemetry_counter % self.config.telemetry_interval == 0:
                                     telemetry_cb(metrics)
 
-                if pending_records:
+                if pending_records or pending_dead_letters:
                     self._flush(
                         session,
                         pending_records,
+                        pending_dead_letters,
                         session_aggregates,
                         pending_files,
                         metrics,
@@ -288,6 +315,7 @@ class BulkLoader:
         self,
         session: Session,
         raw_event_records: List[JsonDict],
+        dead_letter_records: List[JsonDict],
         session_aggregates: Dict[str, SessionAggregate],
         pending_files: List[Files],
         metrics: BulkLoaderMetrics,
@@ -314,7 +342,9 @@ class BulkLoader:
         ):
             while True:
                 try:
-                    inserted = self._execute_flush(session, raw_event_records, session_aggregates, pending_files)
+                    inserted = self._execute_flush(
+                        session, raw_event_records, dead_letter_records, session_aggregates, pending_files
+                    )
                     break
                 except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
                     session.rollback()
@@ -361,15 +391,24 @@ class BulkLoader:
         self,
         session: Session,
         raw_event_records: List[JsonDict],
+        dead_letter_records: List[JsonDict],
         session_aggregates: Dict[str, SessionAggregate],
         pending_files: List[Files],
     ) -> int:
         """Execute a single flush attempt returning inserted event count."""
         with session.begin():
-            inserted = self._bulk_insert_raw_events(session, raw_event_records)
+            # Insert regular events
+            regular_inserted = self._bulk_insert_raw_events(session, raw_event_records) if raw_event_records else 0
+
+            # Insert dead letter events
+            dead_letter_inserted = (
+                self._bulk_insert_dead_letters(session, dead_letter_records) if dead_letter_records else 0
+            )
+
             self._upsert_session_summaries(session, session_aggregates)
             self._bulk_insert_files(session, pending_files)
-        return inserted
+
+        return regular_inserted + dead_letter_inserted
 
     def _apply_enrichment(self, session_aggregates: Dict[str, SessionAggregate]) -> None:
         """Populate enrichment metadata and flags for the pending session aggregates."""
@@ -483,16 +522,12 @@ class BulkLoader:
 
         if dialect_name == "sqlite":
             stmt = sqlite_dialect.insert(table)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=["session_id", "shasum"]
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(stmt, [self._files_to_dict(f) for f in files])
             return int(result.rowcount or 0)
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table)
-            pg_stmt = pg_stmt.on_conflict_do_nothing(
-                index_elements=["session_id", "shasum"]
-            )
+            pg_stmt = pg_stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(pg_stmt, [self._files_to_dict(f) for f in files])
             return int(result.rowcount or 0)
 
@@ -628,8 +663,37 @@ class BulkLoader:
 
     def _process_event(self, payload: Any) -> ProcessedEvent:
         validation_errors: List[str] = []
+
+        # Handle dead letter events specially
+        if isinstance(payload, dict) and payload.get("_dead_letter"):
+            # Dead letter events should be quarantined but preserve their content
+            return ProcessedEvent(
+                payload=payload,
+                risk_score=100,  # High risk for malformed content
+                quarantined=True,
+                validation_errors=["dead_letter_event"],
+                session_id=None,
+                event_type="dead_letter",
+                event_timestamp=None,
+            )
+
         if not isinstance(payload, dict):
-            return ProcessedEvent({}, 0, True, ["payload_not_dict"], None, None, None)
+            # Create a proper dead letter event for non-dict payloads
+            dead_letter_payload = {
+                "_dead_letter": True,
+                "_reason": "payload_not_dict",
+                "_malformed_content": str(payload),
+                "_timestamp": datetime.now(UTC).isoformat(),
+            }
+            return ProcessedEvent(
+                payload=dead_letter_payload,
+                risk_score=100,
+                quarantined=True,
+                validation_errors=["payload_not_dict"],
+                session_id=None,
+                event_type="dead_letter",
+                event_timestamp=None,
+            )
 
         event = dict(payload)
         session_id = event.get("session") or event.get("session_id")
@@ -689,10 +753,128 @@ class BulkLoader:
     def _iter_source(self, path: Path) -> Iterator[tuple[int, Any]]:
         opener = self._resolve_opener(path)
         with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
-            if self.config.multiline_json:
+            if self.config.hybrid_json:
+                # Use improved hybrid processor
+                from .improved_hybrid import ImprovedHybridProcessor
+
+                processor = ImprovedHybridProcessor()
+                yield from processor.process_lines(handle)
+            elif self.config.multiline_json:
                 yield from self._iter_multiline_json(handle)
             else:
                 yield from self._iter_line_by_line(handle)
+
+    def _iter_hybrid_json(self, handle) -> Iterator[tuple[int, Any]]:
+        """Iterate through JSON that may contain both single-line and multiline objects."""
+        accumulated_lines: list[str] = []
+        start_offset = 0
+
+        for offset, line in enumerate(handle):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # Try parsing as a single line first
+            try:
+                payload = json.loads(stripped)
+                # If we have accumulated lines, they might be incomplete - send to DLQ
+                if accumulated_lines:
+                    yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
+                    accumulated_lines = []
+                yield offset, payload
+                continue
+            except json.JSONDecodeError:
+                pass
+
+            # If single-line parsing failed, add to accumulation
+            if not accumulated_lines:
+                start_offset = offset
+            accumulated_lines.append(stripped)
+
+            # Try to parse accumulated content
+            try:
+                combined_content = "\n".join(accumulated_lines)
+                payload = json.loads(combined_content)
+                yield start_offset, payload
+                accumulated_lines = []
+                continue
+            except json.JSONDecodeError:
+                # If it's incomplete JSON, continue accumulating
+                # If we've accumulated too much, send to DLQ
+                if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
+                    yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
+                    accumulated_lines = []
+                continue
+
+        # Handle any remaining accumulated content
+        if accumulated_lines:
+            try:
+                combined_content = "\n".join(accumulated_lines)
+                payload = json.loads(combined_content)
+                yield start_offset, payload
+            except json.JSONDecodeError:
+                yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
+
+    def _make_dead_letter_event(self, malformed_content: str) -> dict:
+        """Create a dead letter event for malformed JSON content."""
+        return {
+            "_dead_letter": True,
+            "_reason": "json_parsing_failed",
+            "_malformed_content": malformed_content,
+            "_timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    def _make_dead_letter_record(
+        self,
+        ingest_id: str,
+        source_path: Path,
+        source_inode: Optional[int],
+        offset: int,
+        dead_letter_payload: dict,
+    ) -> JsonDict:
+        """Create a dead letter record for the DLQ table."""
+        return {
+            "ingest_id": ingest_id,
+            "source": str(source_path),
+            "source_offset": offset,
+            "reason": dead_letter_payload.get("_reason", "unknown"),
+            "payload": {
+                "malformed_content": dead_letter_payload.get("_malformed_content"),
+                "parsing_timestamp": dead_letter_payload.get("_timestamp"),
+                "original_offset": offset,
+            },
+            "metadata_json": {
+                "json_parsing_failed": True,
+                "potentially_multiline": True,
+                "requires_investigation": True,
+            },
+        }
+
+    def _bulk_insert_dead_letters(self, session: Session, dead_letter_records: List[JsonDict]) -> int:
+        """Bulk insert dead letter events into the DLQ table."""
+        from sqlalchemy.exc import IntegrityError
+
+        from ..db import DeadLetterEvent
+
+        if not dead_letter_records:
+            return 0
+
+        table = DeadLetterEvent.__table__
+        try:
+            result = session.execute(table.insert(), dead_letter_records)
+            return int(result.rowcount or 0)
+        except IntegrityError:
+            session.rollback()
+            # Fall back to individual inserts if bulk insert fails
+            inserted = 0
+            for record in dead_letter_records:
+                try:
+                    session.execute(table.insert().values(**record))
+                    inserted += 1
+                except IntegrityError:
+                    # Skip duplicates
+                    pass
+            return inserted
 
     def _iter_line_by_line(self, handle) -> Iterator[tuple[int, Any]]:
         """Iterate through JSON lines, one object per line."""
@@ -703,7 +885,7 @@ class BulkLoader:
             try:
                 payload = json.loads(stripped)
             except json.JSONDecodeError:
-                yield offset, {"malformed": stripped}
+                yield offset, self._make_dead_letter_event(stripped)
                 continue
             yield offset, payload
 
@@ -733,9 +915,9 @@ class BulkLoader:
                 continue
             except json.JSONDecodeError:
                 # If it's incomplete JSON, continue accumulating
-                # If we've accumulated too much, treat as malformed
+                # If we've accumulated too much, send to DLQ
                 if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
-                    yield start_offset, {"malformed": "\n".join(accumulated_lines)}
+                    yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
                     accumulated_lines = []
                 continue
 
@@ -746,7 +928,7 @@ class BulkLoader:
                 payload = json.loads(combined_content)
                 yield start_offset, payload
             except json.JSONDecodeError:
-                yield start_offset, {"malformed": "\n".join(accumulated_lines)}
+                yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
 
     def _resolve_opener(self, path: Path):
         if path.suffix == ".gz":
@@ -771,23 +953,74 @@ class BulkLoader:
         return None
 
     def _score_event(self, event_type: Optional[str], event: Mapping[str, Any]) -> int:
+        """Calculate risk score for an event using intelligent command analysis."""
         score = 0
-        if event_type and any(keyword in event_type for keyword in COMMAND_EVENT_HINTS):
-            score += 20
+
+        # Use intelligent command scoring if available
         command = event.get("input") or event.get("command")
         if isinstance(command, str):
-            lowered = command.lower()
-            if any(keyword in lowered for keyword in COMMAND_KEYWORDS):
-                score += 40
-            if any(pattern in lowered for pattern in SUSPICIOUS_PATTERNS):
-                score += 25
+            if self._defanger:
+                # Use intelligent scoring from defanger (includes command event base score)
+                score = get_command_risk_score(command)
+                # Add base score for command events
+                if event_type and any(keyword in event_type for keyword in COMMAND_EVENT_HINTS):
+                    score += 10
+            else:
+                # Fallback to legacy scoring
+                if event_type and any(keyword in event_type for keyword in COMMAND_EVENT_HINTS):
+                    score += 20
+                lowered = command.lower()
+                if any(keyword in lowered for keyword in COMMAND_KEYWORDS):
+                    score += 40
+                if any(pattern in lowered for pattern in SUSPICIOUS_PATTERNS):
+                    score += 25
+
+        # File downloads get moderate score (reduced from 30 to 20)
         if event.get("eventid") == "cowrie.session.file_download":
-            score += 30
+            score += 20
+
         return min(score, 100)
 
     def _neutralize_payload(self, event: MutableMapping[str, Any]) -> None:
+        """Apply intelligent defanging to command payloads while preserving investigative data."""
         command_value = event.get("input") or event.get("command")
-        if isinstance(command_value, str):
+        if not isinstance(command_value, str):
+            return
+
+        if self._defanger and self.config.use_intelligent_defanging:
+            # Use intelligent defanging
+            analysis = self._defanger.analyze_command(command_value)
+
+            # Always store analysis
+            event["command_analysis"] = analysis
+
+            if analysis["needs_defanging"]:
+                # Create defanged version
+                defanged_command = self._defanger.create_safe_command(command_value)
+                event["input_safe"] = defanged_command
+                event["command_safe"] = defanged_command
+
+                # Store hash for integrity
+                event["input_hash"] = hashlib.blake2b(command_value.encode("utf-8"), digest_size=32).hexdigest()
+
+                if self.config.preserve_original_commands:
+                    # Keep original command for analysis
+                    event["input_original"] = command_value
+                    event["command_original"] = command_value
+                    # Replace original with defanged version
+                    event["input"] = defanged_command
+                    event["command"] = defanged_command
+                else:
+                    # Don't preserve original, just use defanged version
+                    event["input"] = defanged_command
+                    event["command"] = defanged_command
+            else:
+                # Safe command - no defanging needed
+                event["input_safe"] = command_value
+                event["command_safe"] = command_value
+                # Safe commands don't need original preservation
+        else:
+            # Legacy neutralization
             safe_command = self._neutralize_command(command_value)
             event["input_safe"] = safe_command
             event["input_hash"] = hashlib.blake2b(command_value.encode("utf-8"), digest_size=32).hexdigest()

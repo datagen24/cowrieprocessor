@@ -11,6 +11,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import RawEvent, SessionSummary
+from ..db.json_utils import JSONAccessor, get_dialect_name_from_engine
 from ..telemetry import start_span
 
 
@@ -79,6 +80,10 @@ class ReportingRepository:
             return dt
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
+    def _get_dialect_name(self, session: Session) -> str:
+        """Get the database dialect name from the session."""
+        return get_dialect_name_from_engine(session.bind)
+
     def session_stats(self, start: datetime, end: datetime, sensor: Optional[str] = None) -> SessionStatistics:
         """Return aggregated session metrics for the requested window."""
         span_attributes = {
@@ -115,12 +120,14 @@ class ReportingRepository:
                     RawEvent.ingest_at < range_end,
                 ]
                 if sensor:
-                    ip_filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
+                    dialect_name = self._get_dialect_name(session)
+                    ip_filters.append(JSONAccessor.field_equals(RawEvent.payload, "sensor", sensor, dialect_name))
 
+                dialect_name = self._get_dialect_name(session)
                 unique_ips = session.execute(
-                    select(func.count(func.distinct(func.json_extract(RawEvent.payload, "$.src_ip")))).where(
-                        and_(*ip_filters)
-                    )
+                    select(
+                        func.count(func.distinct(JSONAccessor.get_field(RawEvent.payload, "src_ip", dialect_name)))
+                    ).where(and_(*ip_filters))
                 ).scalar_one()
 
                 return SessionStatistics(
@@ -153,17 +160,19 @@ class ReportingRepository:
             with self.session() as session:
                 range_start = self._normalize_datetime(start)
                 range_end = self._normalize_datetime(end)
+                dialect_name = self._get_dialect_name(session)
+
                 filters = [
                     RawEvent.ingest_at >= range_start,
                     RawEvent.ingest_at < range_end,
-                    func.json_extract(RawEvent.payload, "$.eventid").like("%command%"),
+                    JSONAccessor.field_like(RawEvent.payload, "eventid", "%command%", dialect_name),
                 ]
                 if sensor:
-                    filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
+                    filters.append(JSONAccessor.field_equals(RawEvent.payload, "sensor", sensor, dialect_name))
 
                 stmt = (
                     select(
-                        func.json_extract(RawEvent.payload, "$.input_safe").label("command"),
+                        JSONAccessor.get_field(RawEvent.payload, "input_safe", dialect_name).label("command"),
                         func.count().label("count"),
                     )
                     .where(and_(*filters))
@@ -195,17 +204,21 @@ class ReportingRepository:
             with self.session() as session:
                 range_start = self._normalize_datetime(start)
                 range_end = self._normalize_datetime(end)
+                dialect_name = self._get_dialect_name(session)
+
                 filters = [
                     RawEvent.ingest_at >= range_start,
                     RawEvent.ingest_at < range_end,
-                    func.json_extract(RawEvent.payload, "$.eventid") == "cowrie.session.file_download",
+                    JSONAccessor.field_equals(
+                        RawEvent.payload, "eventid", "cowrie.session.file_download", dialect_name
+                    ),
                 ]
                 if sensor:
-                    filters.append(func.json_extract(RawEvent.payload, "$.sensor") == sensor)
+                    filters.append(JSONAccessor.field_equals(RawEvent.payload, "sensor", sensor, dialect_name))
 
                 stmt = (
                     select(
-                        func.json_extract(RawEvent.payload, "$.url").label("url"),
+                        JSONAccessor.get_field(RawEvent.payload, "url", dialect_name).label("url"),
                         func.count().label("count"),
                     )
                     .where(and_(*filters))
