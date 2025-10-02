@@ -18,6 +18,9 @@ dependencies = [
   "pip>=25.2",
   "tqdm>=4.67.1",
   "psutil>=7.1.0",
+  "scikit-learn>=1.3.0",
+  "pandas>=2.0.0",
+  "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
@@ -87,3 +90,4 @@ cowrie-loader = "cowrieprocessor.cli.ingest:main"
 cowrie-report = "cowrieprocessor.cli.report:main"
 cowrie-health = "cowrieprocessor.cli.health:main"
 cowrie-db = "cowrieprocessor.cli.cowrie_db:main"
+cowrie-analyze = "cowrieprocessor.cli.analyze:main"
