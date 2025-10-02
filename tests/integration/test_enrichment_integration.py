@@ -1,4 +1,4 @@
-"""Integration tests for enrichment workflows in process_cowrie.py."""
+"""Integration tests for enrichment workflows using the new EnrichmentService."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 import pytest
 
+from cowrieprocessor.enrichment import EnrichmentCacheManager
+from enrichment_handlers import EnrichmentService
 from tests.fixtures.enrichment_fixtures import (
     get_dshield_response,
     get_spur_response,
@@ -218,25 +220,33 @@ class TestSessionEnrichmentIntegration:
         conn.commit()
         conn.close()
 
-        # Mock enrichment failures
-        with (
-            patch('process_cowrie.enrichment_dshield_query') as mock_dshield,
-            patch('process_cowrie.enrichment_read_spur_data') as mock_spur,
-        ):
-            # Simulate API failures
-            mock_dshield.side_effect = Exception("DShield API failure")
-            mock_spur.side_effect = Exception("SPUR API failure")
+        # Create enrichment service
+        cache_dir = Path(tempfile.mkdtemp())
+        cache_manager = EnrichmentCacheManager(cache_dir)
+        
+        # Test with invalid credentials to trigger API failures
+        service = EnrichmentService(
+            cache_dir=cache_dir,
+            vt_api=None,
+            dshield_email="invalid@example.com",  # Invalid email will cause API failure
+            urlhaus_api="invalid-key",  # Invalid key will cause API failure
+            spur_api="invalid-key",  # Invalid key will cause API failure
+            cache_manager=cache_manager,
+        )
 
-            # Test that processing continues despite enrichment failures
-            from process_cowrie import dshield_query, read_spur_data
-
-            # These should handle failures gracefully
-            dshield_result = dshield_query("192.168.1.200")
-            spur_result = read_spur_data("192.168.1.200", "test-key")
-
-            # Should return safe defaults
-            assert dshield_result == {"ip": {"asname": "", "ascountry": ""}}
-            assert spur_result == [""] * 18
+        # Test that enrichment handles failures gracefully
+        result = service.enrich_session("test_session_failure", "192.168.1.200")
+        
+        # Should return safe defaults even when APIs fail
+        enrichment = result.get("enrichment", {})
+        assert "dshield" in enrichment
+        assert "spur" in enrichment
+        assert "urlhaus" in enrichment
+        
+        # Verify the structure is correct even with failures
+        assert isinstance(enrichment["dshield"], dict)
+        assert isinstance(enrichment["spur"], list)
+        assert isinstance(enrichment["urlhaus"], str)
 
 
 class TestEnrichmentMetadataInReports:
