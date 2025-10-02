@@ -293,7 +293,38 @@ parser.add_argument(
     default='../cowrieprocessor.sqlite',
 )
 
-args = parser.parse_args()
+if __name__ == "__main__":
+    args = parser.parse_args()
+else:
+    # Create a minimal args object for import-time compatibility
+    class MockArgs:
+        def __init__(self):
+            # Only set attributes that are accessed directly without getattr defaults
+            self.logpath = '/tmp/cowrie-logs'
+            self.ttyfile = None
+            self.downloadfile = None
+            self.session = None
+            self.vtapi = None
+            self.email = None
+            self.summarizedays = None
+            self.dbxapi = None
+            self.dbxkey = None
+            self.dbxsecret = None
+            self.dbxrefreshtoken = None
+            self.spurapi = None
+            self.urlhausapi = None
+            self.data_dir = '/mnt/dshield/data'
+            self.cache_dir = None
+            self.temp_dir = None
+            self.log_dir = None
+            self.bulk_load = False
+            self.skip_enrich = False
+            self.buffer_bytes = 2048
+            self.output_dir = None
+            self.sensor = None
+            self.db = '../cowrieprocessor.sqlite'
+        
+    args = MockArgs()
 
 log_location = args.logpath
 tty_file = args.ttyfile

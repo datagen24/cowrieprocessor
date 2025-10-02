@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
+from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_engine  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
@@ -66,19 +66,22 @@ def create_readonly_engine(db_url: str) -> Engine:
 
     # Set read-only mode for SQLite
     if db_url.startswith("sqlite://"):
-
-        @engine.event.listens_for(engine, "connect")
-        def set_sqlite_pragma(dbapi_connection, connection_record):
-            cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA query_only=1")
-            cursor.close()
+        try:
+            @engine.event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA query_only=1")
+                cursor.close()
+        except AttributeError:
+            # Fallback for older SQLAlchemy versions
+            pass
 
     return engine
 
 
 def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
     """Yield session IDs and source IP tuples up to the requested limit."""
-    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
         base_query = """
