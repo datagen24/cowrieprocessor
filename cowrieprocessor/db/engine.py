@@ -89,11 +89,11 @@ def _sqlite_on_connect(settings: DatabaseSettings):
 def create_engine_from_settings(settings: DatabaseSettings) -> Engine:
     """Create a SQLAlchemy engine configured for the target backend."""
     url = settings.url
-    
+
     # Convert PostgreSQL URLs to use psycopg driver explicitly
     if _is_postgresql_url(url) and not url.startswith("postgresql+psycopg://"):
         url = url.replace("postgresql://", "postgresql+psycopg://").replace("postgres://", "postgresql+psycopg://")
-    
+
     engine_kwargs: dict[str, Any] = {
         "echo": settings.echo,
         "future": True,

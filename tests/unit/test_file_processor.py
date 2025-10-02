@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import pytest
 from datetime import datetime
 
 from cowrieprocessor.loader.file_processor import (
+    create_files_record,
     extract_file_data,
     parse_timestamp,
-    create_files_record,
-    validate_file_hash,
     sanitize_filename,
     sanitize_url,
+    validate_file_hash,
 )
 
 

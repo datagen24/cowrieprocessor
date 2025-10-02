@@ -24,16 +24,17 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
+from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
 
+
 def get_session_query(engine: Engine) -> str:
     """Get session query with dialect-aware JSON extraction."""
     dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
-    
+
     if dialect_name == "postgresql":
         return """
             SELECT ss.session_id,
@@ -57,6 +58,7 @@ def get_session_query(engine: Engine) -> str:
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
 
+
 FILE_QUERY = """
     SELECT DISTINCT shasum, filename, session_id
     FROM files
@@ -71,7 +73,7 @@ def iter_sessions(engine: Engine, limit: int) -> Iterator[tuple[str, str]]:
     query = get_session_query(engine)
     if limit > 0:
         query += f" LIMIT {limit}"
-    
+
     with engine.connect() as conn:
         for row in conn.execute(text(query)):
             session_id, src_ip = row
@@ -84,7 +86,7 @@ def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str],
     query = FILE_QUERY
     if limit > 0:
         query += f" LIMIT {limit}"
-    
+
     with engine.connect() as conn:
         for row in conn.execute(text(query)):
             shasum, filename, session_id = row
@@ -95,7 +97,7 @@ def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str],
 def table_exists(engine: Engine, table_name: str) -> bool:
     """Return True when ``table_name`` is present in the database."""
     dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
-    
+
     if dialect_name == "postgresql":
         query = """
             SELECT 1 FROM information_schema.tables 
@@ -106,7 +108,7 @@ def table_exists(engine: Engine, table_name: str) -> bool:
             SELECT 1 FROM sqlite_master 
             WHERE type='table' AND name = :table_name
         """
-    
+
     with engine.connect() as conn:
         result = conn.execute(text(query), {"table_name": table_name}).fetchone()
         return result is not None
@@ -239,7 +241,9 @@ def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, O
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the enrichment refresh utility."""
     parser = argparse.ArgumentParser(description="Refresh enrichment data in-place")
-    parser.add_argument("--db-url", required=True, help="Database URL (sqlite:///path or postgresql://user:pass@host/db)")
+    parser.add_argument(
+        "--db-url", required=True, help="Database URL (sqlite:///path or postgresql://user:pass@host/db)"
+    )
     parser.add_argument(
         "--cache-dir",
         type=Path,

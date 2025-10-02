@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..db.engine import create_engine_from_settings
@@ -40,21 +40,21 @@ class HealthReport:
 def _check_database(db_url: Optional[str]) -> tuple[bool, str]:
     if not db_url:
         return False, "database URL not provided"
-    
+
     # Check for unsupported database types first
     if not (db_url.startswith("sqlite://") or db_url.startswith("postgresql://") or db_url.startswith("postgres://")):
         return False, f"unsupported database type: {db_url}"
-    
+
     # For SQLite, check file existence before creating engine
     if db_url.startswith("sqlite://"):
         db_path = db_url.replace("sqlite:///", "")
         if not Path(db_path).exists():
             return False, "sqlite database file missing"
-    
+
     try:
         settings = DatabaseSettings(url=db_url)
         engine = create_engine_from_settings(settings)
-        
+
         # Test database connection and basic query
         with engine.connect() as conn:
             # Try a simple query to test connectivity
@@ -72,7 +72,7 @@ def _check_database(db_url: Optional[str]) -> tuple[bool, str]:
                     return True, "postgresql connection ok"
                 else:
                     return False, "postgresql connection test failed"
-                
+
     except SQLAlchemyError as exc:
         return False, f"database error: {exc}"
     except Exception as exc:

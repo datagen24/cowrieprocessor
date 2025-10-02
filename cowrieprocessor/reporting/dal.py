@@ -79,7 +79,7 @@ class ReportingRepository:
         if dt.tzinfo is None:
             return dt
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    
+
     def _get_dialect_name(self, session: Session) -> str:
         """Get the database dialect name from the session."""
         return get_dialect_name_from_engine(session.bind)
@@ -125,9 +125,9 @@ class ReportingRepository:
 
                 dialect_name = self._get_dialect_name(session)
                 unique_ips = session.execute(
-                    select(func.count(func.distinct(JSONAccessor.get_field(RawEvent.payload, "src_ip", dialect_name)))).where(
-                        and_(*ip_filters)
-                    )
+                    select(
+                        func.count(func.distinct(JSONAccessor.get_field(RawEvent.payload, "src_ip", dialect_name)))
+                    ).where(and_(*ip_filters))
                 ).scalar_one()
 
                 return SessionStatistics(
@@ -161,7 +161,7 @@ class ReportingRepository:
                 range_start = self._normalize_datetime(start)
                 range_end = self._normalize_datetime(end)
                 dialect_name = self._get_dialect_name(session)
-                
+
                 filters = [
                     RawEvent.ingest_at >= range_start,
                     RawEvent.ingest_at < range_end,
@@ -205,11 +205,13 @@ class ReportingRepository:
                 range_start = self._normalize_datetime(start)
                 range_end = self._normalize_datetime(end)
                 dialect_name = self._get_dialect_name(session)
-                
+
                 filters = [
                     RawEvent.ingest_at >= range_start,
                     RawEvent.ingest_at < range_end,
-                    JSONAccessor.field_equals(RawEvent.payload, "eventid", "cowrie.session.file_download", dialect_name),
+                    JSONAccessor.field_equals(
+                        RawEvent.payload, "eventid", "cowrie.session.file_download", dialect_name
+                    ),
                 ]
                 if sensor:
                     filters.append(JSONAccessor.field_equals(RawEvent.payload, "sensor", sensor, dialect_name))

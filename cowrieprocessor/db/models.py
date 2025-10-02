@@ -59,7 +59,7 @@ class RawEvent(Base):
     @hybrid_property
     def session_id_computed(self) -> Any:
         """Backward compatibility for computed access to session_id.
-        
+
         Returns:
             The session_id from the real column, or extracted from payload if null.
         """
@@ -68,19 +68,16 @@ class RawEvent(Base):
     @session_id_computed.expression
     def session_id_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed session_id.
-        
+
         Returns:
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
-        return case(
-            (cls.session_id.isnot(None), cls.session_id),
-            else_=func.json_extract(cls.payload, "$.session")
-        )
+        return case((cls.session_id.isnot(None), cls.session_id), else_=func.json_extract(cls.payload, "$.session"))
 
     @hybrid_property
     def event_type_computed(self) -> Any:
         """Backward compatibility for computed access to event_type.
-        
+
         Returns:
             The event_type from the real column, or extracted from payload if null.
         """
@@ -89,19 +86,16 @@ class RawEvent(Base):
     @event_type_computed.expression
     def event_type_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed event_type.
-        
+
         Returns:
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
-        return case(
-            (cls.event_type.isnot(None), cls.event_type),
-            else_=func.json_extract(cls.payload, "$.eventid")
-        )
+        return case((cls.event_type.isnot(None), cls.event_type), else_=func.json_extract(cls.payload, "$.eventid"))
 
     @hybrid_property
     def event_timestamp_computed(self) -> Any:
         """Backward compatibility for computed access to event_timestamp.
-        
+
         Returns:
             The event_timestamp from the real column, or extracted from payload if null.
         """
@@ -110,13 +104,12 @@ class RawEvent(Base):
     @event_timestamp_computed.expression
     def event_timestamp_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed event_timestamp.
-        
+
         Returns:
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
         return case(
-            (cls.event_timestamp.isnot(None), cls.event_timestamp),
-            else_=func.json_extract(cls.payload, "$.timestamp")
+            (cls.event_timestamp.isnot(None), cls.event_timestamp), else_=func.json_extract(cls.payload, "$.timestamp")
         )
 
     __table_args__ = (

@@ -4,19 +4,16 @@
 import argparse
 import json
 import os
-import sys
 import time
-from pathlib import Path
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
 
 
 def check_database_status(db_url: str):
     """Check database status and session information."""
     try:
         engine = create_engine(db_url)
-        
+
         with engine.connect() as conn:
             # Check if database is accessible
             try:
@@ -48,7 +45,7 @@ def check_database_status(db_url: str):
             try:
                 result = conn.execute(
                     text("SELECT COUNT(*) FROM session_summaries WHERE session_id LIKE :pattern"),
-                    {"pattern": f"{stuck_session}%"}
+                    {"pattern": f"{stuck_session}%"},
                 ).fetchone()
                 count = result[0] if result else 0
                 print(f"Sessions matching '{stuck_session}': {count}")
@@ -105,18 +102,18 @@ def main():
     """Main entry point for the debug script."""
     parser = argparse.ArgumentParser(description="Debug script to investigate stuck session issues")
     parser.add_argument(
-        "--db-url", 
+        "--db-url",
         default="sqlite:////mnt/dshield/data/db/cowrieprocessor.sqlite",
-        help="Database URL (default: sqlite:////mnt/dshield/data/db/cowrieprocessor.sqlite)"
+        help="Database URL (default: sqlite:////mnt/dshield/data/db/cowrieprocessor.sqlite)",
     )
     parser.add_argument(
         "--status-file",
         default="/mnt/dshield/data/logs/status/aws-eastus-dshield.json",
-        help="Path to status file for process information"
+        help="Path to status file for process information",
     )
-    
+
     args = parser.parse_args()
-    
+
     print("=== Stuck Session Diagnostic ===")
     print(f"Current time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Database URL: {args.db_url}")

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
 from datetime import datetime
+
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from cowrieprocessor.db.models import Files
 from cowrieprocessor.db.base import Base
+from cowrieprocessor.db.models import Files
 
 
 @pytest.fixture

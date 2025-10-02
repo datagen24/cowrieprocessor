@@ -31,7 +31,12 @@ from ..settings import DatabaseSettings, load_database_settings
 
 def _resolve_db_settings(db_arg: str | None) -> DatabaseSettings:
     if not db_arg:
+        # Try to load from sensors.toml first, then fall back to environment/default
+        config = _load_sensors_config()
+        if config:
+            return load_database_settings(config=config)
         return load_database_settings()
+
     if db_arg.startswith("sqlite:"):
         return load_database_settings(config={"url": db_arg})
     db_path = Path(db_arg)
@@ -40,11 +45,42 @@ def _resolve_db_settings(db_arg: str | None) -> DatabaseSettings:
     return load_database_settings(config={"url": db_arg})
 
 
+def _load_sensors_config() -> dict[str, str] | None:
+    """Load database configuration from sensors.toml if available."""
+    sensors_file = Path("sensors.toml")
+    if not sensors_file.exists():
+        return None
+
+    try:
+        # Try tomllib first (Python 3.11+)
+        try:
+            import tomllib
+        except ImportError:
+            # Fall back to tomli for older Python versions
+            import tomli as tomllib
+
+        with sensors_file.open("rb") as handle:
+            data = tomllib.load(handle)
+
+        # Check for global database configuration
+        global_config = data.get("global", {})
+        db_url = global_config.get("db")
+        if db_url:
+            return {"url": db_url}
+
+    except Exception:
+        # If sensors.toml doesn't exist or can't be parsed, fall back to default
+        pass
+
+    return None
+
+
 def _make_bulk_config(args: argparse.Namespace) -> BulkLoaderConfig:
     config = BulkLoaderConfig(
         batch_size=args.batch_size,
         quarantine_threshold=args.quarantine_threshold,
         multiline_json=args.multiline_json,
+        hybrid_json=args.hybrid_json,
     )
     return config
 
@@ -143,7 +179,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         nargs="+",
         help="Paths to Cowrie JSON logs to ingest",
     )
-    parser.add_argument("--db", help="Database URL or SQLite path")
+    parser.add_argument("--db", help="Database URL or SQLite path. If omitted, reads from sensors.toml [global].db")
     parser.add_argument("--status-dir", help="Directory for status JSON", default=None)
     parser.add_argument("--ingest-id", help="Explicit ingest identifier")
     parser.add_argument("--batch-size", type=int, default=BulkLoaderConfig().batch_size)
@@ -157,6 +193,11 @@ def main(argv: Iterable[str] | None = None) -> int:
         "--multiline-json",
         action="store_true",
         help="Enable multiline JSON parsing for pretty-printed Cowrie logs",
+    )
+    parser.add_argument(
+        "--hybrid-json",
+        action="store_true",
+        help="Auto-detect and handle both single-line and multiline JSON formats in the same files",
     )
     parser.add_argument("--skip-enrich", action="store_true", help="Disable external enrichment lookups")
     parser.add_argument("--cache-dir", type=Path, help="Directory for enrichment cache files")
