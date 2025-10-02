@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .botnet import BotnetCoordinatorDetector
 from .metrics import (
     SnowshoeCampaignMetrics,
     SnowshoeDetectionMetrics,
@@ -10,6 +11,7 @@ from .metrics import (
 from .snowshoe import SnowshoeDetector
 
 __all__ = [
+    "BotnetCoordinatorDetector",
     "SnowshoeDetector",
     "SnowshoeDetectionMetrics",
     "SnowshoeCampaignMetrics",
