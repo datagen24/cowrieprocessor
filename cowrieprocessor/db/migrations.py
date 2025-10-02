@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +170,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v7(connection)
             _set_schema_version(connection, 7)
             version = 7
+
+        if version < 8:
+            _upgrade_to_v8(connection)
+            _set_schema_version(connection, 8)
+            version = 8
     return version
 
 
@@ -623,6 +628,57 @@ def _upgrade_to_v7(connection: Connection) -> None:
         logger.warning("pgcrypto extension not available, skipping checksum and idempotency key population")
 
     logger.info("Enhanced DLQ schema migration (v7) completed successfully")
+
+
+def _upgrade_to_v8(connection: Connection) -> None:
+    """Upgrade to schema version 8: Add snowshoe_detections table.
+    
+    Args:
+        connection: Database connection
+    """
+    logger.info("Starting snowshoe detection schema migration (v8)")
+    
+    # Create snowshoe_detections table
+    _safe_execute_sql(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS snowshoe_detections (
+            id INTEGER PRIMARY KEY,
+            detection_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+            window_end TIMESTAMP WITH TIME ZONE NOT NULL,
+            confidence_score VARCHAR(10) NOT NULL,
+            unique_ips INTEGER NOT NULL,
+            single_attempt_ips INTEGER NOT NULL,
+            geographic_spread VARCHAR(10) NOT NULL,
+            indicators JSON NOT NULL,
+            is_likely_snowshoe BOOLEAN NOT NULL DEFAULT FALSE,
+            coordinated_timing BOOLEAN NOT NULL DEFAULT FALSE,
+            recommendation TEXT,
+            analysis_metadata JSON,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        )
+        """,
+        "Create snowshoe_detections table",
+    )
+    
+    # Create indexes for snowshoe_detections table
+    indexes = [
+        ("ix_snowshoe_detections_detection_time", "detection_time"),
+        ("ix_snowshoe_detections_window", "window_start, window_end"),
+        ("ix_snowshoe_detections_confidence", "confidence_score"),
+        ("ix_snowshoe_detections_likely", "is_likely_snowshoe"),
+        ("ix_snowshoe_detections_created", "created_at"),
+    ]
+    
+    for index_name, columns in indexes:
+        _safe_execute_sql(
+            connection,
+            f"CREATE INDEX IF NOT EXISTS {index_name} ON snowshoe_detections ({columns})",
+            f"Create {index_name} index",
+        )
+    
+    logger.info("Snowshoe detection schema migration (v8) completed successfully")
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]
