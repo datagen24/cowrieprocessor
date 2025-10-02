@@ -12,6 +12,12 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
 import requests
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
+from cowrieprocessor.enrichment.rate_limiting import (
+    RateLimitedSession,
+    create_rate_limited_session_factory,
+    get_service_rate_limit,
+    with_retries,
+)
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -96,6 +102,7 @@ def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
 # ---------------------------------------------------------------------------
 
 
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
 def vt_query(
     file_hash: str,
     cache_dir: Path,
@@ -155,6 +162,7 @@ def vt_query(
 # ---------------------------------------------------------------------------
 
 
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
 def dshield_query(
     ip_address: str,
     email: str,
@@ -218,6 +226,7 @@ def dshield_query(
 # ---------------------------------------------------------------------------
 
 
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
 def safe_read_uh_data(
     ip_address: str,
     urlhausapi: str,
@@ -328,6 +337,7 @@ def _parse_urlhaus_tags(payload: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
 def read_spur_data(
     ip_address: str,
     spurapi: str,
@@ -488,6 +498,7 @@ class EnrichmentService:
         session_factory: SessionFactory = requests.session,
         timeout: int = DEFAULT_TIMEOUT,
         skip_enrich: bool = False,
+        enable_rate_limiting: bool = True,
     ) -> None:
         """Initialise the enrichment service."""
         self.cache_dir = Path(cache_dir)
@@ -498,10 +509,21 @@ class EnrichmentService:
         self.urlhaus_api = urlhaus_api or ""
         self.spur_api = spur_api or ""
         self.skip_enrich = skip_enrich
+        self.enable_rate_limiting = enable_rate_limiting
 
         self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
-        self._session_factory = session_factory
+        
+        # Use rate-limited sessions if enabled
+        if enable_rate_limiting:
+            self._session_factory = self._create_rate_limited_session_factory
+        else:
+            self._session_factory = session_factory
         self._timeout = timeout
+
+    def _create_rate_limited_session_factory(self, service: str = "default") -> RateLimitedSession:
+        """Create a rate-limited session for the specified service."""
+        rate, burst = get_service_rate_limit(service)
+        return RateLimitedSession(rate, burst)
 
     def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
         """Return enrichment payload for a session/IP pair."""
@@ -517,7 +539,7 @@ class EnrichmentService:
                     self.dshield_email,
                     skip_enrich=False,
                     cache_base=self.cache_dir,
-                    session_factory=self._session_factory,
+                    session_factory=lambda: self._session_factory("dshield"),
                     ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
                     now=time.time,
                 )
@@ -529,7 +551,7 @@ class EnrichmentService:
                     src_ip,
                     self.urlhaus_api,
                     cache_base=self.cache_dir,
-                    session_factory=self._session_factory,
+                    session_factory=lambda: self._session_factory("urlhaus"),
                     timeout=self._timeout,
                 )
                 if self.urlhaus_api
@@ -540,7 +562,7 @@ class EnrichmentService:
                     src_ip,
                     self.spur_api,
                     cache_base=self.cache_dir,
-                    session_factory=self._session_factory,
+                    session_factory=lambda: self._session_factory("spur"),
                     timeout=self._timeout,
                 )
                 if self.spur_api
@@ -621,7 +643,7 @@ class EnrichmentService:
             file_hash,
             self.cache_dir,
             self.vt_api,
-            session_factory=self._session_factory,
+            session_factory=lambda: self._session_factory("virustotal"),
             timeout=self._timeout,
         )
         if isinstance(response, dict):
