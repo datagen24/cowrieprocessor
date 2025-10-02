@@ -8,14 +8,14 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
-from ..db.models import SessionSummary, SnowshoeDetection
+from ..db.models import SessionSummary, SnowshoeDetection, RawEvent
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
-from ..threat_detection import SnowshoeDetector, create_snowshoe_metrics_from_detection
+from ..threat_detection import BotnetCoordinatorDetector, SnowshoeDetector, create_snowshoe_metrics_from_detection
 from sqlalchemy import and_, func
 
 
@@ -320,6 +320,54 @@ def main(argv: Iterable[str] | None = None) -> int:
     
     subparsers = parser.add_subparsers(dest="command", help="Available analysis commands")
     
+    # Botnet coordination detection command
+    botnet_parser = subparsers.add_parser(
+        "botnet", 
+        help="Detect coordinated botnet attacks"
+    )
+    botnet_parser.add_argument(
+        "--window",
+        type=int,
+        default=24,
+        help="Time window for analysis in hours (default: 24)",
+    )
+    botnet_parser.add_argument(
+        "--sensitivity",
+        type=float,
+        default=0.6,
+        help="Detection sensitivity threshold (0.0-1.0, default: 0.6)",
+    )
+    botnet_parser.add_argument(
+        "--credential-threshold",
+        type=int,
+        default=3,
+        help="Minimum IPs sharing credentials to flag (default: 3)",
+    )
+    botnet_parser.add_argument(
+        "--command-similarity",
+        type=float,
+        default=0.7,
+        help="Minimum command sequence similarity (0.0-1.0, default: 0.7)",
+    )
+    botnet_parser.add_argument(
+        "--output", help="Write JSON report to file instead of stdout"
+    )
+    botnet_parser.add_argument(
+        "--store-results", action="store_true", help="Store results in database"
+    )
+    botnet_parser.add_argument(
+        "--db", help="Database URL or SQLite path. If omitted, reads from settings."
+    )
+    botnet_parser.add_argument(
+        "--status-dir", help="Directory for status JSON", default=None
+    )
+    botnet_parser.add_argument(
+        "--ingest-id", help="Explicit ingest identifier", default=None
+    )
+    botnet_parser.add_argument(
+        "--sensor", help="Filter analysis by specific sensor", default=None
+    )
+    
     # Snowshoe analyze command
     snowshoe_parser = subparsers.add_parser(
         "snowshoe", 
@@ -391,7 +439,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.print_help()
         return 1
     
-    if args.command == "snowshoe":
+    if args.command == "botnet":
+        return _run_botnet_analysis(args)
+    elif args.command == "snowshoe":
         return snowshoe_analyze(args)
     elif args.command == "snowshoe-report":
         return snowshoe_report(args)
@@ -403,6 +453,144 @@ def main(argv: Iterable[str] | None = None) -> int:
 # Import logger at module level
 import logging
 logger = logging.getLogger(__name__)
+
+
+def _run_botnet_analysis(args) -> int:
+    """Run botnet coordination analysis."""
+    try:
+        # Resolve database settings
+        settings = _resolve_db_settings(args.db)
+        engine = create_engine_from_settings(settings)
+        apply_migrations(engine)
+        session_factory = create_session_maker(engine)
+        
+        # Parse time window
+        window_hours = int(args.window)
+        window_delta = timedelta(hours=window_hours)
+        window_end = datetime.now(UTC)
+        window_start = window_end - window_delta
+        
+        # Fetch sessions and raw events for analysis
+        with session_factory() as session:
+            # Get session IDs first
+            session_query = session.query(SessionSummary).filter(
+                and_(
+                    SessionSummary.first_event_at >= window_start,
+                    SessionSummary.first_event_at <= window_end,
+                )
+            )
+            
+            if args.sensor:
+                session_query = session_query.filter(SessionSummary.source_files.contains([args.sensor]))
+            
+            sessions = session_query.all()
+            
+            # Get raw events for credential and command extraction
+            session_ids = [s.session_id for s in sessions]
+            raw_events = []
+            if session_ids:
+                raw_events = session.query(RawEvent).filter(
+                    and_(
+                        RawEvent.session_id.in_(session_ids),
+                        RawEvent.event_type.in_(["cowrie.login.success", "cowrie.command.input"]),
+                    )
+                ).all()
+        
+        if not sessions:
+            logger.warning("No sessions found for analysis window")
+            return 1
+        
+        logger.info("Found %d sessions and %d raw events for botnet analysis", len(sessions), len(raw_events))
+        
+        # Initialize detector
+        detector = BotnetCoordinatorDetector(
+            credential_reuse_threshold=args.credential_threshold,
+            command_similarity_threshold=args.command_similarity,
+            sensitivity_threshold=args.sensitivity,
+        )
+        
+        # Perform analysis
+        analysis_start_time = time.perf_counter()
+        with start_span(
+            "cowrie.botnet.analyze",
+            {
+                "window_hours": window_delta.total_seconds() / 3600,
+                "session_count": len(sessions),
+                "sensor": args.sensor or "all",
+            },
+        ):
+            result = detector.detect(sessions, window_delta.total_seconds() / 3600, raw_events=raw_events)
+        
+        analysis_duration = time.perf_counter() - analysis_start_time
+        
+        # Store results in database if requested
+        if args.store_results:
+            _store_botnet_detection_result(session_factory, result, window_start, window_end)
+        
+        # Output results
+        if args.output:
+            output_path = Path(args.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("w") as f:
+                json.dump(result, f, indent=2)
+            logger.info("Results written to %s", output_path)
+        else:
+            print(json.dumps(result, indent=2))
+        
+        # Emit metrics
+        if args.status_dir:
+            analysis_id = args.ingest_id or f"botnet-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            window_hours = window_delta.total_seconds() / 3600
+            
+            # Create comprehensive metrics
+            metrics = create_snowshoe_metrics_from_detection(
+                detection_result=result,
+                analysis_duration=analysis_duration,
+                analysis_id=analysis_id,
+                window_hours=window_hours,
+            )
+            
+            emitter = StatusEmitter("botnet-analysis", status_dir=args.status_dir)
+            emitter.record_metrics(metrics)
+        
+        return 0 if result["is_likely_botnet"] else 1
+        
+    except Exception as e:
+        logger.error("Botnet analysis failed: %s", str(e), exc_info=True)
+        return 1
+
+
+def _store_botnet_detection_result(
+    session_factory, 
+    result: Dict[str, Any], 
+    window_start: datetime, 
+    window_end: datetime,
+) -> None:
+    """Store botnet detection results in database."""
+    try:
+        with session_factory() as session:
+            # Create a BotnetDetection record (we'll need to add this model)
+            # For now, we'll use the existing SnowshoeDetection model
+            detection = SnowshoeDetection(
+                window_start=window_start,
+                window_end=window_end,
+                confidence_score=str(result["coordination_score"]),
+                unique_ips=result["analysis_metadata"]["unique_ips"],
+                single_attempt_ips=len(result["credential_reuse_ips"]),
+                geographic_spread=str(result["geographic_clustering"]),
+                indicators=result["indicators"],
+                is_likely_snowshoe=result["is_likely_botnet"],  # Reusing field
+                coordinated_timing=result["coordinated_timing"],
+                recommendation=result["recommendation"],
+                analysis_metadata=result["analysis_metadata"],
+            )
+            
+            session.add(detection)
+            session.commit()
+            logger.info("Botnet detection results stored in database")
+            
+    except Exception as e:
+        logger.error("Failed to store botnet detection results: %s", str(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

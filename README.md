@@ -93,13 +93,13 @@ uv pip install -e ".[postgres]"
 ## Architecture Overview
 
 ### Centralized Database Design
-The system uses a central SQLite database to aggregate data from multiple honeypot sensors. Each sensor is identified by a unique name, allowing for both aggregate and per-sensor analysis.
+The system uses a centralized database (SQLite or PostgreSQL) to aggregate data from multiple honeypot sensors. Each sensor is identified by a unique name, allowing for both aggregate and per-sensor analysis. PostgreSQL is recommended for production deployments due to better performance and scalability.
 
 ### Directory Structure
 ```
 /mnt/dshield/
 ├── data/
-│   ├── db/                    # Central SQLite database
+│   ├── db/                    # Central database (SQLite or PostgreSQL connection)
 │   ├── cache/                 # API response caches
 │   ├── temp/                  # Temporary processing files
 │   └── logs/                  # Application logs and status files
@@ -143,7 +143,8 @@ python process_cowrie.py \
 Create a `sensors.toml` configuration:
 ```toml
 [global]
-db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+db = "postgresql://user:password@host:port/database"
+# OR for SQLite: db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
 report_dir = "/mnt/dshield/reports"
 
 [[sensor]]
@@ -181,11 +182,13 @@ python process_cowrie.py \
     --buffer-bytes 8388608 \
     --summarizedays 90
 
-# Later, refresh cache and generate reports
-python refresh_cache_and_reports.py \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
-    --vtapi $VT_API_KEY \
-    --email your.email@example.com
+# Later, refresh enrichments and generate reports
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://user:password@host:port/database" \
+    --sessions 0 \
+    --files 0 \
+    --vt-api-key $VT_API_KEY \
+    --dshield-email your.email@example.com
 ```
 
 ### Synthetic Data Generator (Phase 6 prep)
@@ -208,7 +211,7 @@ Bulk ingest example:
 ```bash
 cowrie-loader bulk \
     /mnt/dshield/a/NSM/cowrie/*.json \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --status-dir /mnt/dshield/data/logs/status
 ```
 
@@ -216,7 +219,7 @@ Incremental ingest (delta) example:
 ```bash
 cowrie-loader delta \
     /mnt/dshield/a/NSM/cowrie/*.json \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --status-dir /mnt/dshield/data/logs/status
 ```
 
@@ -237,14 +240,14 @@ For historical Cowrie logs that are pretty-printed (formatted with indentation a
 # Process pretty-printed JSON files (2025-02 to 2025-03 range)
 cowrie-loader bulk \
     /mnt/dshield/aws-eastus-dshield/NSM/cowrie/cowrie.json.2025-02-25.bz2 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --status-dir /mnt/dshield/data/logs/status \
     --multiline-json
 
 # Delta processing with multiline JSON support
 cowrie-loader delta \
     /mnt/dshield/aws-eastus-dshield/NSM/cowrie/cowrie.json.2025-03-*.bz2 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --status-dir /mnt/dshield/data/logs/status \
     --multiline-json
 ```
@@ -268,15 +271,15 @@ GROUP BY source
 ORDER BY dlq_count DESC;
 "
 
-# 2. Clear DLQ entries for a specific file
-sqlite3 /mnt/dshield/data/db/cowrieprocessor.sqlite "
+# 2. Clear DLQ entries for a specific file (PostgreSQL)
+psql "postgresql://user:password@host:port/database" -c "
 DELETE FROM dead_letter_events 
 WHERE source='/path/to/file.json.bz2' AND reason='validation';
 "
 
 # 3. Reprocess with multiline JSON support
 cowrie-loader bulk /path/to/file.json.bz2 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --multiline-json
 ```
 
@@ -322,6 +325,167 @@ cowrie-db info
 - **Corruption Detection**: Comprehensive integrity checks with recovery recommendations
 - **Performance Monitoring**: Database size, session counts, and optimization suggestions
 - **Safe Operations**: All operations include proper error handling and rollback capabilities
+
+## Enrichment Refresh
+
+### Overview
+
+The enrichment refresh system allows you to update existing enrichment data in your database without reprocessing entire log files. This is useful for:
+- Updating stale enrichment data with fresh API responses
+- Adding enrichments to sessions/files that were processed without enrichment
+- Refreshing enrichments after API key changes or service availability
+- Maintaining data freshness in production environments
+
+### Primary Method: `scripts/enrichment_refresh.py`
+
+The main enrichment refresh script supports both SQLite and PostgreSQL databases:
+
+```bash
+# Basic usage with PostgreSQL
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://user:password@host:port/database" \
+    --sessions 1000 \
+    --files 500
+
+# Refresh all enrichments (sessions and files)
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://user:password@host:port/database" \
+    --sessions 0 \
+    --files 0 \
+    --vt-api-key $VT_API_KEY \
+    --dshield-email your.email@example.com \
+    --urlhaus-api-key $URLHAUS_API_KEY \
+    --spur-api-key $SPUR_API_KEY
+
+# SQLite usage
+python scripts/enrichment_refresh.py \
+    --db-url "sqlite:///path/to/cowrieprocessor.sqlite" \
+    --sessions 0 \
+    --files 0
+
+# Using sensors.toml configuration
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://user:password@host:port/database" \
+    --sensors-file sensors.toml \
+    --sensor-index 0 \
+    --sessions 0 \
+    --files 0
+```
+
+### Command Options
+
+**Database Connection:**
+- `--db-url`: Database connection URL (SQLite or PostgreSQL)
+
+**Processing Limits:**
+- `--sessions`: Number of sessions to refresh (0 for all)
+- `--files`: Number of files to refresh (0 for all)
+- `--commit-interval`: Commit after this many updates (default: 100)
+
+**API Credentials:**
+- `--vt-api-key`: VirusTotal API key
+- `--dshield-email`: Registered DShield email
+- `--urlhaus-api-key`: URLHaus API key
+- `--spur-api-key`: SPUR API token
+
+**Configuration:**
+- `--sensors-file`: Path to sensors.toml (default: sensors.toml)
+- `--sensor-index`: Sensor entry index in sensors file (default: 0)
+- `--cache-dir`: Cache directory for enrichment payloads
+
+### Environment Variable Support
+
+The script supports environment variables for API credentials:
+
+```bash
+export VT_API_KEY="your_vt_key"
+export DSHIELD_EMAIL="your_email"
+export URLHAUS_API_KEY="your_urlhaus_key"
+export SPUR_API_KEY="your_spur_key"
+
+# Run without explicit API keys
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://user:password@host:port/database" \
+    --sessions 0 \
+    --files 0
+```
+
+### What Gets Refreshed
+
+**Session Enrichments:**
+- DShield IP reputation data
+- SPUR infrastructure data
+- URLHaus URL/IP data
+- Derived flags (`vt_flagged`, `dshield_flagged`)
+
+**File Enrichments:**
+- VirusTotal file analysis data
+- Threat classification
+- Detection statistics
+- Analysis timestamps
+
+### Integration with Loader CLI
+
+The `cowrie-loader` CLI also supports enrichment during ingestion:
+
+```bash
+# Bulk load with enrichment
+uv run cowrie-loader bulk /path/to/logs \
+    --db "postgresql://user:password@host:port/database" \
+    --vt-api-key $VT_API_KEY \
+    --dshield-email your.email@example.com \
+    --urlhaus-api-key $URLHAUS_API_KEY \
+    --spur-api-key $SPUR_API_KEY
+
+# Delta load with enrichment
+uv run cowrie-loader delta /path/to/logs \
+    --db "postgresql://user:password@host:port/database" \
+    --vt-api-key $VT_API_KEY
+```
+
+### Production Usage Examples
+
+```bash
+# Daily enrichment refresh for production
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://cowrie:password@db.example.com:5432/cowrie" \
+    --sessions 0 \
+    --files 0 \
+    --commit-interval 50 \
+    --cache-dir /var/cache/cowrie/enrichment
+
+# Refresh only recent sessions (last 1000)
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://cowrie:password@db.example.com:5432/cowrie" \
+    --sessions 1000 \
+    --files 0
+
+# Refresh only files with VirusTotal data
+python scripts/enrichment_refresh.py \
+    --db-url "postgresql://cowrie:password@db.example.com:5432/cowrie" \
+    --sessions 0 \
+    --files 0 \
+    --vt-api-key $VT_API_KEY
+```
+
+### Progress Monitoring
+
+The refresh script provides detailed progress information:
+
+```
+[sessions] committed 100 rows (elapsed 12.3s)
+[files] committed 50 rows (elapsed 8.7s)
+{
+  "sessions_updated": 1000,
+  "files_updated": 500,
+  "cache_snapshot": {
+    "vt_hits": 45,
+    "vt_misses": 12,
+    "dshield_hits": 78,
+    "dshield_misses": 3
+  }
+}
+```
 
 ## Command Line Reference
 
@@ -416,18 +580,18 @@ export ES_CLOUD_ID=deployment:region:id
 ```bash
 # Daily reports for all sensors
 cowrie-report daily 2025-09-14 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --all-sensors --publish
 
 # Weekly rollup
 cowrie-report weekly 2025-W37 \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite \
+    --db "postgresql://user:password@host:port/database" \
     --publish
 
 # Backfill historical data (loop over days)
 for day in $(seq 0 13); do
   cowrie-report daily "$(date -u -d "2025-09-14 - ${day} day" +%F)" \
-    --db /mnt/dshield/data/db/cowrieprocessor.sqlite --all-sensors --publish
+    --db "postgresql://user:password@host:port/database" --all-sensors --publish
 done
 ```
 
