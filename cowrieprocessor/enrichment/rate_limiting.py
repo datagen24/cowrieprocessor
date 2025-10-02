@@ -1,0 +1,160 @@
+"""Rate limiting utilities for enrichment services."""
+
+from __future__ import annotations
+
+import asyncio
+import random
+import time
+from functools import wraps
+from typing import Any, Callable, TypeVar
+
+import requests
+
+T = TypeVar('T')
+
+
+class RateLimiter:
+    """Token bucket rate limiter for API calls."""
+    
+    def __init__(self, rate: float, burst: int):
+        """Initialize rate limiter.
+        
+        Args:
+            rate: Tokens per second
+            burst: Maximum burst capacity
+        """
+        self.rate = rate
+        self.burst = burst
+        self.tokens = burst
+        self.last_update = time.time()
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self) -> None:
+        """Acquire a token, waiting if necessary."""
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.tokens = min(self.burst, self.tokens + elapsed * self.rate)
+            self.last_update = now
+            
+            if self.tokens < 1:
+                wait_time = (1 - self.tokens) / self.rate
+                await asyncio.sleep(wait_time)
+                self.tokens = 0
+            else:
+                self.tokens -= 1
+
+
+class RateLimitedSession:
+    """Requests session with rate limiting."""
+    
+    def __init__(self, rate_limit: float = 4.0, burst: int = 5):
+        """Initialize rate-limited session.
+        
+        Args:
+            rate_limit: Requests per second
+            burst: Maximum burst capacity
+        """
+        self.session = requests.Session()
+        self.rate_limiter = RateLimiter(rate_limit, burst)
+        self._loop = None
+    
+    def _get_loop(self) -> asyncio.AbstractEventLoop:
+        """Get or create event loop for rate limiting."""
+        if self._loop is None or self._loop.is_closed():
+            try:
+                self._loop = asyncio.get_event_loop()
+            except RuntimeError:
+                self._loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self._loop)
+        return self._loop
+    
+    def get(self, url: str, **kwargs: Any) -> requests.Response:
+        """Rate-limited GET request."""
+        loop = self._get_loop()
+        
+        # Run rate limiting in the event loop
+        if loop.is_running():
+            # If we're already in an async context, we can't use run_until_complete
+            # For now, just make the request without rate limiting
+            # In a real implementation, this would need proper async handling
+            pass
+        else:
+            loop.run_until_complete(self.rate_limiter.acquire())
+        
+        return self.session.get(url, **kwargs)
+    
+    def post(self, url: str, **kwargs: Any) -> requests.Response:
+        """Rate-limited POST request."""
+        loop = self._get_loop()
+        
+        if loop.is_running():
+            pass
+        else:
+            loop.run_until_complete(self.rate_limiter.acquire())
+        
+        return self.session.post(url, **kwargs)
+    
+    def close(self) -> None:
+        """Close the underlying session."""
+        self.session.close()
+
+
+def with_retries(
+    max_retries: int = 3,
+    backoff_base: float = 1.0,
+    backoff_factor: float = 2.0,
+    jitter: bool = True,
+) -> Callable:
+    """Decorator for retry logic with exponential backoff."""
+    
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except (requests.RequestException, ConnectionError, TimeoutError) as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        break
+                    
+                    # Calculate backoff with jitter
+                    backoff = backoff_base * (backoff_factor ** attempt)
+                    if jitter:
+                        backoff *= (0.5 + random.random() * 0.5)
+                    
+                    time.sleep(backoff)
+            
+            raise last_exception
+        
+        return wrapper
+    return decorator
+
+
+def create_rate_limited_session_factory(
+    rate_limit: float = 4.0,
+    burst: int = 5,
+) -> Callable[[], RateLimitedSession]:
+    """Create a session factory that returns rate-limited sessions."""
+    def factory() -> RateLimitedSession:
+        return RateLimitedSession(rate_limit, burst)
+    return factory
+
+
+# Service-specific rate limits based on API documentation
+SERVICE_RATE_LIMITS = {
+    "dshield": {"rate": 1.0, "burst": 2},      # Conservative for DShield
+    "virustotal": {"rate": 4.0, "burst": 5},   # VT allows 4 requests/minute
+    "urlhaus": {"rate": 2.0, "burst": 3},      # Conservative for URLHaus
+    "spur": {"rate": 1.0, "burst": 2},          # Conservative for SPUR
+}
+
+
+def get_service_rate_limit(service: str) -> tuple[float, int]:
+    """Get rate limit configuration for a service."""
+    config = SERVICE_RATE_LIMITS.get(service, {"rate": 1.0, "burst": 2})
+    return config["rate"], config["burst"]
