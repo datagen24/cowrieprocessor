@@ -1,0 +1,226 @@
+{
+  "timestamp": "2025-10-01T19:12:57.654343",
+  "migration_steps": {
+    "Pre-Migration Analysis": {
+      "success": true,
+      "analysis": {
+        "tables": [
+          "command_stats",
+          "dead_letter_events",
+          "dead_letter_events_test_backup",
+          "ingest_cursors",
+          "raw_events",
+          "schema_state",
+          "session_summaries"
+        ],
+        "table_counts": {
+          "command_stats": 0,
+          "dead_letter_events": 28879425,
+          "dead_letter_events_test_backup": 1689016,
+          "ingest_cursors": 463,
+          "raw_events": 58975085,
+          "schema_state": 1,
+          "session_summaries": 980482
+        },
+        "total_records": 90524472,
+        "database_size_mb": 45718.06,
+        "database_size_gb": 44.65,
+        "schema_version": 3
+      }
+    },
+    "PostgreSQL Setup": {
+      "success": true,
+      "setup_info": {
+        "postgres_version": "PostgreSQL 17.6 (Debian 17.6-1.pgdg12+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit",
+        "existing_tables": [
+          "schema_state",
+          "raw_events",
+          "session_summaries",
+          "command_stats",
+          "ingest_cursors",
+          "dead_letter_events",
+          "files"
+        ]
+      }
+    },
+    "Schema Migration": {
+      "success": true,
+      "migration_info": {
+        "migration_result": 6,
+        "schema_version": 6
+      }
+    },
+    "Data Migration": {
+      "success": false,
+      "migration_info": {},
+      "error": "[Errno 32] Broken pipe"
+    },
+    "Data Validation": {
+      "success": true,
+      "validation_info": {
+        "table_validation": {
+          "command_stats": {
+            "sqlite_count": 0,
+            "postgres_count": 0,
+            "match": true
+          },
+          "dead_letter_events": {
+            "sqlite_count": 28879425,
+            "postgres_count": 0,
+            "match": false
+          },
+          "dead_letter_events_test_backup": {
+            "sqlite_count": 1689016,
+            "postgres_count": 0,
+            "match": false
+          },
+          "ingest_cursors": {
+            "sqlite_count": 463,
+            "postgres_count": 0,
+            "match": false
+          },
+          "raw_events": {
+            "sqlite_count": 58975085,
+            "postgres_count": 0,
+            "match": false
+          },
+          "schema_state": {
+            "sqlite_count": 1,
+            "postgres_count": 0,
+            "match": false
+          },
+          "session_summaries": {
+            "sqlite_count": 980482,
+            "postgres_count": 0,
+            "match": false
+          }
+        },
+        "all_match": false
+      }
+    },
+    "Query Compatibility": {
+      "success": true,
+      "query_tests": {
+        "Basic Count Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM raw_events"
+        },
+        "JSON Field Extraction": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM raw_events WHERE payload->>'src_ip' IS NOT NULL"
+        },
+        "Session Summary Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM session_summaries"
+        },
+        "Files Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM files"
+        },
+        "Command Stats Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM command_stats"
+        },
+        "Dead Letter Query": {
+          "success": true,
+          "result": 0,
+          "query": "SELECT COUNT(*) FROM dead_letter_events"
+        }
+      }
+    },
+    "Performance Comparison": {
+      "success": true,
+      "performance_comparison": {
+        "Simple Count": {
+          "sqlite_time": 1.9752576351165771,
+          "postgres_time": 0.028742551803588867,
+          "sqlite_result": 58975085,
+          "postgres_result": 0,
+          "speed_ratio": 0.014551292597278085
+        },
+        "JSON Field Count": {
+          "sqlite_time": 109.66750741004944,
+          "postgres_time": 0.00661468505859375,
+          "sqlite_result": 7592876,
+          "postgres_result": 0,
+          "speed_ratio": 6.031581472770493e-05
+        },
+        "Session Count": {
+          "sqlite_time": 0.051139116287231445,
+          "postgres_time": 0.005620241165161133,
+          "sqlite_result": 980482,
+          "postgres_result": 0,
+          "speed_ratio": 0.10990102241098777
+        },
+        "Dead Letter Count": {
+          "sqlite_time": 1.0881054401397705,
+          "postgres_time": 0.0047800540924072266,
+          "sqlite_result": 28879425,
+          "postgres_result": 0,
+          "speed_ratio": 0.004393006335666527
+        }
+      }
+    }
+  },
+  "data_comparison": {},
+  "performance_comparison": {},
+  "summary": {
+    "total_steps": 7,
+    "successful_steps": 6,
+    "failed_steps": 1,
+    "success_rate": 85.71428571428571,
+    "migration_successful": false
+  },
+  "postgresql_stats": {
+    "timestamp": "2025-10-02T18:11:50.466492+00:00",
+    "database_size": "21 GB",
+    "total_inserts": 43243452,
+    "tuples_per_second": 0.0,
+    "active_connections": 1,
+    "total_connections": 8,
+    "table_stats": {
+      "dead_letter_events": {
+        "total_inserts": 21844127,
+        "live_tuples": 13225731
+      },
+      "raw_events": {
+        "total_inserts": 20894664,
+        "live_tuples": 10826552
+      },
+      "session_summaries": {
+        "total_inserts": 483105,
+        "live_tuples": 349511
+      },
+      "files": {
+        "total_inserts": 21090,
+        "live_tuples": 16383
+      },
+      "ingest_cursors": {
+        "total_inserts": 463,
+        "live_tuples": 0
+      },
+      "schema_state": {
+        "total_inserts": 3,
+        "live_tuples": 1
+      },
+      "dlq_processing_metrics": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      },
+      "command_stats": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      },
+      "dlq_circuit_breaker_state": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      }
+    }
+  },
+  "last_updated": "2025-10-02T18:11:50.467287+00:00"
+}

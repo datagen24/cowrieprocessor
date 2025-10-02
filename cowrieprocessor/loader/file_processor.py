@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -11,26 +10,26 @@ from ..db.models import Files
 
 def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optional[Dict[str, Any]]:
     """Extract file metadata from cowrie.session.file_download event.
-    
+
     Args:
         event_payload: The raw event payload dictionary
         session_id: The session ID associated with the event
-        
+
     Returns:
         Dictionary with file data ready for Files table insertion, or None if invalid
     """
     if event_payload.get("eventid") != "cowrie.session.file_download":
         return None
-    
+
     # Extract and validate shasum
     shasum = event_payload.get("shasum")
     if not shasum or not isinstance(shasum, str):
         return None
-    
+
     # Validate SHA-256 hash format (64 hex characters)
     if len(shasum) != 64 or not all(c in "0123456789abcdefABCDEF" for c in shasum):
         return None
-    
+
     # Extract filename with basic validation
     filename = event_payload.get("filename")
     if filename and isinstance(filename, str):
@@ -40,7 +39,7 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
             filename = filename[:512]
     else:
         filename = None
-    
+
     # Extract file size with validation
     file_size = event_payload.get("size")
     if file_size is not None:
@@ -50,7 +49,7 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
                 file_size = None
         except (ValueError, TypeError):
             file_size = None
-    
+
     # Extract download URL with validation
     download_url = event_payload.get("url")
     if download_url and isinstance(download_url, str):
@@ -60,10 +59,10 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
             download_url = download_url[:1024]
     else:
         download_url = None
-    
+
     # Parse timestamp
     first_seen = parse_timestamp(event_payload.get("timestamp"))
-    
+
     return {
         "session_id": session_id,
         "shasum": shasum.lower(),  # Normalize to lowercase
@@ -77,16 +76,16 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
 
 def parse_timestamp(timestamp_str: Optional[str]) -> Optional[datetime]:
     """Parse Cowrie timestamp string to datetime object.
-    
+
     Args:
         timestamp_str: Timestamp string from Cowrie event
-        
+
     Returns:
         Parsed datetime object or None if invalid
     """
     if not timestamp_str:
         return None
-    
+
     try:
         # Cowrie timestamps are typically in ISO format
         if timestamp_str.endswith('Z'):
@@ -98,10 +97,10 @@ def parse_timestamp(timestamp_str: Optional[str]) -> Optional[datetime]:
 
 def create_files_record(file_data: Dict[str, Any]) -> Files:
     """Create a Files record from extracted file data.
-    
+
     Args:
         file_data: Dictionary with file metadata from extract_file_data()
-        
+
     Returns:
         Files ORM record ready for database insertion
     """
@@ -118,19 +117,19 @@ def create_files_record(file_data: Dict[str, Any]) -> Files:
 
 def validate_file_hash(shasum: str) -> bool:
     """Validate that a string is a proper SHA-256 hash.
-    
+
     Args:
         shasum: String to validate
-        
+
     Returns:
         True if valid SHA-256 hash, False otherwise
     """
     if not isinstance(shasum, str):
         return False
-    
+
     if len(shasum) != 64:
         return False
-    
+
     try:
         # Try to decode as hex
         bytes.fromhex(shasum)
@@ -141,46 +140,46 @@ def validate_file_hash(shasum: str) -> bool:
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize filename to prevent path traversal and other issues.
-    
+
     Args:
         filename: Raw filename from event
-        
+
     Returns:
         Sanitized filename safe for storage
     """
     if not filename:
         return ""
-    
+
     # Remove null bytes and other control characters
     sanitized = filename.replace("\x00", "").strip()
-    
+
     # Remove path traversal attempts
     sanitized = sanitized.replace("../", "").replace("..\\", "")
-    
+
     # Limit length to match database column
     if len(sanitized) > 512:
         sanitized = sanitized[:512]
-    
+
     return sanitized
 
 
 def sanitize_url(url: str) -> str:
     """Sanitize URL to prevent injection and other issues.
-    
+
     Args:
         url: Raw URL from event
-        
+
     Returns:
         Sanitized URL safe for storage
     """
     if not url:
         return ""
-    
+
     # Remove null bytes and other control characters
     sanitized = url.replace("\x00", "").strip()
-    
+
     # Limit length to match database column
     if len(sanitized) > 1024:
         sanitized = sanitized[:1024]
-    
+
     return sanitized

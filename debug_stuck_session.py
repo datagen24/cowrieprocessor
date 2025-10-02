@@ -1,45 +1,58 @@
 #!/usr/bin/env python3
 """Debug script to investigate the stuck session issue."""
 
+import argparse
 import json
 import os
-import sqlite3
 import time
 
+from sqlalchemy import create_engine, text
 
-def check_database_status():
+
+def check_database_status(db_url: str):
     """Check database status and session information."""
     try:
-        con = sqlite3.connect('/mnt/dshield/data/db/cowrieprocessor.sqlite')
-        cur = con.cursor()
+        engine = create_engine(db_url)
 
-        # Check if database is locked
-        try:
-            cur.execute("SELECT COUNT(*) FROM sessions")
-            session_count = cur.fetchone()[0]
-            print(f"Total sessions in database: {session_count}")
-        except sqlite3.OperationalError as e:
-            if "database is locked" in str(e):
-                print("Database is LOCKED - this is the issue!")
-                return True
-            else:
-                print(f"Database error: {e}")
-                return True
+        with engine.connect() as conn:
+            # Check if database is accessible
+            try:
+                # Try to get session count from session_summaries table
+                result = conn.execute(text("SELECT COUNT(*) FROM session_summaries")).fetchone()
+                session_count = result[0] if result else 0
+                print(f"Total sessions in database: {session_count}")
+            except Exception as e:
+                if "database is locked" in str(e) or "database is busy" in str(e):
+                    print("Database is LOCKED - this is the issue!")
+                    return True
+                else:
+                    print(f"Database error: {e}")
+                    return True
 
-        # Check recent sessions
-        cur.execute("SELECT session, timestamp FROM sessions ORDER BY timestamp DESC LIMIT 10")
-        recent_sessions = cur.fetchall()
-        print("Most recent sessions in database:")
-        for session, timestamp in recent_sessions:
-            print(f"  {session}: {timestamp}")
+            # Check recent sessions
+            try:
+                recent_sessions = conn.execute(
+                    text("SELECT session_id, last_event_at FROM session_summaries ORDER BY last_event_at DESC LIMIT 10")
+                ).fetchall()
+                print("Most recent sessions in database:")
+                for session_id, timestamp in recent_sessions:
+                    print(f"  {session_id}: {timestamp}")
+            except Exception as e:
+                print(f"Could not fetch recent sessions: {e}")
 
-        # Check if the stuck session exists
-        stuck_session = "84a1c2fd"
-        cur.execute("SELECT COUNT(*) FROM sessions WHERE session LIKE ?", (f"{stuck_session}%",))
-        count = cur.fetchone()[0]
-        print(f"Sessions matching '{stuck_session}': {count}")
+            # Check if the stuck session exists
+            stuck_session = "84a1c2fd"
+            try:
+                result = conn.execute(
+                    text("SELECT COUNT(*) FROM session_summaries WHERE session_id LIKE :pattern"),
+                    {"pattern": f"{stuck_session}%"},
+                ).fetchone()
+                count = result[0] if result else 0
+                print(f"Sessions matching '{stuck_session}': {count}")
+            except Exception as e:
+                print(f"Could not check for stuck session: {e}")
 
-        con.close()
+        engine.dispose()
         return False
 
     except Exception as e:
@@ -47,11 +60,11 @@ def check_database_status():
         return True
 
 
-def check_process_memory():
+def check_process_memory(status_file: str):
     """Check if the process is using excessive memory."""
     try:
         # Get the process ID from the status file
-        with open('/mnt/dshield/data/logs/status/aws-eastus-dshield.json', 'r') as f:
+        with open(status_file, 'r') as f:
             data = json.load(f)
             pid = data.get('pid')
 
@@ -65,10 +78,10 @@ def check_process_memory():
         print(f"Could not check memory usage: {e}")
 
 
-def check_file_activity():
+def check_file_activity(status_file: str):
     """Check if the process is actively reading files."""
     try:
-        with open('/mnt/dshield/data/logs/status/aws-eastus-dshield.json', 'r') as f:
+        with open(status_file, 'r') as f:
             data = json.load(f)
             pid = data.get('pid')
 
@@ -85,18 +98,38 @@ def check_file_activity():
         print(f"Could not check file activity: {e}")
 
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for the debug script."""
+    parser = argparse.ArgumentParser(description="Debug script to investigate stuck session issues")
+    parser.add_argument(
+        "--db-url",
+        default="sqlite:////mnt/dshield/data/db/cowrieprocessor.sqlite",
+        help="Database URL (default: sqlite:////mnt/dshield/data/db/cowrieprocessor.sqlite)",
+    )
+    parser.add_argument(
+        "--status-file",
+        default="/mnt/dshield/data/logs/status/aws-eastus-dshield.json",
+        help="Path to status file for process information",
+    )
+
+    args = parser.parse_args()
+
     print("=== Stuck Session Diagnostic ===")
     print(f"Current time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Database URL: {args.db_url}")
 
     print("\n=== Database Status ===")
-    if check_database_status():
+    if check_database_status(args.db_url):
         print("Database is locked - process is likely stuck on a database operation")
     else:
         print("Database appears to be accessible")
 
     print("\n=== Process Memory ===")
-    check_process_memory()
+    check_process_memory(args.status_file)
 
     print("\n=== File Activity ===")
-    check_file_activity()
+    check_file_activity(args.status_file)
+
+
+if __name__ == "__main__":
+    main()

@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
+
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+from ..db.engine import create_engine_from_settings
+from ..settings import DatabaseSettings
 
 
 @dataclass(slots=True)
@@ -32,19 +37,46 @@ class HealthReport:
         }
 
 
-def _check_database(db_path: Optional[str]) -> tuple[bool, str]:
-    if not db_path:
-        return False, "database path not provided"
-    path = Path(db_path)
-    if not path.exists():
-        return False, "database file missing"
+def _check_database(db_url: Optional[str]) -> tuple[bool, str]:
+    if not db_url:
+        return False, "database URL not provided"
+
+    # Check for unsupported database types first
+    if not (db_url.startswith("sqlite://") or db_url.startswith("postgresql://") or db_url.startswith("postgres://")):
+        return False, f"unsupported database type: {db_url}"
+
+    # For SQLite, check file existence before creating engine
+    if db_url.startswith("sqlite://"):
+        db_path = db_url.replace("sqlite:///", "")
+        if not Path(db_path).exists():
+            return False, "sqlite database file missing"
+
     try:
-        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-        conn.execute("PRAGMA integrity_check")
-        conn.close()
-    except sqlite3.Error as exc:  # pragma: no cover - depends on corruption scenarios
-        return False, f"sqlite error: {exc}"  # best-effort message
-    return True, "sqlite integrity ok"
+        settings = DatabaseSettings(url=db_url)
+        engine = create_engine_from_settings(settings)
+
+        # Test database connection and basic query
+        with engine.connect() as conn:
+            # Try a simple query to test connectivity
+            if db_url.startswith("sqlite://"):
+                # SQLite integrity check
+                result = conn.execute(text("PRAGMA integrity_check")).fetchone()
+                if result and result[0] == 'ok':
+                    return True, "sqlite integrity ok"
+                else:
+                    return False, "sqlite integrity check failed"
+            elif db_url.startswith("postgresql://") or db_url.startswith("postgres://"):
+                # PostgreSQL connectivity test
+                result = conn.execute(text("SELECT 1")).fetchone()
+                if result and result[0] == 1:
+                    return True, "postgresql connection ok"
+                else:
+                    return False, "postgresql connection test failed"
+
+    except SQLAlchemyError as exc:
+        return False, f"database error: {exc}"
+    except Exception as exc:
+        return False, f"connection error: {exc}"
 
 
 def _load_status(status_dir: Optional[str]) -> tuple[bool, dict]:
@@ -73,12 +105,12 @@ def _load_status(status_dir: Optional[str]) -> tuple[bool, dict]:
 def main(argv: Iterable[str] | None = None) -> int:
     """Run the health check CLI and return an exit status."""
     parser = argparse.ArgumentParser(description="Cowrie processor health check")
-    parser.add_argument("--db", help="Path to SQLite database")
+    parser.add_argument("--db-url", help="Database connection URL (SQLite or PostgreSQL)")
     parser.add_argument("--status-dir", help="Directory containing status JSON")
     parser.add_argument("--output", choices=("json", "text"), default="text")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    db_ok, db_summary = _check_database(args.db)
+    db_ok, db_summary = _check_database(args.db_url)
     status_ok, latest_status = _load_status(args.status_dir)
 
     if db_ok and status_ok:

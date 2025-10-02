@@ -1,5 +1,11 @@
 [global]
+# SQLite database (default)
 db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
+
+# PostgreSQL database (optional - requires: uv pip install -e ".[postgres]")
+# db = "postgresql://user:password@localhost:5432/cowrie"
+# db = "postgresql://user:password@postgres.example.com:5432/cowrie?sslmode=require"
+
 report_dir = "/mnt/dshield/reports"
 
 [[sensor]]

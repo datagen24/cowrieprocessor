@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 try:
     import tomllib  # Python 3.11+
@@ -22,21 +24,40 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
 
-SESSION_QUERY = """
-    SELECT ss.session_id,
-           MAX(json_extract(re.payload, '$.src_ip')) AS src_ip
-    FROM session_summaries ss
-    JOIN raw_events re ON re.session_id = ss.session_id
-    WHERE json_extract(re.payload, '$.src_ip') IS NOT NULL
-      AND json_extract(re.payload, '$.src_ip') != ''
-    GROUP BY ss.session_id
-    ORDER BY ss.last_event_at ASC, ss.session_id ASC
-"""
+
+def get_session_query(engine: Engine) -> str:
+    """Get session query with dialect-aware JSON extraction."""
+    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+
+    if dialect_name == "postgresql":
+        return """
+            SELECT ss.session_id,
+                   MAX(re.payload->>'src_ip') AS src_ip
+            FROM session_summaries ss
+            JOIN raw_events re ON re.session_id = ss.session_id
+            WHERE re.payload->>'src_ip' IS NOT NULL
+              AND re.payload->>'src_ip' != ''
+            GROUP BY ss.session_id
+            ORDER BY ss.last_event_at ASC, ss.session_id ASC
+        """
+    else:
+        return """
+            SELECT ss.session_id,
+                   MAX(json_extract(re.payload, '$.src_ip')) AS src_ip
+            FROM session_summaries ss
+            JOIN raw_events re ON re.session_id = ss.session_id
+            WHERE json_extract(re.payload, '$.src_ip') IS NOT NULL
+              AND json_extract(re.payload, '$.src_ip') != ''
+            GROUP BY ss.session_id
+            ORDER BY ss.last_event_at ASC, ss.session_id ASC
+        """
+
 
 FILE_QUERY = """
     SELECT DISTINCT shasum, filename, session_id
@@ -47,43 +68,54 @@ FILE_QUERY = """
 """
 
 
-def iter_sessions(conn: sqlite3.Connection, limit: int) -> Iterator[tuple[str, str]]:
+def iter_sessions(engine: Engine, limit: int) -> Iterator[tuple[str, str]]:
     """Yield session IDs and source IPs in FIFO order."""
-    query = SESSION_QUERY
-    params: tuple[int, ...] = ()
+    query = get_session_query(engine)
     if limit > 0:
-        query += " LIMIT ?"
-        params = (limit,)
-    for row in conn.execute(query, params):
-        session_id, src_ip = row
-        if session_id and src_ip:
-            yield session_id, src_ip
+        query += f" LIMIT {limit}"
+
+    with engine.connect() as conn:
+        for row in conn.execute(text(query)):
+            session_id, src_ip = row
+            if session_id and src_ip:
+                yield session_id, src_ip
 
 
-def iter_files(conn: sqlite3.Connection, limit: int) -> Iterator[tuple[str, Optional[str], str]]:
+def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str], str]]:
     """Yield file hashes, filenames, and session IDs up to the requested limit."""
     query = FILE_QUERY
-    params: tuple[int, ...] = ()
     if limit > 0:
-        query += " LIMIT ?"
-        params = (limit,)
-    for row in conn.execute(query, params):
-        shasum, filename, session_id = row
-        if shasum:
-            yield shasum, filename, session_id
+        query += f" LIMIT {limit}"
+
+    with engine.connect() as conn:
+        for row in conn.execute(text(query)):
+            shasum, filename, session_id = row
+            if shasum:
+                yield shasum, filename, session_id
 
 
-def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+def table_exists(engine: Engine, table_name: str) -> bool:
     """Return True when ``table_name`` is present in the database."""
-    cursor = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (table_name,),
-    )
-    return cursor.fetchone() is not None
+    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+
+    if dialect_name == "postgresql":
+        query = """
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_name = :table_name
+        """
+    else:
+        query = """
+            SELECT 1 FROM sqlite_master 
+            WHERE type='table' AND name = :table_name
+        """
+
+    with engine.connect() as conn:
+        result = conn.execute(text(query), {"table_name": table_name}).fetchone()
+        return result is not None
 
 
 def update_session(
-    conn: sqlite3.Connection,
+    engine: Engine,
     session_id: str,
     enrichment_payload: dict,
     flags: dict,
@@ -91,25 +123,27 @@ def update_session(
     """Persist refreshed enrichment JSON and derived flags for a session."""
     sql = """
         UPDATE session_summaries
-        SET enrichment = ?,
-            vt_flagged = ?,
-            dshield_flagged = ?,
+        SET enrichment = :enrichment,
+            vt_flagged = :vt_flagged,
+            dshield_flagged = :dshield_flagged,
             updated_at = CURRENT_TIMESTAMP
-        WHERE session_id = ?
+        WHERE session_id = :session_id
     """
-    conn.execute(
-        sql,
-        (
-            json.dumps(enrichment_payload) if enrichment_payload else None,
-            1 if flags.get("vt_flagged") else 0,
-            1 if flags.get("dshield_flagged") else 0,
-            session_id,
-        ),
-    )
+    with engine.connect() as conn:
+        conn.execute(
+            text(sql),
+            {
+                "enrichment": json.dumps(enrichment_payload) if enrichment_payload else None,
+                "vt_flagged": bool(flags.get("vt_flagged")),
+                "dshield_flagged": bool(flags.get("dshield_flagged")),
+                "session_id": session_id,
+            },
+        )
+        conn.commit()
 
 
 def update_file(
-    conn: sqlite3.Connection,
+    engine: Engine,
     file_hash: str,
     enrichment_payload: dict,
 ) -> None:
@@ -117,69 +151,71 @@ def update_file(
     vt_data = enrichment_payload.get("virustotal") if isinstance(enrichment_payload, dict) else None
     if vt_data is None:
         # Mark as failed if no VT data
-        conn.execute(
-            "UPDATE files SET enrichment_status = 'failed' WHERE shasum = ?",
-            (file_hash,)
-        )
+        sql = "UPDATE files SET enrichment_status = 'failed' WHERE shasum = :file_hash"
+        with engine.connect() as conn:
+            conn.execute(text(sql), {"file_hash": file_hash})
+            conn.commit()
         return
-    
+
     attributes = vt_data.get("data", {}).get("attributes", {}) if isinstance(vt_data, dict) else {}
     classification = attributes.get("popular_threat_classification", {})
     last_analysis = attributes.get("last_analysis_stats", {})
-    
+
     # Extract VT data with proper type conversion
     vt_classification = classification.get("suggested_threat_label") if isinstance(classification, dict) else None
     vt_description = attributes.get("type_description")
     vt_malicious = bool(last_analysis.get("malicious", 0) > 0) if isinstance(last_analysis, dict) else False
     vt_positives = last_analysis.get("malicious", 0) if isinstance(last_analysis, dict) else 0
     vt_total = sum(last_analysis.values()) if isinstance(last_analysis, dict) else 0
-    
+
     # Parse timestamps
     vt_first_seen = None
     vt_last_analysis = None
     vt_scan_date = None
-    
+
     if attributes.get("first_submission_date"):
         try:
             vt_first_seen = datetime.fromtimestamp(int(attributes["first_submission_date"]))
         except (ValueError, TypeError):
             pass
-    
+
     if attributes.get("last_analysis_date"):
         try:
             vt_last_analysis = datetime.fromtimestamp(int(attributes["last_analysis_date"]))
             vt_scan_date = vt_last_analysis
         except (ValueError, TypeError):
             pass
-    
+
     sql = """
         UPDATE files
-        SET vt_classification = ?,
-            vt_description = ?,
-            vt_malicious = ?,
-            vt_first_seen = ?,
-            vt_last_analysis = ?,
-            vt_positives = ?,
-            vt_total = ?,
-            vt_scan_date = ?,
+        SET vt_classification = :vt_classification,
+            vt_description = :vt_description,
+            vt_malicious = :vt_malicious,
+            vt_first_seen = :vt_first_seen,
+            vt_last_analysis = :vt_last_analysis,
+            vt_positives = :vt_positives,
+            vt_total = :vt_total,
+            vt_scan_date = :vt_scan_date,
             enrichment_status = 'enriched',
             last_updated = CURRENT_TIMESTAMP
-        WHERE shasum = ?
+        WHERE shasum = :file_hash
     """
-    conn.execute(
-        sql,
-        (
-            vt_classification,
-            vt_description,
-            vt_malicious,
-            vt_first_seen,
-            vt_last_analysis,
-            vt_positives,
-            vt_total,
-            vt_scan_date,
-            file_hash,
-        ),
-    )
+    with engine.connect() as conn:
+        conn.execute(
+            text(sql),
+            {
+                "vt_classification": vt_classification,
+                "vt_description": vt_description,
+                "vt_malicious": vt_malicious,
+                "vt_first_seen": vt_first_seen,
+                "vt_last_analysis": vt_last_analysis,
+                "vt_positives": vt_positives,
+                "vt_total": vt_total,
+                "vt_scan_date": vt_scan_date,
+                "file_hash": file_hash,
+            },
+        )
+        conn.commit()
 
 
 def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, Optional[str]]:
@@ -205,7 +241,9 @@ def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, O
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the enrichment refresh utility."""
     parser = argparse.ArgumentParser(description="Refresh enrichment data in-place")
-    parser.add_argument("--db", type=Path, required=True, help="Path to writable SQLite database")
+    parser.add_argument(
+        "--db-url", required=True, help="Database URL (sqlite:///path or postgresql://user:pass@host/db)"
+    )
     parser.add_argument(
         "--cache-dir",
         type=Path,
@@ -282,13 +320,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         cache_manager=cache_manager,
     )
 
-    conn = sqlite3.connect(args.db)
-    conn.row_factory = sqlite3.Row
+    engine = create_engine(args.db_url)
     try:
         session_limit = args.sessions if args.sessions >= 0 else 0
         file_limit = args.files if args.files >= 0 else 0
 
-        if file_limit != 0 and not table_exists(conn, "files"):
+        if file_limit != 0 and not table_exists(engine, "files"):
             print("Files table not found; skipping file enrichment refresh")
             file_limit = 0
 
@@ -296,38 +333,34 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         file_count = 0
         last_commit = time.time()
 
-        for session_id, src_ip in iter_sessions(conn, session_limit):
+        for session_id, src_ip in iter_sessions(engine, session_limit):
             session_count += 1
             result = service.enrich_session(session_id, src_ip)
             enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
             flags = service.get_session_flags(result)
-            update_session(conn, session_id, enrichment, flags)
+            update_session(engine, session_id, enrichment, flags)
             if session_count % args.commit_interval == 0:
-                conn.commit()
                 print(f"[sessions] committed {session_count} rows (elapsed {time.time() - last_commit:.1f}s)")
                 last_commit = time.time()
             if session_limit > 0 and session_count >= session_limit:
                 break
 
         if session_count % args.commit_interval:
-            conn.commit()
             print(f"[sessions] committed tail {session_count % args.commit_interval}")
 
         vt_api_key = resolved.get("vt_api")
         if file_limit != 0 and vt_api_key:
-            for file_hash, filename, session_id in iter_files(conn, file_limit):
+            for file_hash, filename, session_id in iter_files(engine, file_limit):
                 file_count += 1
                 result = service.enrich_file(file_hash, filename or file_hash)
                 enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
-                update_file(conn, file_hash, enrichment)
+                update_file(engine, file_hash, enrichment)
                 if file_count % args.commit_interval == 0:
-                    conn.commit()
                     print(f"[files] committed {file_count} rows (elapsed {time.time() - last_commit:.1f}s)")
                     last_commit = time.time()
                 if file_limit > 0 and file_count >= file_limit:
                     break
             if file_count % args.commit_interval:
-                conn.commit()
                 print(f"[files] committed tail {file_count % args.commit_interval}")
         elif file_limit != 0:
             print("No VirusTotal API key available; skipping file enrichment refresh")
@@ -343,7 +376,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             )
         )
     finally:
-        conn.close()
+        engine.dispose()
     return 0
 
 

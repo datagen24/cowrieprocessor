@@ -1,0 +1,49 @@
+{
+  "postgresql_stats": {
+    "timestamp": "2025-10-02T18:11:50.495239+00:00",
+    "database_size": "21 GB",
+    "total_inserts": 43243452,
+    "tuples_per_second": 0.0,
+    "active_connections": 1,
+    "total_connections": 8,
+    "table_stats": {
+      "dead_letter_events": {
+        "total_inserts": 21844127,
+        "live_tuples": 13225731
+      },
+      "raw_events": {
+        "total_inserts": 20894664,
+        "live_tuples": 10826552
+      },
+      "session_summaries": {
+        "total_inserts": 483105,
+        "live_tuples": 349511
+      },
+      "files": {
+        "total_inserts": 21090,
+        "live_tuples": 16383
+      },
+      "ingest_cursors": {
+        "total_inserts": 463,
+        "live_tuples": 0
+      },
+      "schema_state": {
+        "total_inserts": 3,
+        "live_tuples": 1
+      },
+      "dlq_processing_metrics": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      },
+      "command_stats": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      },
+      "dlq_circuit_breaker_state": {
+        "total_inserts": 0,
+        "live_tuples": 0
+      }
+    }
+  },
+  "last_updated": "2025-10-02T18:11:50.496078+00:00"
+}

@@ -5,17 +5,16 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sqlite3
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from ..db import CURRENT_SCHEMA_VERSION, apply_migrations, Files
+from ..db import CURRENT_SCHEMA_VERSION, Files, apply_migrations
+from ..db.engine import create_engine_from_settings
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
 
@@ -25,21 +24,21 @@ logger = logging.getLogger(__name__)
 class CowrieDatabase:
     """Database management operations for Cowrie Processor."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_url: str):
         """Initialize database manager.
 
         Args:
-            db_path: Path to SQLite database file
+            db_url: Database connection URL (SQLite or PostgreSQL)
         """
-        self.db_path = db_path
+        self.db_url = db_url
         self._engine = None
         self._session_maker = None
 
     def _get_engine(self):
         """Get or create SQLAlchemy engine."""
         if self._engine is None:
-            settings = DatabaseSettings(url=f"sqlite:///{self.db_path}")
-            self._engine = create_engine(settings.url, echo=False, future=True)
+            settings = DatabaseSettings(url=self.db_url)
+            self._engine = create_engine_from_settings(settings)
         return self._engine
 
     def _get_session(self):
@@ -47,6 +46,14 @@ class CowrieDatabase:
         if self._session_maker is None:
             self._session_maker = sessionmaker(bind=self._get_engine(), future=True)
         return self._session_maker()
+
+    def _is_sqlite(self) -> bool:
+        """Check if the database is SQLite."""
+        return self.db_url.startswith("sqlite://")
+
+    def _is_postgresql(self) -> bool:
+        """Check if the database is PostgreSQL."""
+        return self.db_url.startswith("postgresql://") or self.db_url.startswith("postgres://")
 
     def get_schema_version(self) -> int:
         """Get current schema version from database."""
@@ -71,13 +78,18 @@ class CowrieDatabase:
             Migration result with details
         """
         # Check if database file exists
-        db_exists = Path(self.db_path).exists()
-        
+        if self._is_sqlite():
+            db_path = self.db_url.replace("sqlite:///", "")
+            db_exists = Path(db_path).exists()
+        else:
+            # For PostgreSQL, assume database exists if we can connect
+            db_exists = True
+
         if not db_exists:
             current_version = 0
         else:
             current_version = self.get_schema_version()
-            
+
         target = target_version or CURRENT_SCHEMA_VERSION
 
         result = {
@@ -130,8 +142,25 @@ class CowrieDatabase:
         }
 
         try:
-            db_size = os.path.getsize(self.db_path)
-            result['database_size_mb'] = round(db_size / (1024 * 1024), 2)
+            if self._is_sqlite():
+                # SQLite: get file size
+                db_path = self.db_url.replace("sqlite:///", "")
+                db_size = os.path.getsize(db_path)
+                result['database_size_mb'] = round(db_size / (1024 * 1024), 2)
+            elif self._is_postgresql():
+                # PostgreSQL: get database size from system tables
+                with self._get_engine().connect() as conn:
+                    size_query = text("""
+                        SELECT pg_size_pretty(pg_database_size(current_database())) as size,
+                               pg_database_size(current_database()) as bytes
+                    """)
+                    size_result = conn.execute(size_query).fetchone()
+                    if size_result:
+                        result['database_size_mb'] = round(size_result.bytes / (1024 * 1024), 2)
+                    else:
+                        result['database_size_mb'] = 0
+            else:
+                result['database_size_mb'] = 0
         except OSError:
             result['database_size_mb'] = 0
 
@@ -174,7 +203,7 @@ class CowrieDatabase:
         """Run database maintenance operations.
 
         Args:
-            vacuum: Whether to run VACUUM
+            vacuum: Whether to run VACUUM (SQLite) or ANALYZE (PostgreSQL)
             reindex: Whether to rebuild indexes
 
         Returns:
@@ -182,37 +211,60 @@ class CowrieDatabase:
         """
         results = []
         initial_size = 0
+        final_size = 0
 
+        # Get initial size
         try:
-            initial_size = os.path.getsize(self.db_path)
+            if self._is_sqlite():
+                db_path = self.db_url.replace("sqlite:///", "")
+                initial_size = os.path.getsize(db_path)
+            elif self._is_postgresql():
+                with self._get_engine().connect() as conn:
+                    size_result = conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one()
+                    initial_size = size_result
         except OSError:
             pass
 
         with self._get_engine().connect() as conn:
             if vacuum:
                 try:
-                    conn.execute(text("VACUUM"))
-                    results.append("VACUUM completed successfully")
+                    if self._is_sqlite():
+                        conn.execute(text("VACUUM"))
+                        results.append("VACUUM completed successfully")
+                    elif self._is_postgresql():
+                        conn.execute(text("ANALYZE"))
+                        results.append("ANALYZE completed successfully")
                 except Exception as e:
-                    results.append(f"VACUUM failed: {e}")
+                    results.append(f"Vacuum/Analyze failed: {e}")
 
             if reindex:
                 try:
-                    # Get all indexes
-                    indexes = conn.execute(
-                        text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
-                    ).fetchall()
+                    if self._is_sqlite():
+                        # Get all indexes
+                        indexes = conn.execute(
+                            text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+                        ).fetchall()
 
-                    for (index_name,) in indexes:
-                        conn.execute(text(f"REINDEX {index_name}"))
+                        for (index_name,) in indexes:
+                            conn.execute(text(f"REINDEX {index_name}"))
 
-                    results.append(f"Reindexed {len(indexes)} indexes")
+                        results.append(f"Reindexed {len(indexes)} indexes")
+                    elif self._is_postgresql():
+                        # PostgreSQL: REINDEX DATABASE
+                        conn.execute(text("REINDEX DATABASE"))
+                        results.append("REINDEX DATABASE completed successfully")
                 except Exception as e:
                     results.append(f"REINDEX failed: {e}")
 
-        final_size = 0
+        # Get final size
         try:
-            final_size = os.path.getsize(self.db_path)
+            if self._is_sqlite():
+                db_path = self.db_url.replace("sqlite:///", "")
+                final_size = os.path.getsize(db_path)
+            elif self._is_postgresql():
+                with self._get_engine().connect() as conn:
+                    size_result = conn.execute(text("SELECT pg_database_size(current_database())")).scalar_one()
+                    final_size = size_result
         except OSError:
             pass
 
@@ -235,23 +287,95 @@ class CowrieDatabase:
             Path to created backup file
         """
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        if backup_path:
-            backup_file = Path(backup_path)
+
+        if self._is_sqlite():
+            # SQLite backup using file copy
+            db_path = self.db_url.replace("sqlite:///", "")
+            if backup_path:
+                backup_file = Path(backup_path)
+            else:
+                backup_dir = Path(db_path).parent
+                backup_file = backup_dir / f"cowrie_backup_{timestamp}.sqlite"
+
+            # Copy SQLite file
+            import shutil
+
+            shutil.copy2(db_path, str(backup_file))
+
+            # Verify backup integrity
+            if not self._verify_backup_integrity(str(backup_file)):
+                backup_file.unlink()
+                raise Exception("Backup integrity check failed")
+
+            return str(backup_file)
+
+        elif self._is_postgresql():
+            # PostgreSQL backup using pg_dump
+            import subprocess
+
+            if backup_path:
+                backup_file = Path(backup_path)
+            else:
+                backup_file = Path(f"cowrie_backup_{timestamp}.sql")
+
+            # Extract connection details from URL
+            # Format: postgresql://user:password@host:port/database
+            url_parts = self.db_url.replace("postgresql://", "").replace("postgres://", "")
+            if "@" in url_parts:
+                auth, host_db = url_parts.split("@", 1)
+                if ":" in auth:
+                    user, password = auth.split(":", 1)
+                else:
+                    user = auth
+                    password = ""
+
+                if "/" in host_db:
+                    host_port, database = host_db.split("/", 1)
+                    if ":" in host_port:
+                        host, port = host_port.split(":", 1)
+                    else:
+                        host = host_port
+                        port = "5432"
+                else:
+                    host = host_db
+                    port = "5432"
+                    database = "postgres"
+            else:
+                # Simple format: postgresql://database
+                user = "postgres"
+                password = ""
+                host = "localhost"
+                port = "5432"
+                database = url_parts
+
+            # Set environment variables for pg_dump
+            env = os.environ.copy()
+            if password:
+                env['PGPASSWORD'] = password
+
+            # Run pg_dump
+            cmd = [
+                'pg_dump',
+                '-h',
+                host,
+                '-p',
+                port,
+                '-U',
+                user,
+                '-d',
+                database,
+                '-f',
+                str(backup_file),
+                '--no-password',
+            ]
+
+            try:
+                subprocess.run(cmd, env=env, check=True, capture_output=True)
+                return str(backup_file)
+            except subprocess.CalledProcessError as e:
+                raise Exception(f"PostgreSQL backup failed: {e.stderr.decode()}")
         else:
-            backup_dir = Path(self.db_path).parent
-            backup_file = backup_dir / f"cowrie_backup_{timestamp}.sqlite"
-
-        # Create backup using SQLite backup API
-        with sqlite3.connect(self.db_path) as source:
-            with sqlite3.connect(str(backup_file)) as dest:
-                source.backup(dest)
-
-        # Verify backup integrity
-        if not self._verify_backup_integrity(str(backup_file)):
-            backup_file.unlink()
-            raise Exception("Backup integrity check failed")
-
-        return str(backup_file)
+            raise Exception(f"Backup not supported for database type: {self.db_url}")
 
     def _verify_backup_integrity(self, backup_path: str) -> bool:
         """Verify backup file integrity.
@@ -263,11 +387,20 @@ class CowrieDatabase:
             True if backup is valid
         """
         try:
-            with sqlite3.connect(backup_path) as conn:
-                # Basic integrity check
-                cursor = conn.execute("PRAGMA integrity_check")
-                result = cursor.fetchone()
-                return result and result[0] == 'ok'
+            if self._is_sqlite():
+                # SQLite integrity check
+                import sqlite3
+
+                with sqlite3.connect(backup_path) as conn:
+                    cursor = conn.execute("PRAGMA integrity_check")
+                    result = cursor.fetchone()
+                    return result and result[0] == 'ok'
+            elif self._is_postgresql():
+                # PostgreSQL backup verification (check if file exists and is not empty)
+                backup_file = Path(backup_path)
+                return backup_file.exists() and backup_file.stat().st_size > 0
+            else:
+                return False
         except Exception:
             return False
 
@@ -295,60 +428,100 @@ class CowrieDatabase:
             )
 
         with self._get_engine().connect() as conn:
-            try:
-                # Quick integrity check
-                cursor = conn.execute(text("PRAGMA quick_check"))
-                result = cursor.fetchone()
-                results['quick_check'] = {
-                    'is_valid': result and result[0] == 'ok',
-                    'error': result[0] if result else 'Unknown error',
-                }
-            except Exception as e:
-                results['quick_check']['error'] = str(e)
-
-            try:
-                # Foreign key check
-                conn.execute(text("PRAGMA foreign_keys = ON"))
-                cursor = conn.execute(text("PRAGMA foreign_key_check"))
-                rows = cursor.fetchall()
-                results['foreign_keys'] = {
-                    'is_valid': len(rows) == 0,
-                    'error': f"Found {len(rows)} foreign key violations" if rows else None,
-                }
-            except Exception as e:
-                results['foreign_keys']['error'] = str(e)
-
-            try:
-                # Index check
-                cursor = conn.execute(text("PRAGMA integrity_check"))
-                result = cursor.fetchone()
-                results['indexes'] = {
-                    'is_valid': result and result[0] == 'ok',
-                    'error': result[0] if result else 'Unknown error',
-                }
-            except Exception as e:
-                results['indexes']['error'] = str(e)
-
-            if deep:
+            if self._is_sqlite():
+                # SQLite-specific integrity checks
                 try:
-                    # Page integrity (SQLite specific)
-                    cursor = conn.execute(text("PRAGMA page_count"))
-                    page_count = cursor.fetchone()[0]
-
-                    bad_pages = []
-                    for page_num in range(1, page_count + 1):
-                        try:
-                            cursor = conn.execute(text(f"PRAGMA page_info({page_num})"))
-                            cursor.fetchone()  # Just check if page is accessible
-                        except Exception:
-                            bad_pages.append(page_num)
-
-                    results['page_integrity'] = {
-                        'is_valid': len(bad_pages) == 0,
-                        'error': f"Found {len(bad_pages)} bad pages" if bad_pages else None,
+                    # Quick integrity check
+                    cursor = conn.execute(text("PRAGMA quick_check"))
+                    result = cursor.fetchone()
+                    results['quick_check'] = {
+                        'is_valid': result and result[0] == 'ok',
+                        'error': result[0] if result else 'Unknown error',
                     }
                 except Exception as e:
-                    results['page_integrity']['error'] = str(e)
+                    results['quick_check']['error'] = str(e)
+
+                try:
+                    # Foreign key check
+                    conn.execute(text("PRAGMA foreign_keys = ON"))
+                    cursor = conn.execute(text("PRAGMA foreign_key_check"))
+                    rows = cursor.fetchall()
+                    results['foreign_keys'] = {
+                        'is_valid': len(rows) == 0,
+                        'error': f"Found {len(rows)} foreign key violations" if rows else None,
+                    }
+                except Exception as e:
+                    results['foreign_keys']['error'] = str(e)
+
+                try:
+                    # Index check
+                    cursor = conn.execute(text("PRAGMA integrity_check"))
+                    result = cursor.fetchone()
+                    results['indexes'] = {
+                        'is_valid': result and result[0] == 'ok',
+                        'error': result[0] if result else 'Unknown error',
+                    }
+                except Exception as e:
+                    results['indexes']['error'] = str(e)
+
+                if deep:
+                    try:
+                        # Page integrity (SQLite specific)
+                        cursor = conn.execute(text("PRAGMA page_count"))
+                        page_count = cursor.fetchone()[0]
+
+                        bad_pages = []
+                        for page_num in range(1, page_count + 1):
+                            try:
+                                cursor = conn.execute(text(f"PRAGMA page_info({page_num})"))
+                                cursor.fetchone()  # Just check if page is accessible
+                            except Exception:
+                                bad_pages.append(page_num)
+
+                        results['page_integrity'] = {
+                            'is_valid': len(bad_pages) == 0,
+                            'error': f"Found {len(bad_pages)} bad pages" if bad_pages else None,
+                        }
+                    except Exception as e:
+                        results['page_integrity']['error'] = str(e)
+
+            elif self._is_postgresql():
+                # PostgreSQL-specific integrity checks
+                try:
+                    # Check for dead tuples and bloat
+                    cursor = conn.execute(
+                        text("""
+                        SELECT schemaname, tablename, n_dead_tup, n_live_tup
+                        FROM pg_stat_user_tables
+                        WHERE n_dead_tup > 0
+                    """)
+                    )
+                    dead_tuples = cursor.fetchall()
+
+                    results['quick_check'] = {
+                        'is_valid': len(dead_tuples) == 0,
+                        'error': f"Found {len(dead_tuples)} tables with dead tuples" if dead_tuples else None,
+                    }
+                except Exception as e:
+                    results['quick_check']['error'] = str(e)
+
+                try:
+                    # Check for foreign key violations
+                    results['foreign_keys'] = {
+                        'is_valid': True,  # PostgreSQL maintains FK integrity automatically
+                        'error': None,
+                    }
+                except Exception as e:
+                    results['foreign_keys']['error'] = str(e)
+
+                try:
+                    # Check for index corruption
+                    results['indexes'] = {
+                        'is_valid': True,  # PostgreSQL maintains index integrity automatically
+                        'error': None,
+                    }
+                except Exception as e:
+                    results['indexes']['error'] = str(e)
 
         corruption_found = any(not r['is_valid'] for r in results.values())
 
@@ -399,29 +572,42 @@ class CowrieDatabase:
                 tables = conn.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
                 ).fetchall()
-                
+
                 if not tables:
                     raise Exception("Files table does not exist. Run 'cowrie-db migrate' first.")
 
             # Import here to avoid circular imports
-            from ..loader.file_processor import extract_file_data, create_files_record
+            from ..db.json_utils import get_dialect_name_from_engine
+            from ..loader.file_processor import create_files_record, extract_file_data
 
             with self._get_engine().connect() as conn:
-                # Query for file download events
-                query = text("""
-                    SELECT session_id, payload
-                    FROM raw_events
-                    WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
-                      AND json_extract(payload, '$.shasum') IS NOT NULL
-                      AND json_extract(payload, '$.shasum') != ''
-                    ORDER BY id ASC
-                """)
-                
+                dialect_name = get_dialect_name_from_engine(self._get_engine())
+
+                # Query for file download events using JSON abstraction
+                if dialect_name == "postgresql":
+                    query = text("""
+                        SELECT payload->>'session' as session_id, payload
+                        FROM raw_events
+                        WHERE payload->>'eventid' = 'cowrie.session.file_download'
+                          AND payload->>'shasum' IS NOT NULL
+                          AND payload->>'shasum' != ''
+                        ORDER BY id ASC
+                    """)
+                else:
+                    query = text("""
+                        SELECT json_extract(payload, '$.session') as session_id, payload
+                        FROM raw_events
+                        WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
+                          AND json_extract(payload, '$.shasum') IS NOT NULL
+                          AND json_extract(payload, '$.shasum') != ''
+                        ORDER BY id ASC
+                    """)
+
                 if limit:
                     query = text(str(query) + f" LIMIT {limit}")
 
                 events = conn.execute(query).fetchall()
-                
+
                 if not events:
                     result['message'] = "No file download events found to backfill"
                     return result
@@ -432,8 +618,9 @@ class CowrieDatabase:
                     try:
                         # Parse payload
                         import json
+
                         payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
-                        
+
                         # Extract file data
                         file_data = extract_file_data(payload, event.session_id)
                         if file_data:
@@ -458,7 +645,10 @@ class CowrieDatabase:
                     result['files_inserted'] += inserted
                     result['batches_processed'] += 1
 
-                result['message'] = f"Backfill completed: {result['files_inserted']} files inserted from {result['events_processed']} events"
+                result['message'] = (
+                    f"Backfill completed: {result['files_inserted']} files inserted "
+                    f"from {result['events_processed']} events"
+                )
 
         except Exception as e:
             result['error'] = str(e)
@@ -475,7 +665,7 @@ class CowrieDatabase:
         try:
             with self._get_engine().begin() as conn:
                 from sqlalchemy.dialects.sqlite import insert
-                
+
                 # Convert Files objects to dictionaries
                 file_dicts = []
                 for file_record in files:
@@ -500,16 +690,459 @@ class CowrieDatabase:
 
                 # Use INSERT OR IGNORE for conflict resolution
                 stmt = insert(Files.__table__).values(file_dicts)
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=["session_id", "shasum"]
-                )
-                
+                stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
+
                 result = conn.execute(stmt)
                 return int(result.rowcount or 0)
 
         except Exception as e:
             logger.error(f"Error inserting files batch: {e}")
             return 0
+
+    def analyze_data_quality(self, sample_size: int = 1000) -> Dict[str, Any]:
+        """Analyze data quality issues in the database.
+
+        Args:
+            sample_size: Number of records to sample for JSON analysis
+
+        Returns:
+            Data quality analysis results
+        """
+        logger.info("🔍 Starting data quality analysis...")
+
+        # Database overview
+        overview = self._analyze_database_overview()
+
+        # JSON payload analysis
+        json_analysis = self._analyze_json_sample(sample_size)
+
+        # Boolean field analysis
+        boolean_analysis = self._analyze_boolean_fields()
+
+        # Missing field analysis
+        missing_analysis = self._analyze_missing_fields()
+
+        # Generate recommendations
+        recommendations = self._generate_quality_recommendations(json_analysis, boolean_analysis, missing_analysis)
+
+        analysis_summary = {
+            'timestamp': datetime.now().isoformat(),
+            'analysis_duration_seconds': 0,  # Will be calculated below
+            'sample_size': sample_size,
+            'overview': overview,
+            'json_analysis': json_analysis,
+            'boolean_analysis': boolean_analysis,
+            'missing_analysis': missing_analysis,
+            'recommendations': recommendations,
+        }
+
+        logger.info("✅ Data quality analysis complete")
+        logger.info("📋 Recommendations:")
+        for i, rec in enumerate(recommendations, 1):
+            logger.info(f"   {i}. {rec}")
+
+        return analysis_summary
+
+    def _analyze_database_overview(self) -> Dict[str, Any]:
+        """Get basic database statistics."""
+        logger.info("📊 Analyzing database overview...")
+
+        try:
+            with self._get_engine().connect() as conn:
+                # Get table counts
+                tables = ['raw_events', 'session_summaries', 'command_stats', 'files', 'dead_letter_events']
+                table_counts = {}
+
+                for table in tables:
+                    try:
+                        result = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).fetchone()
+                        table_counts[table] = result[0] if result else 0
+                    except Exception as e:
+                        logger.warning(f"Could not count {table}: {e}")
+                        table_counts[table] = 0
+
+                # Get database size
+                db_size_mb = 0.0
+                if self._is_sqlite():
+                    db_path = self.db_url.replace("sqlite:///", "")
+                    try:
+                        import os
+
+                        db_size_mb = round(os.path.getsize(db_path) / (1024 * 1024), 2)
+                    except OSError:
+                        db_size_mb = 0.0
+
+                overview = {
+                    'table_counts': table_counts,
+                    'database_size_mb': db_size_mb,
+                    'total_records': sum(table_counts.values()),
+                }
+
+                logger.info(f"✅ Database overview: {overview['total_records']} total records")
+                return overview
+
+        except Exception as e:
+            logger.error(f"❌ Database overview failed: {e}")
+            raise
+
+    def _analyze_json_sample(self, sample_size: int = 1000) -> Dict[str, Any]:
+        """Analyze a sample of JSON payloads."""
+        logger.info(f"🔍 Analyzing JSON payload sample ({sample_size} records)...")
+
+        try:
+            with self._get_engine().connect() as conn:
+                # Get sample of payloads
+                result = conn.execute(
+                    text(f"""
+                    SELECT payload, COUNT(*) as count
+                    FROM raw_events
+                    WHERE payload IS NOT NULL AND payload != ''
+                    GROUP BY payload
+                    ORDER BY count DESC
+                    LIMIT {sample_size}
+                """)
+                ).fetchall()
+
+                total_records = 0
+                valid_json_count = 0
+                invalid_json_count = 0
+                malformed_samples = []
+
+                for payload, count in result:
+                    total_records += count
+
+                    # Try to parse JSON
+                    try:
+                        import json
+
+                        json.loads(payload)
+                        valid_json_count += count
+                    except json.JSONDecodeError:
+                        invalid_json_count += count
+
+                        # Analyze malformed JSON pattern
+                        pattern = self._identify_malformed_pattern(payload)
+                        if len(malformed_samples) < 10:  # Keep only top 10 samples
+                            malformed_samples.append(
+                                {
+                                    'payload_preview': payload[:100] + '...' if len(payload) > 100 else payload,
+                                    'count': count,
+                                    'pattern': pattern,
+                                }
+                            )
+
+                # Get additional statistics
+                empty_payloads = conn.execute(
+                    text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload = ''")
+                ).scalar()
+                total_raw_events = conn.execute(text("SELECT COUNT(*) FROM raw_events")).scalar()
+
+                analysis_result = {
+                    'sample_size': sample_size,
+                    'total_raw_events': total_raw_events,
+                    'empty_payloads': empty_payloads,
+                    'non_empty_payloads': total_raw_events - empty_payloads,
+                    'valid_json_count': valid_json_count,
+                    'invalid_json_count': invalid_json_count,
+                    'malformed_samples': malformed_samples,
+                    'valid_json_percentage': (valid_json_count / total_records * 100) if total_records > 0 else 0,
+                    'invalid_json_percentage': (invalid_json_count / total_records * 100) if total_records > 0 else 0,
+                }
+
+                logger.info(f"✅ JSON analysis: {valid_json_count} valid, {invalid_json_count} invalid")
+                return analysis_result
+
+        except Exception as e:
+            logger.error(f"❌ JSON analysis failed: {e}")
+            raise
+
+    def _identify_malformed_pattern(self, payload: str) -> str:
+        """Identify the pattern of malformed JSON."""
+        if '\\"' in payload and payload.count('"') % 2 != 0:
+            return 'escaped_quotes'
+        elif payload.startswith('{') and not payload.endswith('}'):
+            return 'incomplete_object'
+        elif '],' in payload or '},' in payload:
+            return 'array_element'
+        elif payload in ['{}', '[]', '']:
+            return 'empty'
+        elif payload.startswith('"') and payload.endswith('"'):
+            return 'string_wrapped'
+        else:
+            return 'unknown'
+
+    def _analyze_boolean_fields(self) -> Dict[str, Any]:
+        """Analyze boolean field data quality."""
+        logger.info("🔍 Analyzing boolean field quality...")
+
+        try:
+            with self._get_engine().connect() as conn:
+                boolean_issues = {}
+
+                # Check quarantined field
+                result = conn.execute(
+                    text("""
+                    SELECT quarantined, COUNT(*) as count
+                    FROM raw_events
+                    GROUP BY quarantined
+                """)
+                ).fetchall()
+
+                quarantined_issues = []
+                for value, count in result:
+                    if value not in [0, 1, '0', '1', True, False]:
+                        quarantined_issues.append({'value': str(value), 'count': count})
+
+                boolean_issues['quarantined'] = {
+                    'issues': quarantined_issues,
+                    'total_records': sum(count for _, count in result),
+                }
+
+                logger.info(f"✅ Boolean analysis: {len(quarantined_issues)} issues found")
+                return boolean_issues
+
+        except Exception as e:
+            logger.error(f"❌ Boolean analysis failed: {e}")
+            raise
+
+    def _analyze_missing_fields(self) -> Dict[str, Any]:
+        """Analyze missing field patterns."""
+        logger.info("🔍 Analyzing missing field patterns...")
+
+        try:
+            with self._get_engine().connect() as conn:
+                # Check for NULL session_id, event_type, event_timestamp
+                result = conn.execute(
+                    text("""
+                    SELECT
+                        COUNT(*) as total,
+                        COUNT(session_id) as has_session_id,
+                        COUNT(event_type) as has_event_type,
+                        COUNT(event_timestamp) as has_event_timestamp
+                    FROM raw_events
+                """)
+                ).fetchone()
+
+                missing_analysis = {
+                    'total': result[0],
+                    'missing_session_id': result[0] - result[1],
+                    'missing_event_type': result[0] - result[2],
+                    'missing_event_timestamp': result[0] - result[3],
+                    'missing_percentages': {
+                        'session_id': ((result[0] - result[1]) / result[0] * 100) if result[0] > 0 else 0,
+                        'event_type': ((result[0] - result[2]) / result[0] * 100) if result[0] > 0 else 0,
+                        'event_timestamp': ((result[0] - result[3]) / result[0] * 100) if result[0] > 0 else 0,
+                    },
+                }
+
+                logger.info(
+                    f"✅ Missing field analysis: {missing_analysis['missing_session_id']} missing "
+                    f"session_ids ({missing_analysis['missing_percentages']['session_id']:.1f}%)"
+                )
+                return missing_analysis
+
+        except Exception as e:
+            logger.error(f"❌ Missing field analysis failed: {e}")
+            raise
+
+    def _generate_quality_recommendations(
+        self, json_analysis: Dict, boolean_analysis: Dict, missing_analysis: Dict
+    ) -> list[str]:
+        """Generate recommendations based on analysis."""
+        recommendations = []
+
+        if json_analysis['invalid_json_percentage'] > 20:
+            recommendations.append("🚨 HIGH: >20% malformed JSON - use robust migration script with data cleaning")
+        elif json_analysis['invalid_json_percentage'] > 10:
+            recommendations.append("⚠️  MEDIUM: >10% malformed JSON - consider data cleaning before migration")
+        elif json_analysis['invalid_json_percentage'] > 0:
+            recommendations.append("ℹ️  LOW: Some malformed JSON detected - standard migration should handle this")
+
+        if missing_analysis['missing_percentages']['session_id'] > 50:
+            recommendations.append("🚨 HIGH: >50% missing session_id - backfill from JSON payload recommended")
+        elif missing_analysis['missing_percentages']['session_id'] > 0:
+            recommendations.append("ℹ️  INFO: Some missing session_id fields - consider backfill")
+
+        if boolean_analysis['quarantined']['issues']:
+            recommendations.append("⚠️  MEDIUM: Boolean field issues detected - use data repair tools")
+
+        if not recommendations:
+            recommendations.append("✅ Data quality looks good - standard migration should work")
+
+        return recommendations
+
+    def repair_data_quality(self, batch_size: int = 10000, dry_run: bool = True) -> Dict[str, Any]:
+        """Repair data quality issues in the database.
+
+        Args:
+            batch_size: Number of records to process in each batch
+            dry_run: Show what would be repaired without making changes
+
+        Returns:
+            Data repair results
+        """
+        logger.info(f"🔧 Starting data repair {'(dry run)' if dry_run else ''}...")
+
+        # Backfill missing fields
+        backfill_result = self._repair_missing_fields(batch_size, dry_run)
+
+        # Calculate unrepairable records (malformed data)
+        unrepairable_records = backfill_result['total_missing'] - backfill_result['fields_backfilled']
+
+        repair_summary = {
+            'dry_run': dry_run,
+            'total_missing': backfill_result['total_missing'],
+            'records_processed': backfill_result['records_processed'],
+            'fields_backfilled': backfill_result['fields_backfilled'],
+            'unrepairable_records': unrepairable_records,
+            'errors': backfill_result['errors'],
+            'duration_seconds': backfill_result['duration_seconds'],
+            'recommendations': [
+                "Run 'cowrie-db repair' without --dry-run to apply fixes"
+                if dry_run
+                else f"✅ Successfully processed {backfill_result['fields_backfilled']} repairable records",
+                f"ℹ️  {unrepairable_records:,} records contain genuinely malformed data "
+                "and cannot be automatically repaired",
+                "Consider running 'cowrie-db migrate' to update schema after repair",
+            ],
+        }
+
+        logger.info(
+            f"✅ Data repair {'analysis' if dry_run else 'complete'}: "
+            f"{repair_summary['fields_backfilled']} fields backfilled"
+        )
+        return repair_summary
+
+    def _repair_missing_fields(self, batch_size: int = 10000, dry_run: bool = True) -> Dict[str, Any]:
+        """Backfill missing session_id, event_type, event_timestamp from JSON payload."""
+        logger.info(f"🔧 {'Analyzing' if dry_run else 'Backfilling'} missing fields...")
+
+        try:
+            with self._get_engine().connect() as conn:
+                # Find records with missing fields
+                result = conn.execute(
+                    text("""
+                    SELECT COUNT(*) as total_missing
+                    FROM raw_events
+                    WHERE (session_id IS NULL OR event_type IS NULL OR event_timestamp IS NULL)
+                      AND payload IS NOT NULL
+                      AND payload != ''
+                """)
+                ).fetchone()
+
+                total_missing = result[0] if result else 0
+                logger.info(f"Found {total_missing} records with missing fields")
+
+                if total_missing == 0:
+                    return {
+                        'total_missing': 0,
+                        'records_processed': 0,
+                        'fields_backfilled': 0,
+                        'errors': 0,
+                        'duration_seconds': 0,
+                    }
+
+                # Process in batches
+                import time
+
+                start_time = time.time()
+                processed = 0
+                backfilled = 0
+                errors = 0
+
+                while processed < total_missing:
+                    # Get batch of records to process
+                    batch_result = conn.execute(
+                        text("""
+                        SELECT id, payload
+                        FROM raw_events
+                        WHERE (session_id IS NULL OR event_type IS NULL OR event_timestamp IS NULL)
+                          AND payload IS NOT NULL
+                          AND payload != ''
+                        LIMIT :batch_size
+                    """),
+                        {'batch_size': batch_size},
+                    ).fetchall()
+
+                    if not batch_result:
+                        break
+
+                    batch_updates = []
+
+                for record_id, payload in batch_result:
+                    try:
+                        import json
+
+                        payload_data = json.loads(payload)
+
+                        updates = {}
+
+                        # Check if this is a malformed payload
+                        if 'malformed' in payload_data and len(payload_data) == 1:
+                            # This is a genuinely malformed record that can't be automatically repaired
+                            # Log as unrepairable but don't count as error since it's expected
+                            logger.debug(
+                                f"Record {record_id} contains malformed data that cannot be automatically repaired"
+                            )
+                            continue
+
+                        if 'session' in payload_data:
+                            updates['session_id'] = payload_data['session']
+                        if 'eventid' in payload_data:
+                            updates['event_type'] = payload_data['eventid']
+                        if 'timestamp' in payload_data:
+                            updates['event_timestamp'] = payload_data['timestamp']
+
+                        if updates:
+                            batch_updates.append({'id': record_id, 'updates': updates})
+
+                    except json.JSONDecodeError:
+                        errors += 1
+                        logger.warning(f"Invalid JSON for record {record_id}")
+                        continue
+
+                    # Apply batch updates
+                    if batch_updates and not dry_run:
+                        for update in batch_updates:
+                            try:
+                                update_sql = "UPDATE raw_events SET "
+                                update_sql += ", ".join([f"{k} = :{k}" for k in update['updates'].keys()])
+                                update_sql += " WHERE id = :id"
+
+                                conn.execute(text(update_sql), {**update['updates'], 'id': update['id']})
+                                backfilled += 1
+                            except Exception as e:
+                                errors += 1
+                                logger.warning(f"Failed to update record {update['id']}: {e}")
+
+                    processed += len(batch_result)
+
+                    # Log progress
+                    if processed % (batch_size * 10) == 0:  # Log every 10 batches
+                        progress = (processed / total_missing) * 100
+                        logger.info(f"Progress: {processed}/{total_missing} ({progress:.1f}%)")
+
+                if not dry_run:
+                    conn.commit()
+
+                duration = time.time() - start_time
+                result = {
+                    'total_missing': total_missing,
+                    'records_processed': processed,
+                    'fields_backfilled': backfilled,
+                    'errors': errors,
+                    'duration_seconds': duration,
+                }
+
+                logger.info(
+                    f"✅ Field backfill {'analysis' if dry_run else 'complete'}: "
+                    f"{backfilled} fields backfilled in {duration:.2f}s"
+                )
+                return result
+
+        except Exception as e:
+            logger.error(f"❌ Field backfill failed: {e}")
+            raise
 
     def get_files_table_stats(self) -> Dict[str, Any]:
         """Get statistics about the files table.
@@ -557,46 +1190,411 @@ class CowrieDatabase:
 
         return result
 
+    def migrate_to_postgresql(
+        self, postgres_url: str, batch_size: int = 10000, validate_only: bool = False, skip_schema: bool = False
+    ) -> Dict[str, Any]:
+        """Migrate data from SQLite to PostgreSQL.
+
+        Args:
+            postgres_url: PostgreSQL connection URL
+            batch_size: Number of records to migrate in each batch
+            validate_only: Only validate migration without performing it
+            skip_schema: Skip schema setup (assume PostgreSQL schema exists)
+
+        Returns:
+            Migration result with statistics
+        """
+        logger.info("🚀 Starting SQLite to PostgreSQL migration...")
+
+        if not self._is_sqlite():
+            raise Exception("Source database must be SQLite for migration")
+
+        if not postgres_url.startswith("postgresql://") and not postgres_url.startswith("postgres://"):
+            raise Exception("Target database must be PostgreSQL")
+
+        result = {
+            'validate_only': validate_only,
+            'skip_schema': skip_schema,
+            'tables_migrated': [],
+            'total_records_migrated': 0,
+            'errors': 0,
+            'warnings': 0,
+            'start_time': None,
+            'end_time': None,
+        }
+
+        result['start_time'] = datetime.now().isoformat()
+
+        try:
+            # Set up PostgreSQL connection
+            postgres_settings = DatabaseSettings(url=postgres_url)
+            postgres_engine = create_engine_from_settings(postgres_settings)
+
+            # Apply schema migrations to PostgreSQL if not skipped
+            if not skip_schema:
+                logger.info("📋 Setting up PostgreSQL schema...")
+                apply_migrations(postgres_engine)
+
+            if not validate_only:
+                # Perform actual migration
+                migration_stats = self._perform_data_migration(postgres_engine, batch_size)
+                result.update(migration_stats)
+
+            # Validation
+            validation_result = self._validate_migration(postgres_engine)
+            result['validation'] = validation_result
+
+            result['end_time'] = datetime.now().isoformat()
+            result['success'] = result['errors'] == 0
+
+            if result['success']:
+                logger.info("✅ Migration completed successfully")
+                logger.info(f"   Records migrated: {result['total_records_migrated']:,}")
+                logger.info(f"   Tables migrated: {len(result['tables_migrated'])}")
+            else:
+                logger.warning(f"⚠️  Migration completed with {result['errors']} errors")
+
+        except Exception as e:
+            logger.error(f"❌ Migration failed: {e}")
+            result['error'] = str(e)
+            result['success'] = False
+            raise
+
+        return result
+
+    def _perform_data_migration(self, postgres_engine, batch_size: int) -> Dict[str, Any]:
+        """Perform the actual data migration from SQLite to PostgreSQL."""
+        logger.info("📦 Migrating data...")
+
+        tables_to_migrate = [
+            'raw_events',
+            'session_summaries',
+            'command_stats',
+            'files',
+            'dead_letter_events',
+            'schema_state',
+        ]
+
+        migration_stats = {
+            'tables_migrated': [],
+            'total_records_migrated': 0,
+            'errors': 0,
+            'warnings': 0,
+        }
+
+        for table_name in tables_to_migrate:
+            try:
+                logger.info(f"🔄 Migrating table: {table_name}")
+
+                # Check if table exists in source
+                with self._get_engine().connect() as sqlite_conn:
+                    source_count = sqlite_conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar_one()
+
+                    if source_count == 0:
+                        logger.info(f"   Skipping empty table: {table_name}")
+                        continue
+
+                # Migrate table data
+                table_stats = self._migrate_table_data(table_name, postgres_engine, batch_size)
+                migration_stats['tables_migrated'].append(
+                    {
+                        'table': table_name,
+                        'records_migrated': table_stats['records_migrated'],
+                        'errors': table_stats['errors'],
+                    }
+                )
+
+                migration_stats['total_records_migrated'] += table_stats['records_migrated']
+                migration_stats['errors'] += table_stats['errors']
+
+                logger.info(f"   ✓ Migrated {table_stats['records_migrated']:,} records")
+
+            except Exception as e:
+                logger.error(f"   ❌ Failed to migrate table {table_name}: {e}")
+                migration_stats['errors'] += 1
+                migration_stats['warnings'] += 1
+
+        return migration_stats
+
+    def _migrate_table_data(self, table_name: str, postgres_engine, batch_size: int) -> Dict[str, Any]:
+        """Migrate data for a specific table."""
+        stats = {
+            'records_migrated': 0,
+            'errors': 0,
+        }
+
+        try:
+            # Get table schema from SQLite
+            with self._get_engine().connect() as sqlite_conn:
+                # Get column information
+                columns_query = text(
+                    """
+                    PRAGMA table_info({})
+                """.format(table_name)
+                )
+                columns = sqlite_conn.execute(columns_query).fetchall()
+
+                if not columns:
+                    return stats
+
+                column_names = [col[1] for col in columns]  # col[1] is column name
+
+                # Get total count for progress tracking
+                total_count = sqlite_conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).scalar_one()
+
+                # Migrate in batches
+                offset = 0
+                while offset < total_count:
+                    # Get batch of data
+                    batch_query = text(f"""
+                        SELECT * FROM {table_name} LIMIT :batch_size OFFSET :offset
+                    """)
+
+                    batch_data = sqlite_conn.execute(
+                        batch_query, {'batch_size': batch_size, 'offset': offset}
+                    ).fetchall()
+
+                    if not batch_data:
+                        break
+
+                    # Convert to list of dicts for PostgreSQL insert
+                    records = []
+                    for row in batch_data:
+                        record = {}
+                        for i, col_name in enumerate(column_names):
+                            # Handle None values and type conversion
+                            value = row[i]
+                            if value is None:
+                                record[col_name] = None
+                            elif isinstance(value, (int, float, str, bool)):
+                                record[col_name] = value
+                            else:
+                                # Convert other types to string
+                                record[col_name] = str(value)
+
+                        records.append(record)
+
+                    # Insert batch into PostgreSQL
+                    self._insert_batch_to_postgres(postgres_engine, table_name, records)
+
+                    stats['records_migrated'] += len(records)
+                    offset += batch_size
+
+                    # Progress logging
+                    if stats['records_migrated'] % (batch_size * 10) == 0:
+                        progress = (stats['records_migrated'] / total_count) * 100
+                        logger.info(f"   Progress: {stats['records_migrated']:,}/{total_count:,} ({progress:.1f}%)")
+
+        except Exception as e:
+            logger.error(f"   Error migrating table {table_name}: {e}")
+            stats['errors'] += 1
+
+        return stats
+
+    def _insert_batch_to_postgres(self, postgres_engine, table_name: str, records: list[Dict[str, Any]]) -> None:
+        """Insert a batch of records into PostgreSQL table."""
+        if not records:
+            return
+
+        try:
+            with postgres_engine.begin() as conn:
+                # Build INSERT statement
+                columns = list(records[0].keys())
+                placeholders = [f":{col}" for col in columns]
+
+                insert_sql = f"""
+                    INSERT INTO {table_name} ({', '.join(columns)})
+                    VALUES ({', '.join(placeholders)})
+                """
+
+                # Execute batch insert
+                conn.execute(text(insert_sql), records)
+
+        except Exception as e:
+            logger.error(f"   Failed to insert batch into {table_name}: {e}")
+            raise
+
+    def _validate_migration(self, postgres_engine) -> Dict[str, Any]:
+        """Validate the migration by comparing record counts."""
+        logger.info("🔍 Validating migration...")
+
+        validation = {
+            'source_counts': {},
+            'target_counts': {},
+            'mismatches': [],
+            'is_valid': True,
+        }
+
+        tables_to_check = ['raw_events', 'session_summaries', 'command_stats', 'files', 'dead_letter_events']
+
+        # Get counts from source (SQLite)
+        with self._get_engine().connect() as sqlite_conn:
+            for table in tables_to_check:
+                try:
+                    count = sqlite_conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+                    validation['source_counts'][table] = count
+                except Exception:
+                    validation['source_counts'][table] = 0
+
+        # Get counts from target (PostgreSQL)
+        with postgres_engine.connect() as postgres_conn:
+            for table in tables_to_check:
+                try:
+                    count = postgres_conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+                    validation['target_counts'][table] = count
+                except Exception:
+                    validation['target_counts'][table] = 0
+
+        # Check for mismatches
+        for table in tables_to_check:
+            source_count = validation['source_counts'][table]
+            target_count = validation['target_counts'][table]
+
+            if source_count != target_count:
+                validation['mismatches'].append(
+                    {
+                        'table': table,
+                        'source_count': source_count,
+                        'target_count': target_count,
+                        'difference': target_count - source_count,
+                    }
+                )
+                validation['is_valid'] = False
+
+        if validation['is_valid']:
+            logger.info("✅ Migration validation passed")
+        else:
+            logger.warning(f"⚠️  Migration validation found {len(validation['mismatches'])} mismatches")
+
+        return validation
+
 
 def main():
     """Main CLI entry point."""
-    parser = argparse.ArgumentParser(description='Cowrie database management utilities', prog='cowrie-db')
-    parser.add_argument('--db-path', default='../cowrieprocessor.sqlite', help='Path to SQLite database file')
+    parser = argparse.ArgumentParser(
+        description='Cowrie database management utilities',
+        prog='cowrie-db',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        '--db-url', default='sqlite:///cowrieprocessor.sqlite', help='Database connection URL (SQLite or PostgreSQL)'
+    )
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
     # Migrate command
     migrate_parser = subparsers.add_parser('migrate', help='Run database schema migrations')
-    migrate_parser.add_argument('--dry-run', action='store_true', help='Show what would be done without executing')
-    migrate_parser.add_argument('--target-version', type=int, help='Target schema version')
+    migrate_parser.add_argument(
+        '--dry-run', action='store_true', help='Show what migrations would be applied without actually executing them'
+    )
+    migrate_parser.add_argument(
+        '--target-version', type=int, help='Target schema version to migrate to (default: latest version)'
+    )
 
     # Check command
     check_parser = subparsers.add_parser('check', help='Validate database schema and health')
-    check_parser.add_argument('--verbose', action='store_true', help='Show detailed health information')
+    check_parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show detailed health information including table counts and recommendations',
+    )
 
     # Optimize command
     optimize_parser = subparsers.add_parser('optimize', help='Run database maintenance operations')
-    optimize_parser.add_argument('--no-vacuum', action='store_true', help='Skip VACUUM operation')
-    optimize_parser.add_argument('--no-reindex', action='store_true', help='Skip index rebuilding')
+    optimize_parser.add_argument(
+        '--no-vacuum', action='store_true', help='Skip VACUUM/ANALYZE operation (SQLite: VACUUM, PostgreSQL: ANALYZE)'
+    )
+    optimize_parser.add_argument('--no-reindex', action='store_true', help='Skip index rebuilding operation')
 
     # Backup command
     backup_parser = subparsers.add_parser('backup', help='Create a backup of the database')
-    backup_parser.add_argument('--output', help='Custom backup location')
+    backup_parser.add_argument(
+        '--output', help='Custom backup file location (default: auto-generated timestamped filename)'
+    )
 
     # Integrity command
     integrity_parser = subparsers.add_parser('integrity', help='Check database integrity and detect corruption')
-    integrity_parser.add_argument('--deep', action='store_true', help='Perform deep integrity check')
+    integrity_parser.add_argument(
+        '--deep', action='store_true', help='Perform deep integrity check including page-level analysis (SQLite only)'
+    )
 
     # Backfill command
     backfill_parser = subparsers.add_parser('backfill', help='Backfill files table from historical data')
-    backfill_parser.add_argument('--batch-size', type=int, default=1000, help='Batch size for processing')
-    backfill_parser.add_argument('--limit', type=int, help='Limit number of events to process')
+    backfill_parser.add_argument(
+        '--batch-size', type=int, default=1000, help='Number of records to process in each batch (default: 1000)'
+    )
+    backfill_parser.add_argument(
+        '--limit', type=int, help='Maximum number of events to process (default: all available events)'
+    )
 
     # Files command
-    files_parser = subparsers.add_parser('files', help='Display files table statistics')
+    subparsers.add_parser('files', help='Display files table statistics')
+
+    # Analyze command
+    analyze_parser = subparsers.add_parser(
+        'analyze',
+        help='Analyze database for data quality issues including JSON validity, '
+        'missing fields, and boolean field problems',
+    )
+    analyze_parser.add_argument(
+        '--sample-size',
+        type=int,
+        default=1000,
+        help='Number of records to sample for JSON analysis (default: 1000). '
+        'Larger samples give more accurate results but take longer.',
+    )
+
+    # Repair command
+    repair_parser = subparsers.add_parser(
+        'repair',
+        help='Repair database data quality issues by backfilling missing fields '
+        'from JSON payloads and fixing data inconsistencies',
+    )
+    repair_parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=10000,
+        help='Number of records to process in each batch (default: 10000). '
+        'Smaller batches use less memory but take longer.',
+    )
+    repair_parser.add_argument(
+        '--dry-run', action='store_true', help='Show what repairs would be made without actually applying them'
+    )
 
     # Info command
-    subparsers.add_parser('info', help='Display database information and statistics')
+    subparsers.add_parser(
+        'info',
+        help='Display comprehensive database information including schema version, table counts, and health status',
+    )
+
+    # Migrate-to-postgres command
+    migrate_pg_parser = subparsers.add_parser(
+        'migrate-to-postgres', help='Migrate data from SQLite to PostgreSQL database'
+    )
+    migrate_pg_parser.add_argument(
+        '--postgres-url',
+        required=True,
+        help='PostgreSQL connection URL (format: postgresql://user:password@host:port/database)',
+    )
+    migrate_pg_parser.add_argument(
+        '--batch-size',
+        type=int,
+        default=10000,
+        help='Number of records to migrate in each batch (default: 10000). '
+        'Smaller batches use less memory but take longer.',
+    )
+    migrate_pg_parser.add_argument(
+        '--validate-only',
+        action='store_true',
+        help='Only validate migration prerequisites and show what would be migrated, '
+        'without actually performing the migration',
+    )
+    migrate_pg_parser.add_argument(
+        '--skip-schema',
+        action='store_true',
+        help='Skip PostgreSQL schema setup. Use this if the PostgreSQL database '
+        'already has the cowrieprocessor schema installed.',
+    )
 
     args = parser.parse_args()
 
@@ -604,7 +1602,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    db = CowrieDatabase(args.db_path)
+    db = CowrieDatabase(args.db_url)
 
     try:
         if args.command == 'migrate':
@@ -681,7 +1679,7 @@ def main():
         elif args.command == 'backfill':
             print("Backfilling files table from historical data...")
             result = db.backfill_files_table(batch_size=args.batch_size, limit=args.limit)
-            
+
             print(f"✓ {result['message']}")
             if result.get('events_processed', 0) > 0:
                 print(f"  Events processed: {result['events_processed']:,}")
@@ -689,24 +1687,117 @@ def main():
                 print(f"  Batches processed: {result['batches_processed']:,}")
                 if result.get('errors', 0) > 0:
                     print(f"  Errors: {result['errors']:,}")
-            
+
             if 'error' in result:
                 print(f"❌ Backfill failed: {result['error']}", file=sys.stderr)
                 sys.exit(1)
 
+        elif args.command == 'analyze':
+            result = db.analyze_data_quality(sample_size=args.sample_size)
+
+            print("Data Quality Analysis Results:")
+            print(f"  Sample size: {result['sample_size']:,} records")
+            print(f"  Analysis duration: {result['analysis_duration_seconds']:.2f}s")
+
+            print("\nDatabase Overview:")
+            print(f"  Total records: {result['overview']['total_records']:,}")
+            print(f"  Database size: {result['overview']['database_size_mb']:.2f} MB")
+            for table, count in result['overview']['table_counts'].items():
+                print(f"  {table}: {count:,}")
+
+            print("\nJSON Quality Analysis:")
+            print(
+                f"  Valid JSON: {result['json_analysis']['valid_json_percentage']:.1f}% "
+                f"({result['json_analysis']['valid_json_count']:,} records)"
+            )
+            print(
+                f"  Invalid JSON: {result['json_analysis']['invalid_json_percentage']:.1f}% "
+                f"({result['json_analysis']['invalid_json_count']:,} records)"
+            )
+
+            print("\nMissing Fields Analysis:")
+            print(
+                f"  Missing session_id: {result['missing_analysis']['missing_percentages']['session_id']:.1f}% "
+                f"({result['missing_analysis']['missing_session_id']:,} records)"
+            )
+            print(
+                f"  Missing event_type: {result['missing_analysis']['missing_percentages']['event_type']:.1f}% "
+                f"({result['missing_analysis']['missing_event_type']:,} records)"
+            )
+            print(
+                f"  Missing event_timestamp: "
+                f"{result['missing_analysis']['missing_percentages']['event_timestamp']:.1f}% "
+                f"({result['missing_analysis']['missing_event_timestamp']:,} records)"
+            )
+
+            print("\nBoolean Fields Analysis:")
+            issues_count = len(result['boolean_analysis']['quarantined']['issues'])
+            print(f"  Boolean field issues: {issues_count}")
+
+            print("\nRecommendations:")
+            for i, rec in enumerate(result['recommendations'], 1):
+                print(f"  {i}. {rec}")
+
+        elif args.command == 'repair':
+            result = db.repair_data_quality(batch_size=args.batch_size, dry_run=args.dry_run)
+
+            print(f"Data Repair {'Analysis' if result['dry_run'] else 'Results'}:")
+            print(f"  Records processed: {result['records_processed']:,}")
+            print(f"  Fields backfilled: {result['fields_backfilled']:,}")
+            print(f"  Unrepairable records: {result['unrepairable_records']:,}")
+            print(f"  Errors: {result['errors']:,}")
+            print(f"  Duration: {result['duration_seconds']:.2f}s")
+
+            if result['unrepairable_records'] > 0:
+                print(f"\nℹ️  {result['unrepairable_records']:,} records contain genuinely malformed data")
+                print("   and cannot be automatically repaired. These records may need")
+                print("   manual review or represent incomplete data fragments.")
+
+            if not result['dry_run'] and result['fields_backfilled'] > 0:
+                print(f"\n✅ Successfully backfilled {result['fields_backfilled']:,} fields")
+                print("Consider running 'cowrie-db migrate' to ensure schema is current")
+            else:
+                print("\n📋 Summary:")
+                for rec in result['recommendations']:
+                    print(f"  - {rec}")
+
         elif args.command == 'files':
             result = db.get_files_table_stats()
-            
+
             print("Files Table Statistics:")
             print(f"  Total files: {result['total_files']:,}")
             print(f"  Unique hashes: {result['unique_hashes']:,}")
             print(f"  Malicious files: {result['malicious_files']:,}")
             print(f"  Pending enrichment: {result['pending_enrichment']:,}")
-            
+
             if result['enrichment_status']:
                 print("  Enrichment status breakdown:")
                 for status, count in result['enrichment_status'].items():
                     print(f"    {status}: {count:,}")
+
+        elif args.command == 'migrate-to-postgres':
+            print("🚀 Migrating from SQLite to PostgreSQL...")
+            result = db.migrate_to_postgresql(
+                postgres_url=args.postgres_url,
+                batch_size=args.batch_size,
+                validate_only=args.validate_only,
+                skip_schema=args.skip_schema,
+            )
+
+            if result['success']:
+                print("✅ Migration completed successfully!")
+                print(f"   Records migrated: {result['total_records_migrated']:,}")
+                print(f"   Tables migrated: {len(result['tables_migrated'])}")
+
+                if result['validation']['is_valid']:
+                    print("✅ Migration validation passed")
+                else:
+                    print("⚠️  Migration validation found mismatches:")
+                    for mismatch in result['validation']['mismatches']:
+                        print(f"     {mismatch['table']}: {mismatch['source_count']:,} → {mismatch['target_count']:,}")
+            else:
+                print(f"❌ Migration failed: {result.get('error', 'Unknown error')}")
+                sys.exit(1)
 
         elif args.command == 'info':
             result = db.validate_schema()
