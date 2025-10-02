@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, ClassVar, Dict
+from typing import Callable, ClassVar, Dict, Optional
 
 
 @dataclass(slots=True)
@@ -74,6 +76,51 @@ class EnrichmentCacheManager:
             self.stats["stores"] += 1
         except OSError:
             # Cache writes are best-effort; caller should continue regardless.
+            pass
+
+    def get_cached(self, service: str, key: str) -> Optional[dict]:
+        """Return cached JSON data as deep copy to prevent mutation.
+        
+        Args:
+            service: The enrichment service name (e.g., 'dshield', 'virustotal')
+            key: The cache key for the data
+            
+        Returns:
+            Deep copy of the cached JSON data, or None if not found/expired
+        """
+        cache_path = self.get_path(service, key)
+        if not cache_path.exists():
+            self.stats["misses"] += 1
+            return None
+        if not self._is_valid(cache_path, service):
+            self.stats["misses"] += 1
+            try:
+                cache_path.unlink()
+            except OSError:
+                pass
+            return None
+        try:
+            payload = cache_path.read_text(encoding="utf-8")
+            data = json.loads(payload)
+            self.stats["hits"] += 1
+            return copy.deepcopy(data)
+        except (OSError, json.JSONDecodeError):
+            self.stats["misses"] += 1
+            return None
+
+    def store_cached(self, service: str, key: str, data: dict) -> None:
+        """Store JSON data in cache.
+        
+        Args:
+            service: The enrichment service name
+            key: The cache key for the data
+            data: The JSON data to store
+        """
+        try:
+            payload = json.dumps(data, separators=(',', ':'))
+            self.store_text(service, key, payload)
+        except (TypeError, ValueError):
+            # Data not JSON serializable - skip caching
             pass
 
     def snapshot(self) -> Dict[str, int]:
