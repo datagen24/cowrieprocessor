@@ -119,6 +119,43 @@ Snowshoe attacks use hundreds or thousands of IP addresses, each generating mini
 - Memory usage optimization
 - Concurrent processing tests
 
+## Phase 5: Botnet Coordination Detection ✅ COMPLETED
+
+### 5.1 Botnet Detector Implementation ✅ COMPLETED
+- **Location**: `cowrieprocessor/threat_detection/botnet.py`
+- **Class**: `BotnetCoordinatorDetector`
+- **Features**:
+  - Credential reuse analysis (username/password patterns across IPs)
+  - Command sequence similarity using TF-IDF and cosine similarity
+  - Temporal coordination detection using DBSCAN clustering
+  - Geographic clustering analysis for botnet infrastructure
+  - Composite scoring with weighted indicators
+  - Support for private IPs (compromised internal networks)
+
+### 5.2 CLI Integration ✅ COMPLETED
+- **Location**: `cowrieprocessor/cli/analyze.py`
+- **Command**: `cowrie-analyze botnet`
+- **Parameters**:
+  - `--credential-threshold`: Minimum IPs sharing credentials (default: 3)
+  - `--command-similarity`: Command sequence similarity threshold (default: 0.7)
+  - `--sensitivity`: Overall detection sensitivity (default: 0.6)
+  - `--window`: Analysis time window in hours (default: 24)
+  - `--store-results`: Store results in database
+  - `--output`: JSON report output file
+
+### 5.3 Real Data Analysis ✅ COMPLETED
+- **Tested with**: Actual Cowrie logs from `/mnt/dshield/aws-eastus-dshield/NSM/cowrie`
+- **Verified**: Credential reuse patterns (e.g., `ubnt:ubnt` across multiple IPs)
+- **Confirmed**: Command similarity detection for coordinated attacks
+- **Validated**: Temporal coordination and geographic clustering
+
+### 5.4 Detection Capabilities ✅ COMPLETED
+- **Credential Reuse**: Detects shared username/password combinations across IPs
+- **Command Similarity**: Identifies similar command sequences using machine learning
+- **Temporal Coordination**: Finds coordinated timing patterns using DBSCAN
+- **Geographic Clustering**: Identifies botnet infrastructure patterns
+- **Composite Scoring**: Weighted algorithm prioritizing credential reuse (40%) and command similarity (30%)
+
 ### Phase 5: Security & Validation (1 day)
 
 #### 5.1 Security Compliance
