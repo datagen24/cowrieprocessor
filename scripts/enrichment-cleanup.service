@@ -1,0 +1,23 @@
+[Unit]
+Description=Cowrie Processor Enrichment Cache Cleanup
+Documentation=https://github.com/cowrie/cowrie-processor
+
+[Service]
+Type=oneshot
+User=cowrie
+Group=cowrie
+WorkingDirectory=/home/cowrie/cowrieprocessor
+ExecStart=/home/cowrie/cowrieprocessor/.venv/bin/python scripts/enrichment_cleanup.py --cache-dir /mnt/dshield/data/cache
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONPATH=/home/cowrie/cowrieprocessor
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/mnt/dshield/data/cache
+
+[Install]
+WantedBy=multi-user.target
