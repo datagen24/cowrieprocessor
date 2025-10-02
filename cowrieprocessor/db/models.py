@@ -247,6 +247,35 @@ class Files(Base):
     )
 
 
+class SnowshoeDetection(Base):
+    """Stores snowshoe attack detection results and analysis metadata."""
+
+    __tablename__ = "snowshoe_detections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    detection_time = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    window_end = Column(DateTime(timezone=True), nullable=False)
+    confidence_score = Column(String(10), nullable=False)  # Store as string to preserve precision
+    unique_ips = Column(Integer, nullable=False)
+    single_attempt_ips = Column(Integer, nullable=False)
+    geographic_spread = Column(String(10), nullable=False)  # Store as string to preserve precision
+    indicators = Column(JSON, nullable=False)
+    is_likely_snowshoe = Column(Boolean, nullable=False, server_default=false())
+    coordinated_timing = Column(Boolean, nullable=False, server_default=false())
+    recommendation = Column(Text, nullable=True)
+    analysis_metadata = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_snowshoe_detections_detection_time", "detection_time"),
+        Index("ix_snowshoe_detections_window", "window_start", "window_end"),
+        Index("ix_snowshoe_detections_confidence", "confidence_score"),
+        Index("ix_snowshoe_detections_likely", "is_likely_snowshoe"),
+        Index("ix_snowshoe_detections_created", "created_at"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "RawEvent",
@@ -255,4 +284,5 @@ __all__ = [
     "IngestCursor",
     "DeadLetterEvent",
     "Files",
+    "SnowshoeDetection",
 ]
