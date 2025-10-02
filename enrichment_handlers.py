@@ -7,7 +7,7 @@ import logging
 import signal
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Dict
 
 import requests
 
@@ -18,6 +18,7 @@ from cowrieprocessor.enrichment.rate_limiting import (
     get_service_rate_limit,
     with_retries,
 )
+from cowrieprocessor.enrichment.telemetry import EnrichmentTelemetry
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -499,6 +500,8 @@ class EnrichmentService:
         timeout: int = DEFAULT_TIMEOUT,
         skip_enrich: bool = False,
         enable_rate_limiting: bool = True,
+        enable_telemetry: bool = True,
+        telemetry_phase: str = "enrichment",
     ) -> None:
         """Initialise the enrichment service."""
         self.cache_dir = Path(cache_dir)
@@ -510,8 +513,15 @@ class EnrichmentService:
         self.spur_api = spur_api or ""
         self.skip_enrich = skip_enrich
         self.enable_rate_limiting = enable_rate_limiting
+        self.enable_telemetry = enable_telemetry
 
         self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
+        
+        # Initialize telemetry if enabled
+        if enable_telemetry:
+            self.telemetry = EnrichmentTelemetry(telemetry_phase)
+        else:
+            self.telemetry = None
         
         # Use rate-limited sessions if enabled
         if enable_rate_limiting:
@@ -525,50 +535,88 @@ class EnrichmentService:
         rate, burst = get_service_rate_limit(service)
         return RateLimitedSession(rate, burst)
 
+    def cache_snapshot(self) -> Dict[str, int]:
+        """Return current cache statistics for telemetry."""
+        return self.cache_manager.snapshot()
+
     def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
         """Return enrichment payload for a session/IP pair."""
+        start_time = time.time()
+        
         enrichment: dict[str, Any] = {}
         if self.skip_enrich:
             enrichment["dshield"] = _empty_dshield()
             enrichment["urlhaus"] = ""
             enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
         else:
-            enrichment["dshield"] = (
-                dshield_query(
-                    src_ip,
-                    self.dshield_email,
-                    skip_enrich=False,
-                    cache_base=self.cache_dir,
-                    session_factory=lambda: self._session_factory("dshield"),
-                    ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
-                    now=time.time,
-                )
-                if self.dshield_email
-                else _empty_dshield()
-            )
-            enrichment["urlhaus"] = (
-                safe_read_uh_data(
-                    src_ip,
-                    self.urlhaus_api,
-                    cache_base=self.cache_dir,
-                    session_factory=lambda: self._session_factory("urlhaus"),
-                    timeout=self._timeout,
-                )
-                if self.urlhaus_api
-                else ""
-            )
-            enrichment["spur"] = (
-                read_spur_data(
-                    src_ip,
-                    self.spur_api,
-                    cache_base=self.cache_dir,
-                    session_factory=lambda: self._session_factory("spur"),
-                    timeout=self._timeout,
-                )
-                if self.spur_api
-                else list(_SPUR_EMPTY_PAYLOAD)
-            )
-
+            # DShield enrichment
+            if self.dshield_email:
+                try:
+                    enrichment["dshield"] = dshield_query(
+                        src_ip,
+                        self.dshield_email,
+                        skip_enrich=False,
+                        cache_base=self.cache_dir,
+                        session_factory=lambda: self._session_factory("dshield"),
+                        ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
+                        now=time.time,
+                    )
+                    if self.telemetry:
+                        self.telemetry.record_api_call("dshield", True)
+                except Exception as e:
+                    LOGGER.warning("DShield enrichment failed for %s: %s", src_ip, e)
+                    enrichment["dshield"] = _empty_dshield()
+                    if self.telemetry:
+                        self.telemetry.record_api_call("dshield", False)
+            else:
+                enrichment["dshield"] = _empty_dshield()
+            
+            # URLHaus enrichment
+            if self.urlhaus_api:
+                try:
+                    enrichment["urlhaus"] = safe_read_uh_data(
+                        src_ip,
+                        self.urlhaus_api,
+                        cache_base=self.cache_dir,
+                        session_factory=lambda: self._session_factory("urlhaus"),
+                        timeout=self._timeout,
+                    )
+                    if self.telemetry:
+                        self.telemetry.record_api_call("urlhaus", True)
+                except Exception as e:
+                    LOGGER.warning("URLHaus enrichment failed for %s: %s", src_ip, e)
+                    enrichment["urlhaus"] = ""
+                    if self.telemetry:
+                        self.telemetry.record_api_call("urlhaus", False)
+            else:
+                enrichment["urlhaus"] = ""
+            
+            # SPUR enrichment
+            if self.spur_api:
+                try:
+                    enrichment["spur"] = read_spur_data(
+                        src_ip,
+                        self.spur_api,
+                        cache_base=self.cache_dir,
+                        session_factory=lambda: self._session_factory("spur"),
+                        timeout=self._timeout,
+                    )
+                    if self.telemetry:
+                        self.telemetry.record_api_call("spur", True)
+                except Exception as e:
+                    LOGGER.warning("SPUR enrichment failed for %s: %s", src_ip, e)
+                    enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
+                    if self.telemetry:
+                        self.telemetry.record_api_call("spur", False)
+            else:
+                enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
+        
+        # Record telemetry
+        if self.telemetry:
+            duration_ms = (time.time() - start_time) * 1000
+            self.telemetry.record_session_enrichment(True)
+            self.telemetry.record_cache_stats(self.cache_manager.snapshot())
+        
         return {
             "session_id": session_id,
             "src_ip": src_ip,
@@ -577,8 +625,12 @@ class EnrichmentService:
 
     def enrich_file(self, file_hash: str, filename: str) -> dict[str, Any]:
         """Return VirusTotal enrichment payload for a file hash."""
+        start_time = time.time()
+        
         enrichment: dict[str, Any] = {"virustotal": None}
         if self.skip_enrich or not self.vt_api:
+            if self.telemetry:
+                self.telemetry.record_file_enrichment(False)
             return {
                 "file_hash": file_hash,
                 "filename": filename,
@@ -587,17 +639,28 @@ class EnrichmentService:
 
         payload = self._load_vt_payload(file_hash)
         if payload is None:
-            payload = self._fetch_vt_payload(file_hash)
+            try:
+                payload = self._fetch_vt_payload(file_hash)
+                if self.telemetry:
+                    self.telemetry.record_api_call("virustotal", True)
+            except Exception as e:
+                LOGGER.warning("VirusTotal enrichment failed for %s: %s", file_hash, e)
+                if self.telemetry:
+                    self.telemetry.record_api_call("virustotal", False)
+        
         enrichment["virustotal"] = payload
+        
+        # Record telemetry
+        if self.telemetry:
+            duration_ms = (time.time() - start_time) * 1000
+            self.telemetry.record_file_enrichment(payload is not None)
+            self.telemetry.record_cache_stats(self.cache_manager.snapshot())
+        
         return {
             "file_hash": file_hash,
             "filename": filename,
             "enrichment": enrichment,
         }
-
-    def cache_snapshot(self) -> dict[str, int]:
-        """Expose cache statistics collected by the cache manager."""
-        return self.cache_manager.snapshot()
 
     def get_session_flags(self, session_result: Mapping[str, Any]) -> dict[str, bool]:
         """Derive boolean enrichment flags from ``session_result``."""
