@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
@@ -14,7 +15,7 @@ from ..db.models import SessionSummary, SnowshoeDetection
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
-from ..threat_detection.snowshoe import SnowshoeDetector
+from ..threat_detection import SnowshoeDetector, create_snowshoe_metrics_from_detection
 from sqlalchemy import and_, func
 
 
@@ -138,6 +139,7 @@ def snowshoe_analyze(args: argparse.Namespace) -> int:
         detector = SnowshoeDetector(sensitivity_threshold=args.sensitivity)
         
         # Perform analysis
+        analysis_start_time = time.perf_counter()
         with start_span(
             "cowrie.snowshoe.analyze",
             {
@@ -147,6 +149,8 @@ def snowshoe_analyze(args: argparse.Namespace) -> int:
             },
         ):
             result = detector.detect(sessions, window_delta.total_seconds() / 3600)
+        
+        analysis_duration = time.perf_counter() - analysis_start_time
         
         # Store results in database if requested
         if args.store_results:
@@ -164,17 +168,19 @@ def snowshoe_analyze(args: argparse.Namespace) -> int:
         
         # Emit metrics
         if args.status_dir:
+            analysis_id = args.ingest_id or f"snowshoe-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            window_hours = window_delta.total_seconds() / 3600
+            
+            # Create comprehensive metrics
+            metrics = create_snowshoe_metrics_from_detection(
+                detection_result=result,
+                analysis_duration=analysis_duration,
+                analysis_id=analysis_id,
+                window_hours=window_hours,
+            )
+            
             emitter = StatusEmitter("snowshoe-analysis", status_dir=args.status_dir)
-            emitter.record_metrics({
-                "analysis_id": args.ingest_id or f"snowshoe-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
-                "window_hours": window_delta.total_seconds() / 3600,
-                "sessions_analyzed": len(sessions),
-                "confidence_score": result["confidence_score"],
-                "is_likely_snowshoe": result["is_likely_snowshoe"],
-                "single_attempt_ips": len(result["single_attempt_ips"]),
-                "coordinated_timing": result["coordinated_timing"],
-                "duration_seconds": 0.0,  # Would be calculated from timing
-            })
+            emitter.record_metrics(metrics)
         
         return 0 if result["is_likely_snowshoe"] else 1
         
