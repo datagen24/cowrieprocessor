@@ -21,8 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
+from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 DEFAULT_DB = Path("/mnt/dshield/data/db/cowrieprocessor.sqlite")
@@ -61,24 +61,25 @@ def create_readonly_engine(db_url: str) -> Engine:
             db_url += "&mode=ro&immutable=1"
         else:
             db_url += "?mode=ro&immutable=1"
-    
+
     engine = create_engine(db_url, connect_args={"check_same_thread": False})
-    
+
     # Set read-only mode for SQLite
     if db_url.startswith("sqlite://"):
+
         @engine.event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA query_only=1")
             cursor.close()
-    
+
     return engine
 
 
 def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
     """Yield session IDs and source IP tuples up to the requested limit."""
     dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
-    
+
     if dialect_name == "postgresql":
         base_query = """
             SELECT session_id,
@@ -97,10 +98,10 @@ def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
               AND json_extract(payload, '$.src_ip') != ''
             GROUP BY session_id
         """
-    
+
     if limit > 0:
         base_query += f" LIMIT {limit}"
-    
+
     with engine.connect() as conn:
         for session_id, src_ip in conn.execute(text(base_query)):
             if src_ip:
@@ -110,7 +111,7 @@ def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
 def sample_file_hashes(engine: Engine, limit: int) -> Iterator[str]:
     """Yield file hashes extracted from raw_events up to the limit."""
     dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
-    
+
     if dialect_name == "postgresql":
         base_query = """
             SELECT MAX(payload->>'shasum') AS shasum
@@ -129,10 +130,10 @@ def sample_file_hashes(engine: Engine, limit: int) -> Iterator[str]:
               AND json_extract(payload, '$.shasum') != ''
             GROUP BY json_extract(payload, '$.shasum')
         """
-    
+
     if limit > 0:
         base_query += f" LIMIT {limit}"
-    
+
     with engine.connect() as conn:
         for (shasum,) in conn.execute(text(base_query)):
             if shasum:
@@ -274,7 +275,11 @@ def run_enrichment(
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the live enrichment harness."""
     parser = argparse.ArgumentParser(description="Run live enrichment sample checks")
-    parser.add_argument("--db-url", default=f"sqlite:///{DEFAULT_DB}", help="Database URL (sqlite:///path or postgresql://user:pass@host/db)")
+    parser.add_argument(
+        "--db-url",
+        default=f"sqlite:///{DEFAULT_DB}",
+        help="Database URL (sqlite:///path or postgresql://user:pass@host/db)",
+    )
     parser.add_argument(
         "--cache-dir",
         type=Path,

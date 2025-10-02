@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import pytest
 import time
-from datetime import datetime
-from pathlib import Path
+
+import pytest
 
 from cowrieprocessor.db.engine import create_engine_from_settings
 from cowrieprocessor.db.migrations import apply_migrations
@@ -93,7 +92,7 @@ class TestFilesBackfillPerformance:
         assert processing_time < 30.0, f"Processing took {processing_time:.2f}s, expected < 30s"
         assert events_per_second > 50, f"Processing rate {events_per_second:.1f} events/sec, expected > 50/sec"
 
-        print(f"Performance results:")
+        print("Performance results:")
         print(f"  Events processed: {len(events)}")
         print(f"  Processing time: {processing_time:.2f}s")
         print(f"  Events per second: {events_per_second:.1f}")
@@ -101,8 +100,9 @@ class TestFilesBackfillPerformance:
 
     def test_memory_usage_stability(self, performance_engine, large_event_dataset):
         """Test that memory usage remains stable during large backfill."""
-        import psutil
         import os
+
+        import psutil
 
         json_file, events = large_event_dataset
 
@@ -124,7 +124,7 @@ class TestFilesBackfillPerformance:
         # Memory increase should be reasonable (less than 100MB for 1000 events)
         assert memory_increase < 100, f"Memory increased by {memory_increase:.1f}MB, expected < 100MB"
 
-        print(f"Memory usage:")
+        print("Memory usage:")
         print(f"  Initial: {initial_memory:.1f}MB")
         print(f"  Final: {final_memory:.1f}MB")
         print(f"  Increase: {memory_increase:.1f}MB")
@@ -166,7 +166,7 @@ class TestFilesBackfillPerformance:
         # Find optimal batch size
         best_result = max(results, key=lambda x: x["events_per_second"])
 
-        print(f"Batch size optimization results:")
+        print("Batch size optimization results:")
         for result in results:
             print(f"  Batch size {result['batch_size']}: {result['events_per_second']:.1f} events/sec")
         print(f"  Optimal batch size: {best_result['batch_size']}")
@@ -176,8 +176,8 @@ class TestFilesBackfillPerformance:
 
     def test_concurrent_access_during_backfill(self, performance_engine, large_event_dataset):
         """Test that database remains accessible during backfill."""
-        import threading
         import queue
+        import threading
 
         json_file, events = large_event_dataset
 

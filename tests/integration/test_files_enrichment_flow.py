@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import json
+
 import pytest
-from datetime import datetime
-from pathlib import Path
 
 from cowrieprocessor.db.engine import create_engine_from_settings
-from cowrieprocessor.db.models import Files, RawEvent
 from cowrieprocessor.db.migrations import apply_migrations
-from cowrieprocessor.loader.bulk import BulkLoader, BulkLoaderConfig
+from cowrieprocessor.loader.bulk import BulkLoader
 from cowrieprocessor.settings import load_database_settings
 
 
