@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .botnet import BotnetCoordinatorDetector
+from .longtail import CommandVectorizer, LongtailAnalysisResult, LongtailAnalyzer
 from .metrics import (
     SnowshoeCampaignMetrics,
     SnowshoeDetectionMetrics,
@@ -16,4 +17,7 @@ __all__ = [
     "SnowshoeDetectionMetrics",
     "SnowshoeCampaignMetrics",
     "create_snowshoe_metrics_from_detection",
+    "LongtailAnalyzer",
+    "LongtailAnalysisResult",
+    "CommandVectorizer",
 ]
