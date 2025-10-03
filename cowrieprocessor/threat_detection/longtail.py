@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
-import json
+import hashlib
 import logging
+import pickle
+import resource
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import psutil
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..db.models import CommandStat, RawEvent, SessionSummary
+from ..db.models import SessionSummary
 
 logger = logging.getLogger(__name__)
 
@@ -51,61 +56,103 @@ class LongtailAnalysisResult:
 
 
 class CommandVectorizer:
-    """Vectorize command sequences using TF-IDF."""
-    
-    def __init__(self, max_features: int = 1000, ngram_range: Tuple[int, int] = (1, 2)) -> None:
-        """Initialize command vectorizer.
-        
+    """Persistent vocabulary management for consistent vectorization."""
+
+    def __init__(
+        self,
+        vocab_path: Optional[Path] = None,
+        max_features: int = 128,
+        ngram_range: Tuple[int, int] = (1, 3)
+    ) -> None:
+        """Initialize command vectorizer with persistent vocabulary.
+
         Args:
+            vocab_path: Path to save/load vocabulary (optional)
             max_features: Maximum number of features for TF-IDF
             ngram_range: Range of n-grams to extract
         """
-        self.vectorizer = TfidfVectorizer(
-            max_features=max_features,
-            ngram_range=ngram_range,
+        self.vocab_path = vocab_path or Path('/var/lib/cowrie-processor/vocab.pkl')
+        self.max_features = max_features
+        self.ngram_range = ngram_range
+        self.vectorizer = self._load_or_create_vectorizer()
+        self.is_fitted = hasattr(self.vectorizer, 'vocabulary_') and len(self.vectorizer.vocabulary_) > 0
+
+    def _load_or_create_vectorizer(self) -> TfidfVectorizer:
+        """Load existing vocabulary or create new."""
+        if self.vocab_path.exists():
+            try:
+                with open(self.vocab_path, 'rb') as f:
+                    return pickle.load(f)
+            except (pickle.PickleError, FileNotFoundError, EOFError):
+                logger.warning(f"Could not load vocabulary from {self.vocab_path}, creating new")
+
+        return TfidfVectorizer(
+            max_features=self.max_features,
+            ngram_range=self.ngram_range,
             stop_words=None,  # Commands don't have stop words
             lowercase=False,  # Preserve command case
             token_pattern=r'\b\w+\b',  # Simple word tokenization
         )
-        self.is_fitted = False
-    
+
     def fit_transform(self, command_sequences: List[str]) -> np.ndarray:
         """Fit vectorizer and transform command sequences.
-        
+
         Args:
             command_sequences: List of command sequences as strings
-            
+
         Returns:
             TF-IDF matrix as numpy array
         """
         tfidf_matrix = self.vectorizer.fit_transform(command_sequences)
         self.is_fitted = True
+        self._save_vectorizer()
         return tfidf_matrix.toarray()
-    
+
     def transform(self, command_sequences: List[str]) -> np.ndarray:
         """Transform command sequences using fitted vectorizer.
-        
+
         Args:
             command_sequences: List of command sequences as strings
-            
+
         Returns:
             TF-IDF matrix as numpy array
         """
         if not self.is_fitted:
             raise ValueError("Vectorizer must be fitted before transform")
-        
+
         tfidf_matrix = self.vectorizer.transform(command_sequences)
         return tfidf_matrix.toarray()
-    
+
+    def update_vocabulary(self, new_commands: List[str]) -> None:
+        """Incrementally update vocabulary without full retrain."""
+        existing_vocab = set(self.vectorizer.vocabulary_.keys())
+        new_unique = set(new_commands) - existing_vocab
+
+        if new_unique:
+            logger.info(f"Updating vocabulary with {len(new_unique)} new commands")
+            # Retrain with combined dataset
+            combined_commands = list(existing_vocab) + list(new_unique)
+            self.vectorizer.fit(combined_commands)
+            self._save_vectorizer()
+
+    def _save_vectorizer(self) -> None:
+        """Save vectorizer to persistent storage."""
+        try:
+            self.vocab_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.vocab_path, 'wb') as f:
+                pickle.dump(self.vectorizer, f)
+        except Exception as e:
+            logger.warning(f"Could not save vocabulary to {self.vocab_path}: {e}")
+
     def get_feature_names(self) -> List[str]:
         """Get feature names from the vectorizer.
-        
+
         Returns:
             List of feature names
         """
         if not self.is_fitted:
             raise ValueError("Vectorizer must be fitted before getting feature names")
-        
+
         return self.vectorizer.get_feature_names_out().tolist()
 
 
@@ -115,6 +162,7 @@ class LongtailAnalyzer:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
+        vocab_path: Optional[Path] = None,
         rarity_threshold: float = 0.05,  # Bottom 5% frequency
         sequence_window: int = 5,  # Command sequence window
         cluster_eps: float = 0.3,  # DBSCAN clustering parameter
@@ -123,10 +171,11 @@ class LongtailAnalyzer:
         sensitivity_threshold: float = 0.95,  # Overall detection threshold
         vector_analysis_enabled: bool = True,  # Enable vector-based analysis
     ) -> None:
-        """Initialize longtail analyzer with database access.
+        """Initialize longtail analyzer with database access and performance optimizations.
 
         Args:
             session_factory: SQLAlchemy session factory for database access
+            vocab_path: Path to save/load vocabulary (optional)
             rarity_threshold: Threshold for rare command detection (0.0-1.0)
             sequence_window: Number of commands in sequence analysis
             cluster_eps: DBSCAN epsilon parameter for clustering
@@ -144,16 +193,19 @@ class LongtailAnalyzer:
         self.sensitivity_threshold = sensitivity_threshold
         self.vector_analysis_enabled = vector_analysis_enabled
 
-        # Initialize vectorizer
-        self.command_vectorizer = CommandVectorizer()
+        # Initialize vectorizer with persistent vocabulary
+        self.command_vectorizer = CommandVectorizer(vocab_path)
 
         # Analysis state
         self._command_frequencies: Dict[str, int] = {}
         self._session_characteristics: List[Dict[str, Any]] = []
         self._command_sequences: List[str] = []
+
+        # Performance optimizations
+        self._command_cache: Dict[str, Dict[str, List[str]]] = {}
     
     def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
-        """Perform longtail analysis on sessions.
+        """Perform longtail analysis on sessions with resource monitoring.
 
         Args:
             sessions: List of session summaries to analyze
@@ -162,60 +214,84 @@ class LongtailAnalyzer:
         Returns:
             LongtailAnalysisResult with analysis findings
         """
+        # Monitor resources
+        process = psutil.Process()
+        start_memory = process.memory_info().rss / 1024 / 1024  # MB
+
+        # Set memory limit (500MB)
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (500 * 1024 * 1024, hard))
+
         start_time = time.perf_counter()
-        
+
         logger.info(
             "Starting longtail analysis: sessions=%d, lookback=%dd, vector_analysis=%s",
             len(sessions),
             lookback_days,
             self.vector_analysis_enabled,
         )
-        
+
         # Initialize result
         result = LongtailAnalysisResult()
         result.total_sessions_analyzed = len(sessions)
         result.vector_analysis_enabled = self.vector_analysis_enabled
-        
+
         if not sessions:
             logger.warning("No sessions provided for analysis")
             return result
-        
-        # Extract commands and build frequency analysis
-        self._extract_command_data(sessions)
-        result.total_events_analyzed = sum(self._command_frequencies.values())
-        
-        # Perform analysis methods
-        result.rare_commands = self._detect_rare_commands()
-        result.anomalous_sequences = self._detect_anomalous_sequences()
-        result.outlier_sessions = self._detect_outlier_sessions()
-        result.emerging_patterns = self._detect_emerging_patterns()
-        result.high_entropy_payloads = self._detect_high_entropy_payloads(sessions)
-        
-        # Update counts
-        result.rare_command_count = len(result.rare_commands)
-        result.anomalous_sequence_count = len(result.anomalous_sequences)
-        result.outlier_session_count = len(result.outlier_sessions)
-        result.emerging_pattern_count = len(result.emerging_patterns)
-        result.high_entropy_payload_count = len(result.high_entropy_payloads)
-        
-        # Generate statistical summary
-        result.statistical_summary = self._generate_statistical_summary(result)
-        
-        # Calculate analysis duration
+
+        try:
+            # Extract commands and build frequency analysis
+            self._extract_command_data(sessions)
+            result.total_events_analyzed = sum(self._command_frequencies.values())
+
+            # Perform analysis methods
+            result.rare_commands = self._detect_rare_commands()
+            result.anomalous_sequences = self._detect_anomalous_sequences()
+            result.outlier_sessions = self._detect_outlier_sessions()
+            result.emerging_patterns = self._detect_emerging_patterns()
+            result.high_entropy_payloads = self._detect_high_entropy_payloads(sessions)
+
+            # Update counts
+            result.rare_command_count = len(result.rare_commands)
+            result.anomalous_sequence_count = len(result.anomalous_sequences)
+            result.outlier_session_count = len(result.outlier_sessions)
+            result.emerging_pattern_count = len(result.emerging_patterns)
+            result.high_entropy_payload_count = len(result.high_entropy_payloads)
+
+            # Generate statistical summary
+            result.statistical_summary = self._generate_statistical_summary(result)
+
+        except MemoryError:
+            logger.error("Memory limit exceeded, falling back to session-level analysis")
+            # Fallback to session-level analysis only
+            result.statistical_summary = {
+                "analysis_method": "session_level_fallback",
+                "error": "Memory limit exceeded",
+                "total_sessions": len(sessions),
+            }
+
+        # Calculate analysis duration and memory usage
         result.analysis_duration_seconds = time.perf_counter() - start_time
-        
+        end_memory = process.memory_info().rss / 1024 / 1024
+        result.memory_usage_mb = end_memory - start_memory
+
+        if result.memory_usage_mb > 400:  # Warning threshold
+            logger.warning(f"High memory usage: {result.memory_usage_mb:.1f}MB")
+
         logger.info(
-            "Longtail analysis completed: duration=%.2fs, rare_commands=%d, "
+            "Longtail analysis completed: duration=%.2fs, memory=%.1fMB, rare_commands=%d, "
             "anomalous_sequences=%d, outlier_sessions=%d, emerging_patterns=%d, "
             "high_entropy_payloads=%d",
             result.analysis_duration_seconds,
+            result.memory_usage_mb,
             result.rare_command_count,
             result.anomalous_sequence_count,
             result.outlier_session_count,
             result.emerging_pattern_count,
             result.high_entropy_payload_count,
         )
-        
+
         return result
     
     def _calculate_session_duration(self, session: SessionSummary) -> float:
@@ -277,7 +353,7 @@ class LongtailAnalyzer:
                     self._command_sequences.append(sequence)
 
     def _extract_commands_for_sessions(self, session_ids: List[str]) -> Dict[str, List[str]]:
-        """Query RawEvent table for actual commands with batching strategy.
+        """Query RawEvent table for actual commands with caching and performance optimization.
 
         Args:
             session_ids: List of session IDs to extract commands for
@@ -285,31 +361,36 @@ class LongtailAnalyzer:
         Returns:
             Dictionary mapping session_id to list of command strings
         """
+        # Add result caching for repeated analyses
+        cache_key = hashlib.md5(','.join(sorted(session_ids)).encode()).hexdigest()
+        if cache_key in self._command_cache:
+            return self._command_cache[cache_key]
+
         commands_by_session = defaultdict(list)
 
         try:
-            # Batch query strategy for performance
-            batch_size = 1000
+            # Use read-only transaction for better performance
+            with self.session_factory() as session:
+                session.execute(text("SET TRANSACTION READ ONLY"))
 
-            for i in range(0, len(session_ids), batch_size):
-                batch_ids = session_ids[i:i + batch_size]
+                # Optimized raw SQL query for critical performance
+                result = session.execute(text("""
+                    SELECT session_id, payload->>'input' as command
+                    FROM raw_events
+                    WHERE session_id = ANY(:session_ids)
+                    AND event_type = 'cowrie.command.input'
+                    AND payload ? 'input'
+                """), {"session_ids": session_ids})
 
-                # Query RawEvent for cowrie.command.input events
-                with self.session_factory() as session:
-                    events = session.query(RawEvent).filter(
-                        RawEvent.session_id.in_(batch_ids),
-                        RawEvent.event_type == "cowrie.command.input"
-                    ).all()
-
-                    for event in events:
-                        if event.payload and isinstance(event.payload, dict):
-                            command = event.payload.get('input')
-                            if command and isinstance(command, str):
-                                commands_by_session[event.session_id].append(command.strip())
+                for row in result:
+                    if row.command:
+                        commands_by_session[row.session_id].append(row.command)
 
         except Exception as e:
             logger.error(f"Error extracting commands for sessions {session_ids[:5]}...: {e}")
 
+        # Cache results for this analysis run
+        self._command_cache[cache_key] = dict(commands_by_session)
         return dict(commands_by_session)
 
     def _detect_rare_commands(self) -> List[Dict[str, Any]]:

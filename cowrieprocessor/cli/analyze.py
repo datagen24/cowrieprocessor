@@ -4,20 +4,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from sqlalchemy import and_, func
+
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
-from ..db.models import SessionSummary, SnowshoeDetection, RawEvent
-from ..settings import DatabaseSettings, load_database_settings
+from ..db.models import RawEvent, SessionSummary, SnowshoeDetection
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
-from ..threat_detection import BotnetCoordinatorDetector, LongtailAnalyzer, LongtailAnalysisResult, SnowshoeDetector, create_snowshoe_metrics_from_detection
-from sqlalchemy import and_, func
-from .db_config import resolve_database_settings, add_database_argument
+from ..threat_detection import (
+    BotnetCoordinatorDetector,
+    LongtailAnalysisResult,
+    LongtailAnalyzer,
+    SnowshoeDetector,
+    create_snowshoe_metrics_from_detection,
+)
+from .db_config import resolve_database_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_window_arg(window_str: str) -> timedelta:
@@ -258,7 +267,10 @@ def snowshoe_report(args: argparse.Namespace) -> int:
                 "total_detections": len(detections),
                 "high_confidence_detections": len([d for d in detections if d.is_likely_snowshoe]),
                 "coordinated_attacks": len([d for d in detections if d.coordinated_timing]),
-                "avg_confidence": sum(float(d.confidence_score) for d in detections) / len(detections) if detections else 0,
+                "avg_confidence": (
+                    sum(float(d.confidence_score) for d in detections) / len(detections)
+                    if detections else 0
+                ),
             },
             "detections": [
                 {
@@ -547,9 +559,10 @@ def longtail_analyze(args: argparse.Namespace) -> int:
 
         logger.info("Found %d sessions for analysis", len(sessions))
 
-        # Initialize analyzer with database access
+        # Initialize analyzer with database access and vocabulary management
         analyzer = LongtailAnalyzer(
             session_factory,
+            vocab_path=Path('/var/lib/cowrie-processor/vocab.pkl'),  # Persistent vocabulary
             rarity_threshold=args.rarity_threshold,
             sequence_window=args.sequence_window,
             cluster_eps=args.cluster_eps,
@@ -559,7 +572,6 @@ def longtail_analyze(args: argparse.Namespace) -> int:
         )
 
         # Perform analysis
-        analysis_start_time = time.perf_counter()
         with start_span(
             "cowrie.longtail.analyze",
             {
@@ -569,8 +581,6 @@ def longtail_analyze(args: argparse.Namespace) -> int:
             },
         ):
             result = analyzer.analyze(sessions, lookback_days)
-
-        analysis_duration = time.perf_counter() - analysis_start_time
 
         # Store results if requested
         if args.store_results:
@@ -605,16 +615,13 @@ def _store_longtail_result(
         window_end: Analysis window end time
     """
     try:
-        with session_factory() as session:
-            # TODO: Implement when we have the LongtailAnalysis model
-            logger.info("Longtail result storage not yet implemented")
+        # TODO: Implement when we have the LongtailAnalysis model
+        logger.info("Longtail result storage not yet implemented")
     except Exception as e:
         logger.error(f"Failed to store longtail results: {e}")
 
 
-# Import logger at module level
-import logging
-logger = logging.getLogger(__name__)
+# Logger is already defined at module level above
 
 
 def _run_botnet_analysis(args) -> int:
