@@ -22,7 +22,7 @@ Longtail analysis identifies attacks that are statistically rare but potentially
 - **CLI Integration**: `cowrie-analyze` command with botnet and snowshoe subcommands
 - **Metrics Framework**: Comprehensive telemetry and performance tracking
 - **SnowshoeDetection Model**: Database table for storing detection results
-- **Database Migration**: Schema v8 with snowshoe detection support
+- **Database Migration**: Schema v9 with longtail analysis support
 - **PostgreSQL Support**: Enhanced DLQ features are PostgreSQL-only (v7 migration)
 
 ### pgvector Extension Available
@@ -554,7 +554,7 @@ def detect_emerging_patterns(events: List[RawEvent], baseline_days: int = 30) ->
 - **Model Structure**: Follow `SnowshoeDetection` model pattern
 - **Indexing Strategy**: Use established indexing patterns
 - **JSON Storage**: Follow existing JSON field patterns
-- **Migration Pattern**: Use schema v8 migration approach
+- **Migration Pattern**: Use schema v9 migration approach
 
 ```python
 class LongtailAnalysis(Base):
@@ -568,27 +568,27 @@ class LongtailAnalysis(Base):
     window_end = Column(DateTime(timezone=True), nullable=False)
     lookback_days = Column(Integer, nullable=False)
     
-    # Analysis results (following SnowshoeDetection structure)
-    confidence_score = Column(String(10), nullable=False)  # Store as string like snowshoe
-    total_events_analyzed = Column(Integer, nullable=False)
-    rare_command_count = Column(Integer, nullable=False, server_default="0")
-    anomalous_sequence_count = Column(Integer, nullable=False, server_default="0")
-    outlier_session_count = Column(Integer, nullable=False, server_default="0")
-    emerging_pattern_count = Column(Integer, nullable=False, server_default="0")
-    high_entropy_payload_count = Column(Integer, nullable=False, server_default="0")
-    
-    # Results storage (following snowshoe pattern)
-    analysis_results = Column(JSON, nullable=False)  # Required like snowshoe indicators
-    statistical_summary = Column(JSON, nullable=True)
-    recommendation = Column(Text, nullable=True)  # Follow snowshoe pattern
-    
-    # Performance metrics
-    analysis_duration_seconds = Column(String(10), nullable=True)  # Store as string
-    memory_usage_mb = Column(String(10), nullable=True)
-    
-    # Quality metrics
-    data_quality_score = Column(String(10), nullable=True)
-    enrichment_coverage = Column(String(10), nullable=True)
+        # Analysis results (corrected data types - NOT following snowshoe mistake)
+        confidence_score = Column(Float, nullable=False)  # Proper Float type for numeric data
+        total_events_analyzed = Column(Integer, nullable=False)
+        rare_command_count = Column(Integer, nullable=False, server_default="0")
+        anomalous_sequence_count = Column(Integer, nullable=False, server_default="0")
+        outlier_session_count = Column(Integer, nullable=False, server_default="0")
+        emerging_pattern_count = Column(Integer, nullable=False, server_default="0")
+        high_entropy_payload_count = Column(Integer, nullable=False, server_default="0")
+
+        # Results storage
+        analysis_results = Column(JSON, nullable=False)
+        statistical_summary = Column(JSON, nullable=True)
+        recommendation = Column(Text, nullable=True)
+
+        # Performance metrics (proper numeric types)
+        analysis_duration_seconds = Column(Float, nullable=True)  # Float for seconds
+        memory_usage_mb = Column(Float, nullable=True)  # Float for MB
+
+        # Quality metrics (proper numeric types)
+        data_quality_score = Column(Float, nullable=True)  # Float 0.0-1.0
+        enrichment_coverage = Column(Float, nullable=True)  # Float 0.0-1.0
     
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     
@@ -610,10 +610,10 @@ class LongtailDetection(Base):
     session_id = Column(String(64), nullable=True, index=True)
     event_id = Column(Integer, ForeignKey("raw_events.id"), nullable=True)
     
-    # Detection details (following snowshoe pattern)
-    detection_data = Column(JSON, nullable=False)
-    confidence_score = Column(String(10), nullable=False)  # Store as string
-    severity_score = Column(String(10), nullable=False)
+        # Detection details
+        detection_data = Column(JSON, nullable=False)
+        confidence_score = Column(Float, nullable=False)  # Proper Float type
+        severity_score = Column(Float, nullable=False)  # Proper Float type
     
     # Context
     timestamp = Column(DateTime(timezone=True), nullable=False)
@@ -634,9 +634,9 @@ class LongtailDetection(Base):
 **File:** `cowrieprocessor/db/migrations.py`
 
 ```python
-def _upgrade_to_v8(connection: Connection) -> None:
-    """Add longtail analysis tables."""
-    logger.info("Adding longtail analysis tables...")
+def _upgrade_to_v9(connection: Connection) -> None:
+    """Add longtail analysis tables with proper data types."""
+    logger.info("Adding longtail analysis tables with proper Float data types...")
     
     # Create longtail_analysis table
     connection.execute(text("""
@@ -1511,7 +1511,7 @@ uv sync
 - **Indexing Strategy**: Lines 270-276 - Index patterns
 - **JSON Storage**: Lines 263, 267 - JSON field patterns
 **File:** `cowrieprocessor/db/migrations.py`
-- **Migration Pattern**: Lines 633-681 - Schema v8 migration approach
+- **Migration Pattern**: Lines 633-681 - Schema v9 migration approach
 
 ### 4. Metrics and Telemetry
 **File:** `cowrieprocessor/threat_detection/metrics.py`
@@ -1534,7 +1534,7 @@ uv sync
 | Phase 3 | 3 days | Core analysis engine | Traditional + vector methods with feature flags | ⏳ PENDING |
 | Phase 4 | 1 day | CLI integration | Commands with feature detection | ✅ COMPLETED |
 | Phase 5 | 2 days | Testing and validation | Comprehensive test suite, performance validation | ⏳ PENDING |
-| **Total** | **10 days** | **Production-ready longtail analysis** | **Technical corrections applied** | **5 days remaining** |
+| **Total** | **10 days** | **Production-ready longtail analysis** | **Technical corrections applied** | **8-9 days remaining** |
 
 ## Progress Update (Current Implementation Status)
 
@@ -1632,9 +1632,22 @@ uv sync
 - **Test Data**: Can now validate against populated database with real command data
 - **Remaining Work**: Database migration, stored procedures, result storage
 
-**Estimated Remaining Effort**: 5 days (reduced from 7)
-**Current Progress**: 50% complete (5 days of 10-day timeline)
-**Critical Blockers**: None - Ready for database testing
+**Estimated Remaining Effort**: 8-9 days (realistic assessment)
+**Current Progress**: 15-20% complete (architectural decisions made, working code ~2 days)
+**Critical Blockers**: None - Core architecture now properly designed
+
+### **Progress Reality Check**
+- ✅ **Feature Detection Framework** - Complete with proper database integration
+- ✅ **Data Type Corrections** - Fixed String(10) → Float for numeric fields
+- ✅ **Schema Version Consistency** - All v8 → v9 references corrected
+- ✅ **Command Extraction Architecture** - Proper batch query strategy designed
+- ✅ **CLI Integration** - Command structure implemented
+- ❌ **Command Extraction Implementation** - Batch queries not yet implemented
+- ❌ **Database Migration v9** - Schema creation not started
+- ❌ **Vectorization Implementation** - Skeleton only, needs database integration
+- ❌ **Testing** - Cannot run until command extraction works
+
+**Realistic Assessment**: 15-20% complete. You have solid architectural decisions and fixed the foundational issues, but still need to implement the actual database queries and migration.
 
 ## 🔍 **Database Structure Analysis (Development Assessment)**
 
@@ -1702,10 +1715,76 @@ def extract_commands_for_session(session_id: str) -> List[str]:
     return commands, normalized_commands
 ```
 
+### **Command Extraction Architecture (Critical Design)**
+
+#### **Proper Database Integration Pattern**
+```python
+class LongtailAnalyzer:
+    """Analyzer needs database access for command extraction."""
+
+    def __init__(self, session_factory):
+        """Initialize analyzer with database access."""
+        self.session_factory = session_factory
+        self.command_vectorizer = CommandVectorizer()
+
+    def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
+        """Analyze sessions with proper command extraction."""
+
+        # Extract command data from database
+        session_ids = [s.session_id for s in sessions]
+        commands_by_session = self._extract_commands_for_sessions(session_ids)
+
+        # Process commands for each session
+        for session in sessions:
+            commands = commands_by_session.get(session.session_id, [])
+            # Build frequency analysis, sequences, etc.
+
+        return result
+
+    def _extract_commands_for_sessions(self, session_ids: List[str]) -> Dict[str, List[str]]:
+        """Query RawEvent table for actual commands with batching."""
+
+        with self.session_factory() as session:
+            # Batch query strategy for performance
+            batch_size = 1000
+            all_commands = defaultdict(list)
+
+            for i in range(0, len(session_ids), batch_size):
+                batch_ids = session_ids[i:i + batch_size]
+
+                # Query RawEvent for cowrie.command.input events
+                events = session.query(RawEvent).filter(
+                    RawEvent.session_id.in_(batch_ids),
+                    RawEvent.event_type == "cowrie.command.input"
+                ).all()
+
+                for event in events:
+                    if event.payload and 'input' in event.payload:
+                        all_commands[event.session_id].append(event.payload['input'])
+
+            return dict(all_commands)
+```
+
+#### **Performance Considerations**
+- **Batch Query Strategy**: Process session IDs in batches of 1000 to avoid memory issues
+- **Index Requirements**: Ensure `session_id` and `event_type` are indexed on RawEvent table
+- **Memory Management**: Don't load all events at once for large datasets
+- **Connection Management**: Use context manager for proper session cleanup
+
+#### **Caching Strategy**
+- **TF-IDF Vocabulary**: Cache vectorizer vocabulary in database or filesystem
+- **Command Sequences**: Consider caching processed command sequences
+- **Vector Storage**: When pgvector available, store vectorized commands for reuse
+
+#### **Error Handling**
+- **Missing Commands**: Sessions with no command events should not crash analysis
+- **Database Errors**: Retry logic for transient database issues
+- **Memory Limits**: Graceful degradation if dataset too large for memory
+
 ### **Required Fixes for LongtailAnalyzer**
-1. **Replace `session.commands` access** with proper database queries
-2. **Add session parameter** to `analyze()` method for database access
-3. **Implement proper command extraction** from RawEvent/CommandStat tables
+1. **Replace `session.commands` access** with proper database queries ✅ IMPLEMENTED
+2. **Add session_factory to __init__** for database access
+3. **Implement `_extract_commands_for_sessions()`** with batch query strategy
 4. **Add error handling** for missing command data
 
 ### **Architecture Principles**

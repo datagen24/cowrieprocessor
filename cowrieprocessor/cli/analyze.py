@@ -547,8 +547,9 @@ def longtail_analyze(args: argparse.Namespace) -> int:
 
         logger.info("Found %d sessions for analysis", len(sessions))
 
-        # Initialize analyzer
+        # Initialize analyzer with database access
         analyzer = LongtailAnalyzer(
+            session_factory,
             rarity_threshold=args.rarity_threshold,
             sequence_window=args.sequence_window,
             cluster_eps=args.cluster_eps,
@@ -557,7 +558,7 @@ def longtail_analyze(args: argparse.Namespace) -> int:
             sensitivity_threshold=args.sensitivity_threshold,
         )
 
-        # Perform analysis with database session
+        # Perform analysis
         analysis_start_time = time.perf_counter()
         with start_span(
             "cowrie.longtail.analyze",
@@ -567,9 +568,7 @@ def longtail_analyze(args: argparse.Namespace) -> int:
                 "sensor": args.sensor or "all",
             },
         ):
-            # Create a database session for command extraction
-            with session_factory() as db_session:
-                result = analyzer.analyze(sessions, lookback_days, db_session)
+            result = analyzer.analyze(sessions, lookback_days)
 
         analysis_duration = time.perf_counter() - analysis_start_time
 
