@@ -1571,6 +1571,29 @@ uv sync
 - **Integration**: Proper module exports and imports
 - **Standards Compliance**: Follows all project coding standards
 
+### ⚠️ **Critical Issues Identified (Development Assessment)**
+**Status: NOT READY FOR TESTING** - Major data access issues discovered
+
+#### **1. Command Data Access Problem**
+- **Issue**: `LongtailAnalyzer._extract_command_data()` tries to access `session.commands` which **doesn't exist**
+- **Reality**: `SessionSummary` model only has `command_count` (integer), not actual commands
+- **Impact**: Current implementation would fail when trying to analyze real data
+
+#### **2. Missing Database Integration**
+- **Commands are stored in**:
+  - `RawEvent.payload` (JSON) with `input` field for `cowrie.command.input` events
+  - `CommandStat` table with `command_normalized` field
+- **Current code**: Assumes commands are in `SessionSummary.commands` (non-existent field)
+
+#### **3. CLI Integration Missing**
+- **Missing**: `cowrie-analyze longtail` command implementation
+- **Available**: Only `botnet` and `snowshoe` commands exist
+- **Impact**: No way to run longtail analysis from command line
+
+#### **4. Database Schema v9 Migration**
+- **Missing**: Migration for longtail analysis tables
+- **Impact**: Cannot store analysis results in database
+
 ### ⚠️ **Important Dependency Note**
 **PostgreSQL Support**: When running `uv sync`, use `uv sync --extras postgres` to maintain PostgreSQL support. Running `uv sync` without extras will remove the optional PostgreSQL modules (`psycopg2-binary`, `psycopg`), which are required for:
 - PostgreSQL database connections
@@ -1589,14 +1612,102 @@ uv sync --extras postgres,dev
 uv sync
 ```
 
-### 📋 **Next Steps (Remaining Work)**
+### 📋 **Next Steps (Critical Fixes Required)**
+
+#### **🚨 IMMEDIATE PRIORITY (Before Testing)**
+1. **Fix Command Data Access** - Rewrite `_extract_command_data()` to use proper database queries
+   - Query `RawEvent` table for `cowrie.command.input` events
+   - Use `CommandStat` table for normalized commands
+   - Properly link sessions to their commands
+2. **Add CLI Integration** - Implement `cowrie-analyze longtail` command
+3. **Create Database Migration v9** - Add longtail analysis tables
+
+#### **📊 REMAINING PHASES**
 1. **Phase 2**: Database schema v9 migration with pgvector support
 2. **Phase 3**: Complete core analysis engine (emerging patterns, high entropy payloads)
 3. **Phase 4**: CLI integration with `cowrie-analyze longtail` and `cowrie-report longtail` commands
 4. **Phase 5**: Testing and validation
 
-**Estimated Remaining Effort**: 7 days
+#### **🧪 TESTING READINESS**
+- **Current Status**: NOT READY - Critical data access issues
+- **Required Before Testing**: Fix command data extraction, add CLI command
+- **Test Data**: Need to validate against populated database with real command data
+
+**Estimated Remaining Effort**: 7 days (unchanged)
 **Current Progress**: 30% complete (3 days of 10-day timeline)
+**Critical Blockers**: Command data access, CLI integration
+
+## 🔍 **Database Structure Analysis (Development Assessment)**
+
+### **Available Data Sources for Longtail Analysis**
+
+#### **1. SessionSummary Table**
+```sql
+-- Available fields for session-level analysis
+session_id (String, Primary Key)
+first_event_at (DateTime)
+last_event_at (DateTime)
+event_count (Integer)
+command_count (Integer)  -- ⚠️ Only count, not actual commands
+file_downloads (Integer)
+login_attempts (Integer)
+vt_flagged (Boolean)
+dshield_flagged (Boolean)
+risk_score (Integer)
+```
+
+#### **2. RawEvent Table**
+```sql
+-- Available fields for command extraction
+id (Integer, Primary Key)
+session_id (String, Indexed)
+event_type (String, Indexed)  -- Look for "cowrie.command.input"
+payload (JSON)  -- Contains "input" field with actual commands
+event_timestamp (String)
+```
+
+#### **3. CommandStat Table**
+```sql
+-- Available fields for normalized commands
+id (Integer, Primary Key)
+session_id (String)
+command_normalized (Text)  -- Normalized command text
+occurrences (Integer)
+first_seen (DateTime)
+last_seen (DateTime)
+high_risk (Boolean)
+```
+
+### **Command Data Extraction Strategy**
+```python
+# CORRECT approach for command extraction
+def extract_commands_for_session(session_id: str) -> List[str]:
+    # Method 1: From RawEvent table
+    command_events = session.query(RawEvent).filter(
+        RawEvent.session_id == session_id,
+        RawEvent.event_type == "cowrie.command.input"
+    ).all()
+    
+    commands = []
+    for event in command_events:
+        if event.payload and 'input' in event.payload:
+            commands.append(event.payload['input'])
+    
+    # Method 2: From CommandStat table (normalized)
+    command_stats = session.query(CommandStat).filter(
+        CommandStat.session_id == session_id
+    ).all()
+    
+    normalized_commands = [cmd.command_normalized for cmd in command_stats]
+    
+    return commands, normalized_commands
+```
+
+### **Required Fixes for LongtailAnalyzer**
+1. **Replace `session.commands` access** with proper database queries
+2. **Add session parameter** to `analyze()` method for database access
+3. **Implement proper command extraction** from RawEvent/CommandStat tables
+4. **Add error handling** for missing command data
 
 ### Effort Reduction Summary
 - **Original Estimate**: 11 days
