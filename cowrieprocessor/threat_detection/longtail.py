@@ -12,7 +12,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from ..db.models import SessionSummary
+from ..db.models import CommandStat, SessionSummary
 
 logger = logging.getLogger(__name__)
 
@@ -147,13 +147,19 @@ class LongtailAnalyzer:
         self._session_characteristics: List[Dict[str, Any]] = []
         self._command_sequences: List[str] = []
     
-    def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
+    def analyze(
+        self,
+        sessions: List[SessionSummary],
+        lookback_days: int,
+        db_session: Optional[Session] = None
+    ) -> LongtailAnalysisResult:
         """Perform longtail analysis on sessions.
-        
+
         Args:
             sessions: List of session summaries to analyze
             lookback_days: Number of days of data being analyzed
-            
+            db_session: Database session for querying command data (optional for testing)
+
         Returns:
             LongtailAnalysisResult with analysis findings
         """
@@ -176,7 +182,7 @@ class LongtailAnalyzer:
             return result
         
         # Extract commands and build frequency analysis
-        self._extract_command_data(sessions)
+        self._extract_command_data(sessions, db_session)
         result.total_events_analyzed = sum(self._command_frequencies.values())
         
         # Perform analysis methods
@@ -227,28 +233,48 @@ class LongtailAnalyzer:
             return max(0.0, duration)
         return 0.0
     
-    def _extract_command_data(self, sessions: List[SessionSummary]) -> None:
-        """Extract command data from sessions for analysis."""
+    def _extract_command_data(
+        self,
+        sessions: List[SessionSummary],
+        db_session: Optional[Session] = None
+    ) -> None:
+        """Extract command data from sessions for analysis.
+
+        Args:
+            sessions: List of session summaries to analyze
+            db_session: Database session for querying command data
+        """
         self._command_frequencies = {}
         self._session_characteristics = []
         self._command_sequences = []
-        
+
+        if not db_session:
+            logger.warning("No database session provided - using session.command_count only")
+            # Fallback to session-level analysis only
+            for session in sessions:
+                # Build session characteristics
+                session_chars = {
+                    'session_id': session.session_id,
+                    'src_ip': getattr(session, 'src_ip', None),  # May not exist
+                    'duration': self._calculate_session_duration(session),
+                    'command_count': session.command_count,
+                    'login_attempts': session.login_attempts,
+                    'file_operations': session.file_downloads,  # Use file_downloads instead
+                    'timestamp': session.first_event_at,  # Use first_event_at instead
+                }
+                self._session_characteristics.append(session_chars)
+            return
+
         for session in sessions:
-            # Extract commands from session
-            commands = []
-            if hasattr(session, 'commands') and session.commands:
-                try:
-                    commands = json.loads(session.commands) if isinstance(session.commands, str) else session.commands
-                except (json.JSONDecodeError, TypeError):
-                    commands = []
-            
+            # Extract commands from database
+            commands = self._extract_commands_for_session(session.session_id, db_session)
+
             # Build command frequency
             for command in commands:
-                if isinstance(command, dict) and 'input' in command:
-                    cmd = command['input'].strip()
-                    if cmd:
-                        self._command_frequencies[cmd] = self._command_frequencies.get(cmd, 0) + 1
-            
+                cmd = command.strip()
+                if cmd:
+                    self._command_frequencies[cmd] = self._command_frequencies.get(cmd, 0) + 1
+
             # Build session characteristics
             session_chars = {
                 'session_id': session.session_id,
@@ -260,17 +286,53 @@ class LongtailAnalyzer:
                 'timestamp': session.first_event_at,  # Use first_event_at instead
             }
             self._session_characteristics.append(session_chars)
-            
+
             # Build command sequences
             if len(commands) >= self.sequence_window:
-                sequence = ' '.join([
-                    cmd.get('input', '').strip() 
-                    for cmd in commands[:self.sequence_window] 
-                    if isinstance(cmd, dict) and 'input' in cmd
-                ])
+                sequence = ' '.join(commands[:self.sequence_window])
                 if sequence.strip():
                     self._command_sequences.append(sequence)
-    
+
+    def _extract_commands_for_session(self, session_id: str, db_session: Session) -> List[str]:
+        """Extract commands for a specific session from database.
+
+        Args:
+            session_id: Session ID to extract commands for
+            db_session: Database session to use for queries
+
+        Returns:
+            List of command strings for the session
+        """
+        commands = []
+
+        try:
+            # Method 1: Query RawEvent table for cowrie.command.input events
+            raw_events = db_session.query(RawEvent).filter(
+                RawEvent.session_id == session_id,
+                RawEvent.event_type == "cowrie.command.input"
+            ).all()
+
+            for event in raw_events:
+                if event.payload and isinstance(event.payload, dict):
+                    command = event.payload.get('input')
+                    if command and isinstance(command, str):
+                        commands.append(command.strip())
+
+            # Method 2: Query CommandStat table for normalized commands
+            if not commands:  # Fallback if no raw events found
+                command_stats = db_session.query(CommandStat).filter(
+                    CommandStat.session_id == session_id
+                ).all()
+
+                for cmd_stat in command_stats:
+                    if cmd_stat.command_normalized:
+                        commands.append(cmd_stat.command_normalized.strip())
+
+        except Exception as e:
+            logger.error(f"Error extracting commands for session {session_id}: {e}")
+
+        return commands
+
     def _detect_rare_commands(self) -> List[Dict[str, Any]]:
         """Detect rare commands using frequency analysis."""
         if not self._command_frequencies:

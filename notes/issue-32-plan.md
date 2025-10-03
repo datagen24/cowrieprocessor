@@ -1709,6 +1709,12 @@ def extract_commands_for_session(session_id: str) -> List[str]:
 3. **Implement proper command extraction** from RawEvent/CommandStat tables
 4. **Add error handling** for missing command data
 
+### **Architecture Principles**
+1. **Common Tooling**: Use existing database access layers (`ReportingRepository`, `session_factory`)
+2. **No Direct CLI Implementation**: Analysis logic stays in core modules, CLI integration follows existing patterns
+3. **Database Offloading**: When PostgreSQL/pgvector available, use stored procedures/functions for heavy computation
+4. **Graceful Degradation**: Traditional statistical methods when vector capabilities unavailable
+
 ### Effort Reduction Summary
 - **Original Estimate**: 11 days
 - **With Issue 31 Reuse**: 8 days (27% reduction)

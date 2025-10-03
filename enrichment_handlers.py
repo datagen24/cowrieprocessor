@@ -110,13 +110,53 @@ def vt_query(
     vtapi: str,
     skip_enrich: bool = False,
     *,
-    session_factory: SessionFactory = requests.session,
+    session_factory: SessionFactory = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Any:
     """Query VirusTotal for ``file_hash`` and persist the JSON response."""
     if skip_enrich or not vtapi:
         return None
 
+    # Use rate-limited session factory if none provided
+    if session_factory is None:
+        rate_limit, burst = get_service_rate_limit("virustotal")
+        session_factory = create_rate_limited_session_factory(rate_limit, burst)
+
+    # Custom retry logic for 401 errors with longer backoff
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            return _vt_query_single_attempt(file_hash, cache_dir, vtapi, session_factory, timeout)
+        except requests.HTTPError as e:
+            if hasattr(e, 'response') and e.response.status_code == 401:
+                if attempt < max_retries:
+                    # Longer backoff for 401 errors (rate limiting)
+                    backoff_time = 60.0 * (2 ** attempt)  # 60s, 120s, 240s
+                    LOGGER.warning("VT 401 error for %s, retrying in %.1f seconds (attempt %d/%d)", 
+                                 file_hash, backoff_time, attempt + 1, max_retries + 1)
+                    time.sleep(backoff_time)
+                    continue
+                else:
+                    LOGGER.error("VT 401 error for %s after %d attempts, giving up", file_hash, max_retries + 1)
+                    return None
+            else:
+                # Re-raise other HTTP errors to let the decorator handle them
+                raise
+        except Exception as e:
+            # Re-raise other exceptions to let the decorator handle them
+            raise
+    
+    return None
+
+
+def _vt_query_single_attempt(
+    file_hash: str,
+    cache_dir: Path,
+    vtapi: str,
+    session_factory: SessionFactory,
+    timeout: int,
+) -> Any:
+    """Single attempt at VirusTotal query without retry logic."""
     try:
         session = session_factory()
     except Exception:  # pragma: no cover - defensive logging
@@ -134,10 +174,24 @@ def vt_query(
             f"https://www.virustotal.com/api/v3/files/{file_hash}",
             timeout=timeout,
         )
-        if getattr(response, "status_code", 0) == 429:
+        
+        # Handle specific HTTP status codes
+        status_code = getattr(response, "status_code", 0)
+        if status_code == 429:
             LOGGER.warning("VT query rate limited for %s", file_hash)
             return None
-        response.raise_for_status()
+        elif status_code == 401:
+            LOGGER.warning("VT query unauthorized for %s (API key issue or rate limit)", file_hash)
+            # Raise the exception to trigger retry logic
+            response.raise_for_status()
+        elif status_code == 404:
+            LOGGER.debug("VT query file not found for %s", file_hash)
+            return None
+        elif status_code >= 400:
+            LOGGER.warning("VT query HTTP error %d for %s", status_code, file_hash)
+            response.raise_for_status()
+        
+        # Success case
         _write_text(cache_dir / file_hash, getattr(response, "text", ""))
         json_loader = getattr(response, "json", None)
         if callable(json_loader):
@@ -148,8 +202,18 @@ def vt_query(
                 LOGGER.debug("Unable to parse VT JSON for %s", file_hash, exc_info=True)
                 return None
         return None
-    except Exception:  # pragma: no cover - exercised in integration
-        LOGGER.error("VT query failed for %s", file_hash, exc_info=True)
+        
+    except requests.HTTPError as e:
+        # Re-raise HTTP errors to let the retry logic handle them
+        LOGGER.warning("VT HTTP error for %s: %s", file_hash, e)
+        raise
+    except (requests.RequestException, ConnectionError, TimeoutError) as e:
+        # Re-raise network errors to let the retry logic handle them
+        LOGGER.warning("VT network error for %s: %s", file_hash, e)
+        raise
+    except Exception as e:  # pragma: no cover - defensive logging
+        # Only catch truly unexpected errors
+        LOGGER.error("VT unexpected error for %s: %s", file_hash, e, exc_info=True)
         return None
     finally:
         try:
