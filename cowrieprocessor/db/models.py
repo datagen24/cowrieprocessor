@@ -34,6 +34,23 @@ class SchemaState(Base):
     value = Column(String(256), nullable=False)
 
 
+class SchemaMetadata(Base):
+    """Track schema version and available features."""
+
+    __tablename__ = "schema_metadata"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    version = Column(Integer, nullable=False)
+    database_type = Column(String(16), nullable=False)  # 'postgresql' or 'sqlite'
+    features = Column(JSON, nullable=False)
+    upgraded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_schema_metadata_version", "version"),
+        Index("ix_schema_metadata_database_type", "database_type"),
+    )
+
+
 class RawEvent(Base):
     """Persistent copy of raw Cowrie events with JSON payloads and extracted columns."""
 
@@ -278,6 +295,7 @@ class SnowshoeDetection(Base):
 
 __all__ = [
     "SchemaState",
+    "SchemaMetadata",
     "RawEvent",
     "SessionSummary",
     "CommandStat",
