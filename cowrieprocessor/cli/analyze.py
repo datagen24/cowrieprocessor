@@ -15,27 +15,9 @@ from ..db.models import SessionSummary, SnowshoeDetection, RawEvent
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
-from ..threat_detection import BotnetCoordinatorDetector, SnowshoeDetector, create_snowshoe_metrics_from_detection
+from ..threat_detection import BotnetCoordinatorDetector, LongtailAnalyzer, LongtailAnalysisResult, SnowshoeDetector, create_snowshoe_metrics_from_detection
 from sqlalchemy import and_, func
-
-
-def _resolve_db_settings(db_arg: Optional[str]) -> DatabaseSettings:
-    """Resolve database settings from argument or configuration.
-    
-    Args:
-        db_arg: Database URL argument
-        
-    Returns:
-        Database settings object
-    """
-    if not db_arg:
-        return load_database_settings()
-    if db_arg.startswith("sqlite:"):
-        return load_database_settings(config={"url": db_arg})
-    db_path = Path(db_arg)
-    if db_path.exists() or db_arg.endswith(".sqlite"):
-        return DatabaseSettings(url=f"sqlite:///{db_path.resolve()}")
-    return load_database_settings(config={"url": db_arg})
+from .db_config import resolve_database_settings, add_database_argument
 
 
 def _parse_window_arg(window_str: str) -> timedelta:
@@ -119,7 +101,7 @@ def snowshoe_analyze(args: argparse.Namespace) -> int:
         )
         
         # Setup database
-        settings = _resolve_db_settings(args.db)
+        settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
         apply_migrations(engine)
         session_factory = create_session_maker(engine)
@@ -236,7 +218,7 @@ def snowshoe_report(args: argparse.Namespace) -> int:
     """
     try:
         # Setup database
-        settings = _resolve_db_settings(args.db)
+        settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
         session_factory = create_session_maker(engine)
         
@@ -406,10 +388,83 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Directory for status JSON files"
     )
     snowshoe_parser.add_argument(
-        "--ingest-id", 
+        "--ingest-id",
         help="Ingest identifier for status tracking"
     )
-    
+
+    # Longtail analyze command
+    longtail_parser = subparsers.add_parser(
+        "longtail",
+        help="Analyze sessions for rare, unusual, and emerging attack patterns"
+    )
+    longtail_parser.add_argument(
+        "--lookback-days",
+        type=int,
+        default=7,
+        help="Number of days to look back for analysis (default: 7)"
+    )
+    longtail_parser.add_argument(
+        "--rarity-threshold",
+        type=float,
+        default=0.05,
+        help="Threshold for rare command detection (0.0-1.0, default: 0.05)"
+    )
+    longtail_parser.add_argument(
+        "--sequence-window",
+        type=int,
+        default=5,
+        help="Number of commands in sequence analysis (default: 5)"
+    )
+    longtail_parser.add_argument(
+        "--cluster-eps",
+        type=float,
+        default=0.3,
+        help="DBSCAN epsilon parameter for clustering (default: 0.3)"
+    )
+    longtail_parser.add_argument(
+        "--min-cluster-size",
+        type=int,
+        default=5,
+        help="Minimum cluster size for DBSCAN (default: 5)"
+    )
+    longtail_parser.add_argument(
+        "--entropy-threshold",
+        type=float,
+        default=0.8,
+        help="High entropy threshold for payload detection (default: 0.8)"
+    )
+    longtail_parser.add_argument(
+        "--sensitivity-threshold",
+        type=float,
+        default=0.95,
+        help="Overall detection sensitivity threshold (default: 0.95)"
+    )
+    longtail_parser.add_argument(
+        "--sensor",
+        help="Filter by specific sensor name"
+    )
+    longtail_parser.add_argument(
+        "--output",
+        help="Output file path (default: stdout)"
+    )
+    longtail_parser.add_argument(
+        "--store-results",
+        action="store_true",
+        help="Store results in database"
+    )
+    longtail_parser.add_argument(
+        "--db",
+        help="Database URL or SQLite path"
+    )
+    longtail_parser.add_argument(
+        "--status-dir",
+        help="Directory for status JSON files"
+    )
+    longtail_parser.add_argument(
+        "--ingest-id",
+        help="Ingest identifier for status tracking"
+    )
+
     # Snowshoe report command
     report_parser = subparsers.add_parser(
         "snowshoe-report", 
@@ -445,9 +500,117 @@ def main(argv: Iterable[str] | None = None) -> int:
         return snowshoe_analyze(args)
     elif args.command == "snowshoe-report":
         return snowshoe_report(args)
+    elif args.command == "longtail":
+        return longtail_analyze(args)
     else:
         parser.error(f"Unknown command: {args.command}")
         return 1
+
+
+def longtail_analyze(args: argparse.Namespace) -> int:
+    """Run longtail analysis on Cowrie data.
+
+    Args:
+        args: Parsed command line arguments
+
+    Returns:
+        Exit code (0 for success)
+    """
+    try:
+        # Parse lookback days
+        lookback_days = args.lookback_days
+        window_delta = timedelta(days=lookback_days)
+        window_end = datetime.now(UTC)
+        window_start = window_end - window_delta
+
+        logger.info(
+            "Starting longtail analysis: lookback=%dd, sensitivity=%.2f, sensor=%s",
+            lookback_days,
+            args.sensitivity_threshold,
+            args.sensor or "all",
+        )
+
+        # Setup database
+        settings = resolve_database_settings(args.db)
+        engine = create_engine_from_settings(settings)
+        apply_migrations(engine)
+        session_factory = create_session_maker(engine)
+
+        # Query sessions
+        sessions = _query_sessions_for_analysis(
+            session_factory, window_start, window_end, args.sensor
+        )
+
+        if not sessions:
+            logger.warning("No sessions found for analysis window")
+            return 1
+
+        logger.info("Found %d sessions for analysis", len(sessions))
+
+        # Initialize analyzer
+        analyzer = LongtailAnalyzer(
+            rarity_threshold=args.rarity_threshold,
+            sequence_window=args.sequence_window,
+            cluster_eps=args.cluster_eps,
+            min_cluster_size=args.min_cluster_size,
+            entropy_threshold=args.entropy_threshold,
+            sensitivity_threshold=args.sensitivity_threshold,
+        )
+
+        # Perform analysis with database session
+        analysis_start_time = time.perf_counter()
+        with start_span(
+            "cowrie.longtail.analyze",
+            {
+                "lookback_days": lookback_days,
+                "session_count": len(sessions),
+                "sensor": args.sensor or "all",
+            },
+        ):
+            # Create a database session for command extraction
+            with session_factory() as db_session:
+                result = analyzer.analyze(sessions, lookback_days, db_session)
+
+        analysis_duration = time.perf_counter() - analysis_start_time
+
+        # Store results if requested
+        if args.store_results:
+            _store_longtail_result(session_factory, result, window_start, window_end)
+
+        # Output results
+        if args.output:
+            with open(args.output, 'w') as f:
+                json.dump(result, f, indent=2, default=str)
+        else:
+            print(json.dumps(result, indent=2, default=str))
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Longtail analysis failed: {e}", exc_info=True)
+        return 2
+
+
+def _store_longtail_result(
+    session_factory,
+    result: LongtailAnalysisResult,
+    window_start: datetime,
+    window_end: datetime
+) -> None:
+    """Store longtail analysis results in database.
+
+    Args:
+        session_factory: Database session factory
+        result: Analysis results to store
+        window_start: Analysis window start time
+        window_end: Analysis window end time
+    """
+    try:
+        with session_factory() as session:
+            # TODO: Implement when we have the LongtailAnalysis model
+            logger.info("Longtail result storage not yet implemented")
+    except Exception as e:
+        logger.error(f"Failed to store longtail results: {e}")
 
 
 # Import logger at module level
@@ -459,7 +622,7 @@ def _run_botnet_analysis(args) -> int:
     """Run botnet coordination analysis."""
     try:
         # Resolve database settings
-        settings = _resolve_db_settings(args.db)
+        settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
         apply_migrations(engine)
         session_factory = create_session_maker(engine)
