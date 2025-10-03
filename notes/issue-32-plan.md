@@ -1467,6 +1467,26 @@ async def get_longtail_patterns(self, time_window: str = "7d") -> dict:
 - **CLI Framework**: **COMPLETE** - `cowrie-analyze` command structure from issue 31
 - **PostgreSQL**: Required for pgvector extension - **ENHANCED DLQ FEATURES ALREADY REQUIRE POSTGRESQL**
 
+### ⚠️ **Critical Setup Note**
+**PostgreSQL Dependencies**: The longtail analysis requires PostgreSQL with pgvector extension. When setting up the environment:
+
+```bash
+# ✅ CORRECT: Maintain PostgreSQL support
+uv sync --extras postgres
+
+# ✅ CORRECT: Development with all features  
+uv sync --extras postgres,dev
+
+# ❌ WRONG: This removes PostgreSQL modules
+uv sync
+```
+
+**Why This Matters:**
+- `psycopg2-binary` and `psycopg` are optional dependencies
+- Without `--extras postgres`, these modules are removed
+- Longtail analysis features require PostgreSQL + pgvector
+- Feature detection framework gracefully degrades but loses vector capabilities
+
 ## Specific Reusable Code Components from Issue 31
 
 ### 1. Statistical Analysis Patterns
@@ -1550,6 +1570,24 @@ async def get_longtail_patterns(self, time_window: str = "7d") -> dict:
 - **Documentation**: Comprehensive docstrings and type hints
 - **Integration**: Proper module exports and imports
 - **Standards Compliance**: Follows all project coding standards
+
+### ⚠️ **Important Dependency Note**
+**PostgreSQL Support**: When running `uv sync`, use `uv sync --extras postgres` to maintain PostgreSQL support. Running `uv sync` without extras will remove the optional PostgreSQL modules (`psycopg2-binary`, `psycopg`), which are required for:
+- PostgreSQL database connections
+- pgvector extension support
+- Advanced longtail analysis features
+
+**Correct Commands:**
+```bash
+# For PostgreSQL support (required for longtail analysis)
+uv sync --extras postgres
+
+# For development with all features
+uv sync --extras postgres,dev
+
+# ❌ DON'T use this - removes PostgreSQL support
+uv sync
+```
 
 ### 📋 **Next Steps (Remaining Work)**
 1. **Phase 2**: Database schema v9 migration with pgvector support
