@@ -10,6 +10,8 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -293,6 +295,80 @@ class SnowshoeDetection(Base):
     )
 
 
+class LongtailAnalysis(Base):
+    """Store longtail analysis results and metadata - following SnowshoeDetection pattern."""
+
+    __tablename__ = "longtail_analysis"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    analysis_time = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    window_start = Column(DateTime(timezone=True), nullable=False)  # Follow snowshoe pattern
+    window_end = Column(DateTime(timezone=True), nullable=False)
+    lookback_days = Column(Integer, nullable=False)
+
+    # Analysis results (corrected data types - NOT following snowshoe mistake)
+    confidence_score = Column(Float, nullable=False)  # Proper Float type for numeric data
+    total_events_analyzed = Column(Integer, nullable=False)
+    rare_command_count = Column(Integer, nullable=False, server_default="0")
+    anomalous_sequence_count = Column(Integer, nullable=False, server_default="0")
+    outlier_session_count = Column(Integer, nullable=False, server_default="0")
+    emerging_pattern_count = Column(Integer, nullable=False, server_default="0")
+    high_entropy_payload_count = Column(Integer, nullable=False, server_default="0")
+
+    # Results storage
+    analysis_results = Column(JSON, nullable=False)
+    statistical_summary = Column(JSON, nullable=True)
+    recommendation = Column(Text, nullable=True)
+
+    # Performance metrics (proper numeric types)
+    analysis_duration_seconds = Column(Float, nullable=True)  # Float for seconds
+    memory_usage_mb = Column(Float, nullable=True)  # Float for MB
+
+    # Quality metrics (proper numeric types)
+    data_quality_score = Column(Float, nullable=True)  # Float 0.0-1.0
+    enrichment_coverage = Column(Float, nullable=True)  # Float 0.0-1.0
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_longtail_analysis_time", "analysis_time"),
+        Index("ix_longtail_analysis_window", "window_start", "window_end"),  # Follow snowshoe
+        Index("ix_longtail_analysis_confidence", "confidence_score"),
+        Index("ix_longtail_analysis_created", "created_at"),
+    )
+
+
+class LongtailDetection(Base):
+    """Store individual longtail detections - simplified version."""
+
+    __tablename__ = "longtail_detections"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    analysis_id = Column(Integer, ForeignKey("longtail_analysis.id"), nullable=False)
+    detection_type = Column(String(32), nullable=False)  # rare_command, anomalous_sequence, etc.
+    session_id = Column(String(64), nullable=True, index=True)
+    event_id = Column(Integer, ForeignKey("raw_events.id"), nullable=True)
+
+    # Detection details
+    detection_data = Column(JSON, nullable=False)
+    confidence_score = Column(Float, nullable=False)  # Proper Float type
+    severity_score = Column(Float, nullable=False)  # Proper Float type
+
+    # Context
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+    source_ip = Column(String(45), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_longtail_detections_analysis", "analysis_id"),
+        Index("ix_longtail_detections_type", "detection_type"),
+        Index("ix_longtail_detections_session", "session_id"),
+        Index("ix_longtail_detections_timestamp", "timestamp"),
+        Index("ix_longtail_detections_created", "created_at"),  # Follow snowshoe pattern
+    )
+
+
 __all__ = [
     "SchemaState",
     "SchemaMetadata",
@@ -303,4 +379,6 @@ __all__ = [
     "DeadLetterEvent",
     "Files",
     "SnowshoeDetection",
+    "LongtailAnalysis",
+    "LongtailDetection",
 ]
