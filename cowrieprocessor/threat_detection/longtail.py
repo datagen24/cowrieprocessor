@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+# Limit OpenMP threads to prevent resource issues - MUST be set before importing numpy/sklearn
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 import hashlib
 import json
 import logging
@@ -14,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import ipaddress
 import numpy as np
 import psutil
 from sklearn.cluster import DBSCAN
@@ -22,6 +31,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db.models import SessionSummary
+from ..db import create_session_maker, create_engine_from_settings
+from ..settings import DatabaseSettings
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +52,7 @@ class LongtailAnalysisResult:
     total_events_analyzed: int = 0
     total_sessions_analyzed: int = 0
     analysis_duration_seconds: float = 0.0
+    memory_usage_mb: float = 0.0
     
     # Feature flags
     vector_analysis_enabled: bool = False
@@ -73,7 +85,7 @@ class CommandVectorizer:
             max_features: Maximum number of features for TF-IDF
             ngram_range: Range of n-grams to extract
         """
-        self.vocab_path = vocab_path or Path('/var/lib/cowrie-processor/vocab.pkl')
+        self.vocab_path = vocab_path or Path.home() / ".cache" / "cowrieprocessor" / "vocab.pkl"
         self.max_features = max_features
         self.ngram_range = ngram_range
         self.vectorizer = self._load_or_create_vectorizer()
@@ -158,6 +170,81 @@ class CommandVectorizer:
         return self.vectorizer.get_feature_names_out().tolist()
 
 
+def run_longtail_analysis(
+    db_url: str,
+    lookback_days: int = 7,
+    rarity_threshold: float = 0.05,
+    sequence_window: int = 5,
+    cluster_eps: float = 0.3,
+    min_cluster_size: int = 5,
+    entropy_threshold: float = 0.8,
+    sensitivity_threshold: float = 0.95,
+    output_path: Optional[str] = None,
+    store_results: bool = False,
+) -> LongtailAnalysisResult:
+    """Run longtail analysis on Cowrie data (core processor integration).
+
+    This is the main entry point for longtail analysis that integrates with
+    the core Cowrie processor rather than being a separate CLI tool.
+
+    Args:
+        db_url: Database connection URL
+        lookback_days: Number of days to look back for analysis
+        rarity_threshold: Threshold for rare command detection (0.0-1.0)
+        sequence_window: Number of commands in sequence analysis
+        cluster_eps: DBSCAN epsilon parameter for clustering
+        min_cluster_size: Minimum cluster size for DBSCAN
+        entropy_threshold: Threshold for high entropy detection
+        sensitivity_threshold: Overall detection sensitivity
+        output_path: Optional file path to write results
+        store_results: Whether to store results in database
+
+    Returns:
+        LongtailAnalysisResult with analysis findings
+    """
+    # Setup database
+    db_settings = DatabaseSettings(url=db_url)
+    engine = create_engine_from_settings(db_settings)
+    session_factory = create_session_maker(engine)
+
+    # Get sessions for analysis
+    window_start = datetime.now(UTC) - timedelta(days=lookback_days)
+
+    with session_factory() as session:
+        sessions = session.query(SessionSummary).filter(
+            SessionSummary.first_event_at >= window_start
+        ).all()
+
+    if not sessions:
+        logger.warning(f"No sessions found for analysis window ({lookback_days} days)")
+        return LongtailAnalysisResult()
+
+    logger.info(f"Analyzing {len(sessions)} sessions from last {lookback_days} days")
+
+    # Create and run analyzer
+    analyzer = LongtailAnalyzer(
+        session_factory,
+        rarity_threshold=rarity_threshold,
+        sequence_window=sequence_window,
+        cluster_eps=cluster_eps,
+        min_cluster_size=min_cluster_size,
+        entropy_threshold=entropy_threshold,
+        sensitivity_threshold=sensitivity_threshold,
+    )
+
+    result = analyzer.analyze(sessions, lookback_days)
+
+    # Output results
+    if output_path:
+        import json
+        with open(output_path, 'w') as f:
+            json.dump(result.__dict__, f, indent=2, default=str)
+        logger.info(f"Results written to {output_path}")
+    else:
+        # Return results for further processing
+        return result
+
+
 class LongtailAnalyzer:
     """Detects rare, unusual, and emerging attack patterns using statistical analysis."""
 
@@ -172,6 +259,9 @@ class LongtailAnalyzer:
         entropy_threshold: float = 0.8,  # High entropy threshold
         sensitivity_threshold: float = 0.95,  # Overall detection threshold
         vector_analysis_enabled: bool = True,  # Enable vector-based analysis
+        batch_size: int = 100,  # Batch size for command extraction
+        memory_limit_gb: Optional[float] = None,  # Memory limit override
+        memory_warning_threshold: float = 0.75,  # Warning threshold as fraction of limit
     ) -> None:
         """Initialize longtail analyzer with database access and performance optimizations.
 
@@ -185,6 +275,9 @@ class LongtailAnalyzer:
             entropy_threshold: Threshold for high entropy detection
             sensitivity_threshold: Overall detection sensitivity
             vector_analysis_enabled: Enable vector-based analysis methods
+            batch_size: Number of sessions to process in each batch (default: 100)
+            memory_limit_gb: Memory limit override (GB, None for auto-detection)
+            memory_warning_threshold: Warning threshold as fraction of limit (default: 0.75)
         """
         self.session_factory = session_factory
         self.rarity_threshold = rarity_threshold
@@ -194,17 +287,22 @@ class LongtailAnalyzer:
         self.entropy_threshold = entropy_threshold
         self.sensitivity_threshold = sensitivity_threshold
         self.vector_analysis_enabled = vector_analysis_enabled
+        self.batch_size = batch_size
+        self.memory_limit_gb = memory_limit_gb
+        self.memory_warning_threshold_fraction = memory_warning_threshold
 
         # Initialize vectorizer with persistent vocabulary
         self.command_vectorizer = CommandVectorizer(vocab_path)
 
         # Analysis state
         self._command_frequencies: Dict[str, int] = {}
+        self._command_to_sessions: Dict[str, List[str]] = {}  # Track which sessions each command appears in
         self._session_characteristics: List[Dict[str, Any]] = []
         self._command_sequences: List[str] = []
 
         # Performance optimizations
         self._command_cache: Dict[str, Dict[str, List[str]]] = {}
+        self._memory_warning_threshold = 1.5 * 1024  # Default 1.5GB warning threshold
     
     def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
         """Perform longtail analysis on sessions with resource monitoring.
@@ -220,9 +318,38 @@ class LongtailAnalyzer:
         process = psutil.Process()
         start_memory = process.memory_info().rss / 1024 / 1024  # MB
 
-        # Set memory limit (500MB)
-        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        resource.setrlimit(resource.RLIMIT_AS, (500 * 1024 * 1024, hard))
+        # Set reasonable memory limit based on available system memory
+        # For systems with 128GB RAM, allow up to 8GB for analysis
+        # For smaller systems, use a percentage of available memory
+        try:
+            if self.memory_limit_gb:
+                # Use user-specified memory limit
+                memory_limit_mb = self.memory_limit_gb * 1024
+                warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
+                logger.info(f"Using user-specified memory limit: {self.memory_limit_gb:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)")
+            else:
+                # Auto-detect based on system memory
+                total_memory_gb = psutil.virtual_memory().total / (1024**3)
+                if total_memory_gb >= 64:  # High-memory system (64GB+)
+                    memory_limit_mb = 8 * 1024  # 8GB
+                    warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
+                elif total_memory_gb >= 16:  # Medium-memory system (16-64GB)
+                    memory_limit_mb = 4 * 1024  # 4GB
+                    warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
+                else:  # Low-memory system (<16GB)
+                    memory_limit_mb = 2 * 1024  # 2GB
+                    warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
+                    
+                logger.info(f"System memory: {total_memory_gb:.1f}GB, setting analysis limit to {memory_limit_mb/1024:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)")
+            
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            resource.setrlimit(resource.RLIMIT_AS, (int(memory_limit_mb * 1024 * 1024), hard))
+            self._memory_warning_threshold = warning_threshold_mb
+        except Exception as e:
+            logger.warning(f"Could not set memory limits: {e}, using default 2GB limit")
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, hard))
+            self._memory_warning_threshold = 1.5 * 1024
 
         start_time = time.perf_counter()
 
@@ -246,6 +373,16 @@ class LongtailAnalyzer:
             # Extract commands and build frequency analysis
             self._extract_command_data(sessions)
             result.total_events_analyzed = sum(self._command_frequencies.values())
+
+            # Check if we have any commands to analyze
+            if not self._command_frequencies:
+                logger.warning("No commands extracted from sessions - analysis will be limited")
+                result.statistical_summary = {
+                    "analysis_method": "limited_analysis",
+                    "error": "No commands extracted",
+                    "total_sessions": len(sessions),
+                }
+                return result
 
             # Perform analysis methods
             result.rare_commands = self._detect_rare_commands()
@@ -271,6 +408,15 @@ class LongtailAnalyzer:
                 "analysis_method": "session_level_fallback",
                 "error": "Memory limit exceeded",
                 "total_sessions": len(sessions),
+                "memory_limit_mb": self._memory_warning_threshold,
+                "suggestion": "Try reducing batch_size or lookback_days, or increase system memory",
+            }
+        except Exception as e:
+            logger.error(f"Analysis failed with error: {e}", exc_info=True)
+            result.statistical_summary = {
+                "analysis_method": "error_fallback",
+                "error": str(e),
+                "total_sessions": len(sessions),
             }
 
         # Calculate analysis duration and memory usage
@@ -278,8 +424,8 @@ class LongtailAnalyzer:
         end_memory = process.memory_info().rss / 1024 / 1024
         result.memory_usage_mb = end_memory - start_memory
 
-        if result.memory_usage_mb > 400:  # Warning threshold
-            logger.warning(f"High memory usage: {result.memory_usage_mb:.1f}MB")
+        if result.memory_usage_mb > self._memory_warning_threshold:  # Dynamic warning threshold
+            logger.warning(f"High memory usage: {result.memory_usage_mb:.1f}MB (threshold: {self._memory_warning_threshold:.1f}MB)")
 
         logger.info(
             "Longtail analysis completed: duration=%.2fs, memory=%.1fMB, rare_commands=%d, "
@@ -499,6 +645,73 @@ class LongtailAnalyzer:
             return max(0.0, duration)
         return 0.0
     
+    def _extract_ip_from_session(self, session: SessionSummary) -> Optional[str]:
+        """Extract IP address from session enrichment data or raw events."""
+        try:
+            # First try enrichment data
+            if session.enrichment and session.enrichment != 'null':
+                enrichment = session.enrichment
+                if isinstance(enrichment, dict) and "session" in enrichment:
+                    session_data = enrichment["session"]
+                    if isinstance(session_data, dict):
+                        for key in session_data.keys():
+                            try:
+                                ip_obj = ipaddress.ip_address(key)
+                                # Allow private IPs for longtail analysis since we want to detect internal threats too
+                                # Only reject loopback and link-local addresses
+                                if not (ip_obj.is_loopback or ip_obj.is_link_local):
+                                    return key
+                            except ValueError:
+                                continue
+            
+            # Fallback: try to extract IP from raw events for this session
+            try:
+                with self.session_factory() as db_session:
+                    result = db_session.execute(text("""
+                        SELECT payload->>'src_ip' as src_ip
+                        FROM raw_events 
+                        WHERE session_id = :session_id 
+                        AND payload->>'src_ip' IS NOT NULL
+                        LIMIT 1
+                    """), {"session_id": session.session_id})
+                    
+                    row = result.fetchone()
+                    if row and row.src_ip:
+                        try:
+                            ip_obj = ipaddress.ip_address(row.src_ip)
+                            if not (ip_obj.is_loopback or ip_obj.is_link_local):
+                                return row.src_ip
+                        except ValueError:
+                            pass
+            except Exception:
+                pass
+                
+            return None
+        except Exception:
+            return None
+    
+    def _extract_asn_from_session(self, session: SessionSummary) -> Optional[str]:
+        """Extract ASN information from session enrichment data."""
+        try:
+            if not session.enrichment:
+                return None
+            
+            enrichment = session.enrichment
+            if isinstance(enrichment, dict) and "session" in enrichment:
+                session_data = enrichment["session"]
+                if isinstance(session_data, dict):
+                    # Look for ASN information in the enrichment data
+                    for ip_key, ip_data in session_data.items():
+                        if isinstance(ip_data, dict) and "asn" in ip_data:
+                            asn_info = ip_data["asn"]
+                            if isinstance(asn_info, dict) and "asn" in asn_info:
+                                return str(asn_info["asn"])
+                            elif isinstance(asn_info, str):
+                                return asn_info
+            return None
+        except Exception:
+            return None
+    
     def _extract_command_data(self, sessions: List[SessionSummary]) -> None:
         """Extract command data from sessions for analysis.
 
@@ -506,6 +719,7 @@ class LongtailAnalyzer:
             sessions: List of session summaries to analyze
         """
         self._command_frequencies = {}
+        self._command_to_sessions = {}
         self._session_characteristics = []
         self._command_sequences = []
 
@@ -514,21 +728,29 @@ class LongtailAnalyzer:
 
         # Query commands for all sessions in batches
         commands_by_session = self._extract_commands_for_sessions(session_ids)
+        
+        # Extract IP addresses for all sessions in batch
+        ip_by_session = self._extract_ips_for_sessions(session_ids)
 
         for session in sessions:
             # Get commands for this session
             commands = commands_by_session.get(session.session_id, [])
 
-            # Build command frequency
+            # Build command frequency and session mapping
             for command in commands:
                 cmd = command.strip()
                 if cmd:
                     self._command_frequencies[cmd] = self._command_frequencies.get(cmd, 0) + 1
+                    # Track which sessions this command appears in
+                    if cmd not in self._command_to_sessions:
+                        self._command_to_sessions[cmd] = []
+                    if session.session_id not in self._command_to_sessions[cmd]:
+                        self._command_to_sessions[cmd].append(session.session_id)
 
             # Build session characteristics
             session_chars = {
                 'session_id': session.session_id,
-                'src_ip': getattr(session, 'src_ip', None),  # May not exist
+                'src_ip': ip_by_session.get(session.session_id),  # Use batched IP extraction
                 'duration': self._calculate_session_duration(session),
                 'command_count': len(commands),
                 'login_attempts': session.login_attempts,
@@ -558,34 +780,117 @@ class LongtailAnalyzer:
             return self._command_cache[cache_key]
 
         commands_by_session = defaultdict(list)
+        
+        # Process sessions in batches to avoid memory issues
+        batch_size = self.batch_size
+        total_batches = (len(session_ids) + batch_size - 1) // batch_size
+        
+        logger.info(f"Processing {len(session_ids)} sessions in {total_batches} batches of {batch_size}")
 
         try:
             # Use read-only transaction for better performance
             with self.session_factory() as session:
                 session.execute(text("SET TRANSACTION READ ONLY"))
 
-                # Optimized raw SQL query for critical performance
-                result = session.execute(text("""
-                    SELECT session_id, payload->>'input' as command
-                    FROM raw_events
-                    WHERE session_id = ANY(:session_ids)
-                    AND event_type = 'cowrie.command.input'
-                    AND payload ? 'input'
-                """), {"session_ids": session_ids})
+                for batch_num in range(total_batches):
+                    start_idx = batch_num * batch_size
+                    end_idx = min(start_idx + batch_size, len(session_ids))
+                    batch_session_ids = session_ids[start_idx:end_idx]
+                    
+                    logger.debug(f"Processing batch {batch_num + 1}/{total_batches} ({len(batch_session_ids)} sessions)")
+                    
+                    # Use a simpler approach that avoids problematic operators
+                    # Don't check payload->>'input' in WHERE - do it in Python to avoid Unicode issues
+                    result = session.execute(text("""
+                        SELECT session_id, payload
+                        FROM raw_events
+                        WHERE session_id = ANY(:session_ids)
+                        AND event_type = 'cowrie.command.input'
+                    """), {"session_ids": batch_session_ids})
 
-                for row in result:
-                    if row.command:
-                        commands_by_session[row.session_id].append(row.command)
+                    batch_commands = 0
+                    for row in result:
+                        try:
+                            # Extract input from JSON payload safely
+                            payload = row.payload
+                            if isinstance(payload, dict) and 'input' in payload:
+                                command_raw = payload['input']
+                                if command_raw:
+                                    # Clean Unicode control characters
+                                    clean_command = ''.join(char for char in str(command_raw) if ord(char) >= 32 or char in '\t\n\r')
+                                    clean_command = clean_command.strip()
+                                    if clean_command:
+                                        commands_by_session[row.session_id].append(clean_command)
+                                        batch_commands += 1
+                        except (UnicodeDecodeError, UnicodeEncodeError, KeyError, TypeError) as e:
+                            logger.warning(f"Error processing command from session {row.session_id}: {e}")
+                            continue
+                    
+                    logger.debug(f"Batch {batch_num + 1} extracted {batch_commands} commands")
 
         except Exception as e:
             logger.error(f"Error extracting commands for sessions {session_ids[:5]}...: {e}")
+            # Return empty results rather than crashing
+            return {}
 
         # Cache results for this analysis run
         self._command_cache[cache_key] = dict(commands_by_session)
+        logger.info(f"Extracted commands from {len(commands_by_session)} sessions")
         return dict(commands_by_session)
+    
+    def _extract_ips_for_sessions(self, session_ids: List[str]) -> Dict[str, Optional[str]]:
+        """Extract IP addresses for multiple sessions in batch.
+        
+        Args:
+            session_ids: List of session IDs to extract IPs for
+            
+        Returns:
+            Dictionary mapping session_id to IP address (or None if not found)
+        """
+        ip_by_session = {}
+        
+        try:
+            with self.session_factory() as session:
+                session.execute(text("SET TRANSACTION READ ONLY"))
+                
+                # Extract IPs from raw events in batch
+                result = session.execute(text("""
+                    SELECT session_id, payload
+                    FROM raw_events 
+                    WHERE session_id = ANY(:session_ids) 
+                    AND payload IS NOT NULL
+                    AND json_typeof(payload) = 'object'
+                    ORDER BY session_id
+                """), {"session_ids": session_ids})
+                
+                for row in result:
+                    try:
+                        payload = row.payload
+                        if isinstance(payload, dict) and 'src_ip' in payload:
+                            src_ip = payload['src_ip']
+                            if src_ip:
+                                try:
+                                    ip_obj = ipaddress.ip_address(src_ip)
+                                    # Allow private IPs for longtail analysis
+                                    if not (ip_obj.is_loopback or ip_obj.is_link_local):
+                                        ip_by_session[row.session_id] = src_ip
+                                except ValueError:
+                                    continue
+                    except (UnicodeDecodeError, UnicodeEncodeError, KeyError, TypeError):
+                        continue
+                            
+        except Exception as e:
+            logger.warning(f"Error extracting IPs for sessions: {e}")
+        
+        # Ensure all session IDs have an entry (even if None)
+        for session_id in session_ids:
+            if session_id not in ip_by_session:
+                ip_by_session[session_id] = None
+                
+        return ip_by_session
 
     def _detect_rare_commands(self) -> List[Dict[str, Any]]:
-        """Detect rare commands using frequency analysis."""
+        """Detect rare commands using frequency analysis with session metadata."""
         if not self._command_frequencies:
             return []
         
@@ -596,11 +901,33 @@ class LongtailAnalyzer:
         for command, frequency in self._command_frequencies.items():
             if frequency <= rare_threshold:
                 rarity_score = frequency / total_commands
+                
+                # Get session metadata for this command
+                session_ids = self._command_to_sessions.get(command, [])
+                session_metadata = []
+                
+                for session_id in session_ids:
+                    # Find session characteristics for this session
+                    session_chars = next(
+                        (s for s in self._session_characteristics if s['session_id'] == session_id), 
+                        None
+                    )
+                    if session_chars:
+                        session_metadata.append({
+                            'session_id': session_id,
+                            'src_ip': session_chars.get('src_ip'),
+                            'timestamp': session_chars.get('timestamp'),
+                            'duration': session_chars.get('duration', 0),
+                            'command_count': session_chars.get('command_count', 0),
+                        })
+                
                 rare_commands.append({
                     'command': command,
                     'frequency': frequency,
                     'rarity_score': rarity_score,
                     'detection_type': 'rare_command',
+                    'sessions': session_metadata,
+                    'session_count': len(session_metadata),
                 })
         
         # Sort by rarity (lowest frequency first)
@@ -618,13 +945,33 @@ class LongtailAnalyzer:
             if self.vector_analysis_enabled:
                 vectors = self.command_vectorizer.fit_transform(self._command_sequences)
                 
-                # Use DBSCAN clustering
-                clustering = DBSCAN(
-                    eps=self.cluster_eps,
-                    min_samples=self.min_cluster_size,
-                    metric='cosine',
-                )
-                cluster_labels = clustering.fit_predict(vectors)
+                # Use DBSCAN clustering with error handling
+                try:
+                    clustering = DBSCAN(
+                        eps=self.cluster_eps,
+                        min_samples=self.min_cluster_size,
+                        metric='cosine',
+                        n_jobs=1,  # Use single thread to avoid OpenMP issues
+                    )
+                    cluster_labels = clustering.fit_predict(vectors)
+                except Exception as clustering_error:
+                    logger.warning(f"Clustering failed, falling back to frequency-based detection: {clustering_error}")
+                    # Fall back to frequency-based detection
+                    sequence_freq: Dict[str, int] = {}
+                    for seq in self._command_sequences:
+                        sequence_freq[seq] = sequence_freq.get(seq, 0) + 1
+                    
+                    anomalous_sequences = []
+                    for seq, freq in sequence_freq.items():
+                        if freq == 1:  # Unique sequences
+                            anomalous_sequences.append({
+                                'sequence': seq,
+                                'frequency': freq,
+                                'detection_type': 'anomalous_sequence',
+                                'anomaly_score': 1.0,
+                            })
+                    
+                    return anomalous_sequences
                 
                 # Find outliers (noise points labeled as -1)
                 anomalous_sequences = []
@@ -679,13 +1026,47 @@ class LongtailAnalyzer:
             
             features_array = np.array(features)
             
-            # Use DBSCAN clustering
-            clustering = DBSCAN(
-                eps=self.cluster_eps,
-                min_samples=self.min_cluster_size,
-                metric='euclidean',
-            )
-            cluster_labels = clustering.fit_predict(features_array)
+            # Use DBSCAN clustering with error handling
+            try:
+                clustering = DBSCAN(
+                    eps=self.cluster_eps,
+                    min_samples=self.min_cluster_size,
+                    metric='euclidean',
+                    n_jobs=1,  # Use single thread to avoid OpenMP issues
+                )
+                cluster_labels = clustering.fit_predict(features_array)
+            except Exception as clustering_error:
+                logger.warning(f"Session clustering failed, using simple outlier detection: {clustering_error}")
+                # Fall back to simple statistical outlier detection
+                outlier_sessions = []
+                if len(features_array) > 0:
+                    # Find sessions with extreme values
+                    for i, session in enumerate(self._session_characteristics):
+                        is_outlier = False
+                        # Check for extreme command counts
+                        if session['command_count'] > 100:  # Arbitrary threshold
+                            is_outlier = True
+                        # Check for extreme durations
+                        if session['duration'] > 3600:  # More than 1 hour
+                            is_outlier = True
+                        # Check for high login attempts
+                        if session['login_attempts'] > 10:  # Arbitrary threshold
+                            is_outlier = True
+                        
+                        if is_outlier:
+                            outlier_sessions.append({
+                                'session_id': session['session_id'],
+                                'src_ip': session['src_ip'],
+                                'duration': session['duration'],
+                                'command_count': session['command_count'],
+                                'login_attempts': session['login_attempts'],
+                                'file_operations': session['file_operations'],
+                                'cluster_label': -1,
+                                'detection_type': 'outlier_session',
+                                'anomaly_score': 1.0,
+                            })
+                
+                return outlier_sessions
             
             # Find outliers
             outlier_sessions = []

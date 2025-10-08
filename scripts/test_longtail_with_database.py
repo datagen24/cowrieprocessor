@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 from cowrieprocessor.db import apply_migrations, create_engine_from_settings, create_session_maker
 from cowrieprocessor.db.models import SessionSummary
 from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
+from cowrieprocessor.settings import DatabaseSettings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +31,8 @@ def test_database_connectivity(db_url: str) -> bool:
     """Test basic database connectivity."""
     try:
         logger.info(f"Testing database connectivity: {db_url}")
-        engine = create_engine_from_settings(db_url)
+        db_settings = DatabaseSettings(url=db_url)
+        engine = create_engine_from_settings(db_settings)
         with engine.connect() as conn:
             conn.execute("SELECT 1")
             logger.info("✅ Database connectivity confirmed")
@@ -44,7 +46,8 @@ def get_test_sessions(db_url: str, limit: int = 10) -> list[SessionSummary] | No
     """Get test sessions from database."""
     try:
         logger.info(f"Fetching {limit} test sessions from database...")
-        engine = create_engine_from_settings(db_url)
+        db_settings = DatabaseSettings(url=db_url)
+        engine = create_engine_from_settings(db_settings)
         apply_migrations(engine)
         session_factory = create_session_maker(engine)
 
@@ -73,7 +76,8 @@ def run_longtail_analysis_test(db_url: str) -> dict[str, any]:
         return {"success": False, "error": "No test sessions available"}
 
     # Setup database
-    engine = create_engine_from_settings(db_url)
+    db_settings = DatabaseSettings(url=db_url)
+    engine = create_engine_from_settings(db_settings)
     session_factory = create_session_maker(engine)
 
     # Create analyzer

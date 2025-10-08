@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, Optional
 from sqlalchemy import and_, func
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
-from ..db.models import RawEvent, SessionSummary, SnowshoeDetection
+from ..db.models import LongtailAnalysis, LongtailDetection, RawEvent, SessionSummary, SnowshoeDetection
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
 from ..threat_detection import (
@@ -400,7 +400,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Directory for status JSON files"
     )
     snowshoe_parser.add_argument(
-        "--ingest-id",
+        "--ingest-id", 
         help="Ingest identifier for status tracking"
     )
 
@@ -452,6 +452,22 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Overall detection sensitivity threshold (default: 0.95)"
     )
     longtail_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Number of sessions to process in each batch (default: 100)"
+    )
+    longtail_parser.add_argument(
+        "--memory-limit-gb",
+        type=float,
+        help="Memory limit in GB for analysis (default: auto-detect based on system memory)"
+    )
+    longtail_parser.add_argument(
+        "--detailed",
+        action="store_true",
+        help="Show detailed JSON output instead of summary report"
+    )
+    longtail_parser.add_argument(
         "--sensor",
         help="Filter by specific sensor name"
     )
@@ -476,7 +492,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         "--ingest-id",
         help="Ingest identifier for status tracking"
     )
-
+    
     # Snowshoe report command
     report_parser = subparsers.add_parser(
         "snowshoe-report", 
@@ -559,16 +575,28 @@ def longtail_analyze(args: argparse.Namespace) -> int:
 
         logger.info("Found %d sessions for analysis", len(sessions))
 
+        # Derive vocabulary path from configuration
+        vocab_path = _derive_vocab_path_from_config()
+        
+        # Load memory configuration from sensors.toml
+        memory_config = _load_memory_config_from_sensors()
+        
+        # Use CLI override if provided, otherwise use config value
+        memory_limit_gb = args.memory_limit_gb or memory_config["memory_limit_gb"]
+        
         # Initialize analyzer with database access and vocabulary management
         analyzer = LongtailAnalyzer(
             session_factory,
-            vocab_path=Path('/var/lib/cowrie-processor/vocab.pkl'),  # Persistent vocabulary
+            vocab_path=vocab_path,
             rarity_threshold=args.rarity_threshold,
             sequence_window=args.sequence_window,
             cluster_eps=args.cluster_eps,
             min_cluster_size=args.min_cluster_size,
             entropy_threshold=args.entropy_threshold,
             sensitivity_threshold=args.sensitivity_threshold,
+            batch_size=args.batch_size,
+            memory_limit_gb=memory_limit_gb,
+            memory_warning_threshold=memory_config["memory_warning_threshold"],
         )
 
         # Perform analysis
@@ -590,14 +618,241 @@ def longtail_analyze(args: argparse.Namespace) -> int:
         if args.output:
             with open(args.output, 'w') as f:
                 json.dump(result, f, indent=2, default=str)
-        else:
+        elif args.detailed:
+            # Print detailed JSON output
             print(json.dumps(result, indent=2, default=str))
+        else:
+            # Print human-readable summary
+            _print_longtail_summary(result)
 
         return 0
 
     except Exception as e:
         logger.error(f"Longtail analysis failed: {e}", exc_info=True)
         return 2
+
+
+def _derive_vocab_path_from_config() -> Optional[Path]:
+    """Derive vocabulary path from sensors.toml configuration or use sensible default.
+    
+    Returns:
+        Path to vocabulary file, or None to disable persistent vocabulary
+    """
+    sensors_file = Path("sensors.toml")
+    if not sensors_file.exists():
+        # No config file, use default cache location
+        default_cache = Path.home() / ".cache" / "cowrieprocessor"
+        vocab_path = default_cache / "vocab.pkl"
+        logger.info(f"No sensors.toml found, using default vocab path: {vocab_path}")
+        return vocab_path
+    
+    try:
+        # Try tomllib first (Python 3.11+)
+        try:
+            import tomllib
+        except ImportError:
+            # Fall back to tomli for older Python versions
+            import tomli as tomllib
+
+        with sensors_file.open("rb") as handle:
+            data = tomllib.load(handle)
+
+        # Look for data path patterns in sensor configurations
+        sensors = data.get("sensor", [])
+        for sensor in sensors:
+            logpath = sensor.get("logpath", "")
+            if logpath:
+                # Extract base data path and derive vocab path
+                # e.g., "/mnt/dshield/aws-eastus-dshield/NSM/cowrie" -> "/mnt/dshield/data/cache"
+                logpath_obj = Path(logpath)
+                if logpath_obj.is_absolute():
+                    # Go up to find base data directory
+                    base_path = logpath_obj.parent.parent.parent  # Go up 3 levels
+                    vocab_path = base_path / "data" / "cache" / "vocab.pkl"
+                    logger.info(f"Derived vocab path from config: {vocab_path}")
+                    return vocab_path
+                    
+    except Exception as e:
+        logger.warning(f"Could not derive vocab path from {sensors_file}: {e}")
+    
+    # Fall back to default cache path
+    default_cache = Path.home() / ".cache" / "cowrieprocessor"
+    vocab_path = default_cache / "vocab.pkl"
+    logger.info(f"Using default vocab path: {vocab_path}")
+    return vocab_path
+
+
+def _load_memory_config_from_sensors() -> Dict[str, float]:
+    """Load memory configuration from sensors.toml.
+    
+    Returns:
+        Dictionary with memory_limit_gb and memory_warning_threshold
+    """
+    sensors_file = Path("sensors.toml")
+    if not sensors_file.exists():
+        logger.info("No sensors.toml found, using default memory configuration")
+        return {
+            "memory_limit_gb": None,  # Will trigger auto-detection
+            "memory_warning_threshold": 0.75
+        }
+    
+    try:
+        # Try tomllib first (Python 3.11+)
+        try:
+            import tomllib
+        except ImportError:
+            # Fall back to tomli for older Python versions
+            import tomli as tomllib
+
+        with sensors_file.open("rb") as handle:
+            data = tomllib.load(handle)
+
+        # Get global configuration
+        global_config = data.get("global", {})
+        
+        memory_config = {
+            "memory_limit_gb": global_config.get("memory_limit_gb"),
+            "memory_warning_threshold": global_config.get("memory_warning_threshold", 0.75)
+        }
+        
+        if memory_config["memory_limit_gb"]:
+            logger.info(f"Loaded memory configuration from sensors.toml: {memory_config['memory_limit_gb']}GB limit, {memory_config['memory_warning_threshold']*100:.0f}% warning threshold")
+        else:
+            logger.info("No memory_limit_gb in sensors.toml, will use auto-detection")
+            
+        return memory_config
+                    
+    except Exception as e:
+        logger.warning(f"Could not load memory config from {sensors_file}: {e}")
+        return {
+            "memory_limit_gb": None,  # Will trigger auto-detection
+            "memory_warning_threshold": 0.75
+        }
+
+
+def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
+    """Print a human-readable summary of longtail analysis results.
+    
+    Args:
+        result: LongtailAnalysisResult object to summarize
+    """
+    print("=" * 80)
+    print("LONGTAIL THREAT ANALYSIS REPORT")
+    print("=" * 80)
+    
+    # Analysis summary
+    print(f"\n📊 ANALYSIS SUMMARY")
+    print(f"   Sessions analyzed: {result.total_sessions_analyzed:,}")
+    print(f"   Events analyzed: {result.total_events_analyzed:,}")
+    print(f"   Analysis duration: {result.analysis_duration_seconds:.2f}s")
+    print(f"   Memory usage: {result.memory_usage_mb:.1f} MB")
+    
+    # Detection counts
+    print(f"\n🎯 THREAT DETECTIONS")
+    print(f"   Rare commands: {result.rare_command_count}")
+    print(f"   Anomalous sequences: {result.anomalous_sequence_count}")
+    print(f"   Outlier sessions: {result.outlier_session_count}")
+    print(f"   Emerging patterns: {result.emerging_pattern_count}")
+    print(f"   High entropy payloads: {result.high_entropy_payload_count}")
+    
+    # Top rare commands (most suspicious)
+    if result.rare_commands:
+        print(f"\n🚨 TOP RARE COMMANDS (Most Suspicious)")
+        # Sort by rarity score (lower = more rare)
+        sorted_commands = sorted(result.rare_commands, key=lambda x: x['rarity_score'])[:10]
+        
+        for i, cmd in enumerate(sorted_commands, 1):
+            command = cmd['command']
+            frequency = cmd['frequency']
+            rarity_score = cmd['rarity_score']
+            session_count = cmd.get('session_count', 0)
+            
+            print(f"   {i:2d}. [{frequency:3d}x] {command}")
+            print(f"       Rarity: {rarity_score:.6f} | Sessions: {session_count}")
+            
+            # Show session details for this command
+            sessions = cmd.get('sessions', [])
+            if sessions:
+                print(f"       Sessions:")
+                for j, session in enumerate(sessions[:3]):  # Show first 3 sessions
+                    src_ip = session.get('src_ip', 'Unknown')
+                    session_id = session.get('session_id', 'Unknown')
+                    timestamp = session.get('timestamp', 'Unknown')
+                    if isinstance(timestamp, datetime):
+                        timestamp = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                    print(f"         {j+1}. {src_ip} ({session_id[:8]}...) - {timestamp}")
+                if len(sessions) > 3:
+                    print(f"         ... and {len(sessions) - 3} more sessions")
+            print()
+    
+    # Top frequent rare commands (most common among rare)
+    if result.rare_commands:
+        print(f"\n📈 MOST FREQUENT RARE COMMANDS")
+        # Sort by frequency (higher = more frequent)
+        sorted_by_freq = sorted(result.rare_commands, key=lambda x: x['frequency'], reverse=True)[:5]
+        
+        for i, cmd in enumerate(sorted_by_freq, 1):
+            command = cmd['command']
+            frequency = cmd['frequency']
+            
+            print(f"   {i:2d}. [{frequency:3d}x] {command}")
+    
+    # Anomalous sequences
+    if result.anomalous_sequences:
+        print(f"\n🔍 ANOMALOUS COMMAND SEQUENCES")
+        for i, seq in enumerate(result.anomalous_sequences[:5], 1):
+            sequence = seq.get('sequence', 'Unknown')
+            if len(sequence) > 80:
+                sequence = sequence[:77] + "..."
+            print(f"   {i:2d}. {sequence}")
+    
+    # Outlier sessions
+    if result.outlier_sessions:
+        print(f"\n👤 OUTLIER SESSIONS")
+        for i, session in enumerate(result.outlier_sessions[:5], 1):
+            session_id = session.get('session_id', 'Unknown')
+            outlier_score = session.get('outlier_score', 0.0)
+            print(f"   {i:2d}. Session: {session_id} (Score: {outlier_score:.3f})")
+    
+    # Emerging patterns
+    if result.emerging_patterns:
+        print(f"\n🌱 EMERGING PATTERNS")
+        for i, pattern in enumerate(result.emerging_patterns[:5], 1):
+            pattern_text = pattern.get('pattern', 'Unknown')
+            if len(pattern_text) > 80:
+                pattern_text = pattern_text[:77] + "..."
+            print(f"   {i:2d}. {pattern_text}")
+    
+    # High entropy payloads
+    if result.high_entropy_payloads:
+        print(f"\n🔐 HIGH ENTROPY PAYLOADS")
+        for i, payload in enumerate(result.high_entropy_payloads[:5], 1):
+            payload_text = payload.get('payload', 'Unknown')
+            entropy = payload.get('entropy', 0.0)
+            if len(payload_text) > 60:
+                payload_text = payload_text[:57] + "..."
+            print(f"   {i:2d}. Entropy: {entropy:.3f} - {payload_text}")
+    
+    # Statistical summary
+    if result.statistical_summary:
+        stats = result.statistical_summary
+        print(f"\n📈 STATISTICAL SUMMARY")
+        
+        if 'data_characteristics' in stats:
+            data = stats['data_characteristics']
+            print(f"   Total commands: {data.get('total_commands', 0):,}")
+            print(f"   Unique commands: {data.get('unique_commands', 0):,}")
+            print(f"   Command sequences: {data.get('command_sequences', 0):,}")
+        
+        if 'performance_metrics' in stats:
+            perf = stats['performance_metrics']
+            events_per_sec = perf.get('events_per_second', 0)
+            if events_per_sec > 0:
+                print(f"   Processing rate: {events_per_sec:.0f} events/sec")
+    
+    print("\n" + "=" * 80)
+    print("Analysis complete. Use --output FILE to save detailed JSON results.")
+    print("=" * 80)
 
 
 def _store_longtail_result(
@@ -615,10 +870,56 @@ def _store_longtail_result(
         window_end: Analysis window end time
     """
     try:
-        # TODO: Implement when we have the LongtailAnalysis model
-        logger.info("Longtail result storage not yet implemented")
+        with session_factory() as session:
+            # Create main analysis record
+            analysis_record = LongtailAnalysis(
+                window_start=window_start,
+                window_end=window_end,
+                lookback_days=30,  # Default, could be passed as parameter
+                confidence_score=result.statistical_summary.get("confidence_score", 0.0),
+                total_events_analyzed=result.total_events_analyzed,
+                rare_command_count=result.rare_command_count,
+                anomalous_sequence_count=result.anomalous_sequence_count,
+                outlier_session_count=result.outlier_session_count,
+                emerging_pattern_count=result.emerging_pattern_count,
+                high_entropy_payload_count=result.high_entropy_payload_count,
+                analysis_results={
+                    "rare_commands": result.rare_commands,
+                    "anomalous_sequences": result.anomalous_sequences,
+                    "outlier_sessions": result.outlier_sessions,
+                    "emerging_patterns": result.emerging_patterns,
+                    "high_entropy_payloads": result.high_entropy_payloads,
+                },
+                statistical_summary=result.statistical_summary,
+                analysis_duration_seconds=result.analysis_duration_seconds,
+                memory_usage_mb=getattr(result, 'memory_usage_mb', None),
+                data_quality_score=result.statistical_summary.get("data_quality_score"),
+                enrichment_coverage=result.statistical_summary.get("enrichment_coverage"),
+            )
+            
+            session.add(analysis_record)
+            session.flush()  # Get the ID
+            
+            # Store individual detections
+            for detection in result.rare_commands:
+                detection_record = LongtailDetection(
+                    analysis_id=analysis_record.id,
+                    detection_type="rare_command",
+                    session_id=detection.get("session_id"),
+                    detection_data=detection,
+                    confidence_score=detection.get("confidence_score", 0.0),
+                    severity_score=detection.get("severity_score", 0.0),
+                    timestamp=detection.get("timestamp", window_start),
+                    source_ip=detection.get("source_ip"),
+                )
+                session.add(detection_record)
+            
+            session.commit()
+            logger.info(f"Stored longtail analysis results with {len(result.rare_commands)} detections")
+            
     except Exception as e:
         logger.error(f"Failed to store longtail results: {e}")
+        raise
 
 
 # Logger is already defined at module level above

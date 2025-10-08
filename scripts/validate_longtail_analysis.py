@@ -11,6 +11,14 @@ Usage:
 
 from __future__ import annotations
 
+# Limit OpenMP threads to prevent resource issues - MUST be set before importing any libraries
+import os
+os.environ['OMP_NUM_THREADS'] = '1'
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
+os.environ['NUMEXPR_NUM_THREADS'] = '1'
+
 import argparse
 import json
 import logging
@@ -23,6 +31,7 @@ from typing import Any, Dict
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
 from cowrieprocessor.db.migrations import apply_migrations
 from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
+from cowrieprocessor.settings import DatabaseSettings
 
 # Configure logging
 logging.basicConfig(
@@ -37,8 +46,11 @@ def validate_database_setup(db_url: str) -> Dict[str, Any]:
     logger.info(f"Validating database setup: {db_url}")
 
     try:
+        # Create database settings object
+        db_settings = DatabaseSettings(url=db_url)
+        
         # Create engine and detect features
-        engine = create_engine_from_settings(db_url)
+        engine = create_engine_from_settings(db_settings)
         features = detect_database_features(engine)
 
         logger.info(f"Database type: {features['database_type']}")
@@ -123,7 +135,8 @@ def test_longtail_analysis(db_url: str) -> Dict[str, Any]:
         # Setup database
         from cowrieprocessor.db import create_session_maker
 
-        engine = create_engine_from_settings(db_url)
+        db_settings = DatabaseSettings(url=db_url)
+        engine = create_engine_from_settings(db_settings)
         session_factory = create_session_maker(engine)
 
         # Get sessions for analysis
@@ -191,7 +204,8 @@ def test_dimension_benchmarking(db_url: str) -> Dict[str, Any]:
         # Setup database
         from cowrieprocessor.db import create_session_maker
 
-        engine = create_engine_from_settings(db_url)
+        db_settings = DatabaseSettings(url=db_url)
+        engine = create_engine_from_settings(db_settings)
         session_factory = create_session_maker(engine)
 
         # Get test sessions
@@ -284,7 +298,8 @@ def run_comprehensive_validation(db_url: str) -> Dict[str, Any]:
     # 3. Command extraction validation
     logger.info("3. Testing command extraction...")
     from cowrieprocessor.db import create_session_maker
-    engine = create_engine_from_settings(db_url)
+    db_settings = DatabaseSettings(url=db_url)
+    engine = create_engine_from_settings(db_settings)
     session_factory = create_session_maker(engine)
 
     extraction_validation = test_command_extraction(db_url, session_factory)
@@ -349,7 +364,11 @@ def main() -> int:
         print(json.dumps(results, indent=2, default=str))
 
     # Return appropriate exit code
-    return 0 if results["summary"]["overall_success"] else 1
+    if "summary" in results and "overall_success" in results["summary"]:
+        return 0 if results["summary"]["overall_success"] else 1
+    else:
+        # If no summary was created, it means the validation failed early
+        return 1
 
 
 if __name__ == "__main__":
