@@ -14,6 +14,8 @@ from .models import (
     DeadLetterEvent,
     Files,
     IngestCursor,
+    LongtailAnalysis,
+    LongtailDetection,
     RawEvent,
     SchemaMetadata,
     SchemaState,
@@ -37,4 +39,6 @@ __all__ = [
     "SchemaState",
     "IngestCursor",
     "DeadLetterEvent",
+    "LongtailAnalysis",
+    "LongtailDetection",
 ]
