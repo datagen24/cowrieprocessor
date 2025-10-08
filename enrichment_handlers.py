@@ -18,6 +18,7 @@ from cowrieprocessor.enrichment.rate_limiting import (
     get_service_rate_limit,
     with_retries,
 )
+from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
 from cowrieprocessor.enrichment.telemetry import EnrichmentTelemetry
 
 LOGGER = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# VirusTotal helpers
+# VirusTotal helpers (Legacy - use VirusTotalHandler for new code)
 # ---------------------------------------------------------------------------
 
 
@@ -566,6 +567,7 @@ class EnrichmentService:
         enable_rate_limiting: bool = True,
         enable_telemetry: bool = True,
         telemetry_phase: str = "enrichment",
+        enable_vt_quota_management: bool = True,
     ) -> None:
         """Initialise the enrichment service."""
         self.cache_dir = Path(cache_dir)
@@ -581,6 +583,15 @@ class EnrichmentService:
 
         self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
         
+        # Initialize VirusTotal handler with quota management
+        self.vt_handler = VirusTotalHandler(
+            api_key=self.vt_api,
+            cache_dir=self.cache_dir,
+            timeout=timeout,
+            skip_enrich=skip_enrich,
+            enable_quota_management=enable_vt_quota_management,
+        )
+        
         # Initialize telemetry if enabled
         if enable_telemetry:
             self.telemetry = EnrichmentTelemetry(telemetry_phase)
@@ -593,11 +604,16 @@ class EnrichmentService:
         else:
             self._session_factory = session_factory
         self._timeout = timeout
+        
+        # Track active sessions for cleanup
+        self._active_sessions: list[RateLimitedSession | requests.Session] = []
 
     def _create_rate_limited_session_factory(self, service: str = "default") -> RateLimitedSession:
         """Create a rate-limited session for the specified service."""
         rate, burst = get_service_rate_limit(service)
-        return RateLimitedSession(rate, burst)
+        session = RateLimitedSession(rate, burst)
+        self._active_sessions.append(session)
+        return session
 
     def cache_snapshot(self) -> Dict[str, int]:
         """Return current cache statistics for telemetry."""
@@ -616,17 +632,22 @@ class EnrichmentService:
             # DShield enrichment
             if self.dshield_email:
                 try:
-                    enrichment["dshield"] = dshield_query(
-                        src_ip,
-                        self.dshield_email,
-                        skip_enrich=False,
-                        cache_base=self.cache_dir,
-                        session_factory=lambda: self._session_factory("dshield"),
-                        ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
-                        now=time.time,
-                    )
-                    if self.telemetry:
-                        self.telemetry.record_api_call("dshield", True)
+                    session = self._session_factory("dshield")
+                    try:
+                        enrichment["dshield"] = dshield_query(
+                            src_ip,
+                            self.dshield_email,
+                            skip_enrich=False,
+                            cache_base=self.cache_dir,
+                            session_factory=lambda: session,
+                            ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
+                            now=time.time,
+                        )
+                        if self.telemetry:
+                            self.telemetry.record_api_call("dshield", True)
+                    finally:
+                        # Session cleanup is handled by the close() method
+                        pass
                 except Exception as e:
                     LOGGER.warning("DShield enrichment failed for %s: %s", src_ip, e)
                     enrichment["dshield"] = _empty_dshield()
@@ -638,15 +659,20 @@ class EnrichmentService:
             # URLHaus enrichment
             if self.urlhaus_api:
                 try:
-                    enrichment["urlhaus"] = safe_read_uh_data(
-                        src_ip,
-                        self.urlhaus_api,
-                        cache_base=self.cache_dir,
-                        session_factory=lambda: self._session_factory("urlhaus"),
-                        timeout=self._timeout,
-                    )
-                    if self.telemetry:
-                        self.telemetry.record_api_call("urlhaus", True)
+                    session = self._session_factory("urlhaus")
+                    try:
+                        enrichment["urlhaus"] = safe_read_uh_data(
+                            src_ip,
+                            self.urlhaus_api,
+                            cache_base=self.cache_dir,
+                            session_factory=lambda: session,
+                            timeout=self._timeout,
+                        )
+                        if self.telemetry:
+                            self.telemetry.record_api_call("urlhaus", True)
+                    finally:
+                        # Session cleanup is handled by the close() method
+                        pass
                 except Exception as e:
                     LOGGER.warning("URLHaus enrichment failed for %s: %s", src_ip, e)
                     enrichment["urlhaus"] = ""
@@ -658,15 +684,20 @@ class EnrichmentService:
             # SPUR enrichment
             if self.spur_api:
                 try:
-                    enrichment["spur"] = read_spur_data(
-                        src_ip,
-                        self.spur_api,
-                        cache_base=self.cache_dir,
-                        session_factory=lambda: self._session_factory("spur"),
-                        timeout=self._timeout,
-                    )
-                    if self.telemetry:
-                        self.telemetry.record_api_call("spur", True)
+                    session = self._session_factory("spur")
+                    try:
+                        enrichment["spur"] = read_spur_data(
+                            src_ip,
+                            self.spur_api,
+                            cache_base=self.cache_dir,
+                            session_factory=lambda: session,
+                            timeout=self._timeout,
+                        )
+                        if self.telemetry:
+                            self.telemetry.record_api_call("spur", True)
+                    finally:
+                        # Session cleanup is handled by the close() method
+                        pass
                 except Exception as e:
                     LOGGER.warning("SPUR enrichment failed for %s: %s", src_ip, e)
                     enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
@@ -704,7 +735,8 @@ class EnrichmentService:
         payload = self._load_vt_payload(file_hash)
         if payload is None:
             try:
-                payload = self._fetch_vt_payload(file_hash)
+                # Use new VirusTotal handler with quota management
+                payload = self.vt_handler.enrich_file(file_hash)
                 if self.telemetry:
                     self.telemetry.record_api_call("virustotal", True)
             except Exception as e:
@@ -754,7 +786,13 @@ class EnrichmentService:
 
     def _load_vt_payload(self, file_hash: str) -> Optional[dict[str, Any]]:
         """Load a cached VirusTotal payload from disk."""
-        payload = _read_text(self.cache_dir / file_hash)
+        try:
+            cache_path = self.cache_dir / file_hash
+            payload = _read_text(cache_path)
+        except (TypeError, AttributeError):
+            # Handle Mock objects or other non-Path types
+            return None
+            
         if payload is None:
             return None
         try:
@@ -839,6 +877,16 @@ class EnrichmentService:
             for item in payload:
                 yield from self._iter_vt_payloads(item)
 
+    def get_vt_quota_status(self) -> Dict[str, Any]:
+        """Get VirusTotal quota status.
+        
+        Returns:
+            Dictionary with quota status information
+        """
+        if hasattr(self, 'vt_handler'):
+            return self.vt_handler.get_quota_status()
+        return {"status": "disabled", "message": "VirusTotal handler not initialized"}
+    
     @staticmethod
     def _extract_vt_stats(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         """Extract the ``last_analysis_stats`` block from a VT payload."""
@@ -846,6 +894,30 @@ class EnrichmentService:
         attributes = data.get("attributes") if isinstance(data, Mapping) else None
         stats = attributes.get("last_analysis_stats") if isinstance(attributes, Mapping) else None
         return stats if isinstance(stats, Mapping) else {}
+    
+    def close(self) -> None:
+        """Close enrichment service and cleanup resources."""
+        # Close VirusTotal handler
+        if hasattr(self, 'vt_handler'):
+            self.vt_handler.close()
+        
+        # Close all active sessions
+        for session in self._active_sessions:
+            try:
+                if hasattr(session, 'close'):
+                    session.close()
+            except Exception:
+                # Ignore errors during cleanup
+                pass
+        self._active_sessions.clear()
+    
+    def __enter__(self) -> 'EnrichmentService':
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit with cleanup."""
+        self.close()
 
 
 def _coerce_int(value: Any) -> int:

@@ -174,8 +174,30 @@ class JSONRepairStrategies:
     @staticmethod
     def fix_unescaped_quotes(content: str) -> str:
         """Fix unescaped quotes in string values."""
-        # This is complex - for now, just handle simple cases
-        # Look for quotes inside string values that aren't escaped
+        import re
+        
+        # Handle simple case: quote in middle of string value
+        # Pattern: "key": "value"with"quote"
+        # Replace with: "key": "value\"with\"quote"
+        
+        # Look for string values with unescaped quotes
+        # This regex finds: "key": "value"with"quote"
+        pattern = r'("[\w_]+"\s*:\s*")([^"]*")([^"]*")([^"]*")'
+        
+        def fix_quote_match(match):
+            key_part = match.group(1)  # "key": "
+            value_start = match.group(2)  # "value"
+            middle_part = match.group(3)  # "with"
+            value_end = match.group(4)  # "quote"
+            
+            # Reconstruct with escaped quotes
+            fixed_value = value_start[:-1] + '\\"' + middle_part[1:-1] + '\\"' + value_end[1:]
+            return key_part + fixed_value
+        
+        # Apply the fix
+        content = re.sub(pattern, fix_quote_match, content)
+        
+        # Fallback: simple line-by-line approach for other cases
         lines = content.split('\n')
         fixed_lines = []
 
@@ -183,13 +205,23 @@ class JSONRepairStrategies:
             # Simple heuristic: if line has odd number of quotes, try to fix
             quote_count = line.count('"')
             if quote_count % 2 == 1 and ':' in line:
-                # Try to escape the middle quote
-                parts = line.split(':', 1)
-                if len(parts) == 2:
-                    key, value = parts
-                    # Escape quotes in the value part
-                    value = value.replace('"', '\\"')
-                    line = f"{key}:{value}"
+                # Try to escape quotes in string values
+                # Look for pattern: "key": "value"with"quote"
+                if ': "' in line and line.count('"') >= 4:
+                    # Find the value part after the colon
+                    colon_pos = line.find(': "')
+                    if colon_pos != -1:
+                        key_part = line[:colon_pos + 3]  # Include ': "'
+                        value_part = line[colon_pos + 3:]
+                        
+                        # Escape quotes in the value part, but preserve the closing quote
+                        if value_part.endswith('"'):
+                            value_part = value_part[:-1]  # Remove closing quote
+                            value_part = value_part.replace('"', '\\"')
+                            line = key_part + value_part + '"'
+                        else:
+                            value_part = value_part.replace('"', '\\"')
+                            line = key_part + value_part
 
             fixed_lines.append(line)
 
@@ -198,6 +230,11 @@ class JSONRepairStrategies:
     @classmethod
     def repair_json(cls, content: str) -> str:
         """Apply all repair strategies to malformed JSON content."""
+        from ..utils.unicode_sanitizer import UnicodeSanitizer
+        
+        # First sanitize Unicode control characters
+        content = UnicodeSanitizer.sanitize_unicode_string(content, strict=False)
+        
         # Apply repairs in order
         content = cls.fix_unescaped_quotes(content)
         content = cls.fix_trailing_commas(content)
@@ -271,8 +308,12 @@ class EventStitcher:
 
         for attempt_content in repair_attempts:
             try:
+                # Sanitize Unicode control characters before parsing
+                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                sanitized_content = UnicodeSanitizer.sanitize_json_string(attempt_content)
+                
                 # Try to parse the repaired content
-                event = json.loads(attempt_content)
+                event = json.loads(sanitized_content)
 
                 # Validate the parsed event
                 is_valid, errors = self.validator.validate_event(event)
@@ -284,7 +325,7 @@ class EventStitcher:
                     event = self._fill_missing_fields(event, errors)
                     return event
 
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError):
                 continue
 
         return None

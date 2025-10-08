@@ -6,6 +6,8 @@ import argparse
 import logging
 import os
 import sys
+import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,6 +20,19 @@ from ..db.engine import create_engine_from_settings
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
 from .db_config import resolve_database_settings, add_database_argument
+
+
+@dataclass
+class SanitizationMetrics:
+    """Metrics for Unicode sanitization operations."""
+    records_processed: int = 0
+    records_updated: int = 0
+    records_skipped: int = 0
+    errors: int = 0
+    batches_processed: int = 0
+    duration_seconds: float = 0.0
+    dry_run: bool = False
+    ingest_id: Optional[str] = None
 
 logger = logging.getLogger(__name__)
 
@@ -640,92 +655,165 @@ class CowrieDatabase:
             try:
                 with self._get_engine().connect() as conn:
                     if dialect_name == "postgresql":
-                        # Use a very restrictive query that should avoid binary data
+                        # Use a query that avoids JSON operators that trigger Unicode processing
+                        # Instead, use text-based filtering and handle sanitization in Python
                         query = text("""
-                            SELECT payload->>'session' as session_id, payload
+                            SELECT id, payload::text as payload_text
                             FROM raw_events
-                            WHERE (payload->'eventid') IS NOT NULL
-                              AND (payload->'shasum') IS NOT NULL
-                              AND (payload->'eventid')::text = '"cowrie.session.file_download"'
-                              AND length((payload->'eventid')::text) = 31
-                              AND (payload->'shasum')::text != '""'
-                              AND (payload->'shasum')::text != 'null'
-                              AND length((payload->'shasum')::text) > 0
+                            WHERE payload::text LIKE '%cowrie.session.file_download%'
+                              AND payload::text LIKE '%shasum%'
                             ORDER BY id ASC
                         """)
                     else:
                         query = text("""
-                            SELECT json_extract(payload, '$.session') as session_id, payload
+                            SELECT id, payload as payload_text
                             FROM raw_events
-                            WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
-                              AND json_extract(payload, '$.shasum') IS NOT NULL
-                              AND json_extract(payload, '$.shasum') != ''
+                            WHERE payload LIKE '%cowrie.session.file_download%'
+                              AND payload LIKE '%shasum%'
                             ORDER BY id ASC
                         """)
 
                     if limit:
                         query = text(str(query) + f" LIMIT {limit}")
 
-                    events = conn.execute(query).fetchall()
+                    raw_events = conn.execute(query).fetchall()
+                    
+                    # Process each event to extract valid file download events
+                    events = []
+                    from ..utils.unicode_sanitizer import UnicodeSanitizer
+                    import json
+                    
+                    for row in raw_events:
+                        try:
+                            # Sanitize the payload text before parsing
+                            sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(row.payload_text)
+                            payload = json.loads(sanitized_payload_text)
+                            
+                            # Check if this is a valid file download event
+                            if (payload.get('eventid') == 'cowrie.session.file_download' and 
+                                payload.get('shasum') and 
+                                payload.get('shasum') != '' and
+                                payload.get('shasum') != 'null'):
+                                
+                                events.append(type('Row', (), {
+                                    'session_id': payload.get('session'),
+                                    'payload': payload
+                                })())
+                        except (json.JSONDecodeError, ValueError, AttributeError) as e:
+                            logger.debug(f"Skipping invalid JSON payload at id {row.id}: {e}")
+                            result['errors'] += 1
+                            continue
+                            
             except Exception as e:
                 logger.warning(f"Primary query failed due to binary data: {e}")
 
-                # Since both queries failed due to binary data in JSON payloads,
-                # this indicates the raw_events table contains corrupted data that PostgreSQL cannot process
-                logger.warning("Both query attempts failed due to binary data in JSON payloads")
-                result['message'] = (
-                    "Backfill failed: JSON payloads contain binary data that PostgreSQL cannot process. "
-                    "This indicates corrupted data in the raw_events table. "
-                    "Consider manual data cleanup or migration from a clean source."
-                )
-                return result
+                # Fallback query attempt - try to get raw data and process it more carefully
+                try:
+                    logger.info("Attempting fallback query strategy...")
+                    with self._get_engine().connect() as conn:
+                        if dialect_name == "postgresql":
+                            # Get raw payload data as text and process in Python
+                            query = text("""
+                                SELECT id, payload::text as payload_text
+                                FROM raw_events
+                                WHERE payload::text LIKE '%cowrie.session.file_download%'
+                                ORDER BY id ASC
+                            """)
+                        else:
+                            query = text("""
+                                SELECT id, payload as payload_text
+                                FROM raw_events
+                                WHERE payload LIKE '%cowrie.session.file_download%'
+                                ORDER BY id ASC
+                            """)
 
-                if not events:
-                    result['message'] = "No file download events found to backfill"
+                        if limit:
+                            query = text(str(query) + f" LIMIT {limit}")
+
+                        raw_events = conn.execute(query).fetchall()
+                        
+                        # Process each event with enhanced error handling
+                        events = []
+                        from ..utils.unicode_sanitizer import UnicodeSanitizer
+                        import json
+                        
+                        for row in raw_events:
+                            try:
+                                # Multiple sanitization attempts
+                                payload_text = row.payload_text
+                                
+                                # First, try basic Unicode sanitization
+                                sanitized = UnicodeSanitizer.sanitize_unicode_string(payload_text, strict=True)
+                                
+                                # Try to parse as JSON
+                                try:
+                                    payload = json.loads(sanitized)
+                                except json.JSONDecodeError:
+                                    # Try more aggressive sanitization
+                                    sanitized = UnicodeSanitizer.sanitize_json_string(payload_text)
+                                    payload = json.loads(sanitized)
+                                
+                                # Check if this is a valid file download event
+                                if (payload.get('eventid') == 'cowrie.session.file_download' and 
+                                    payload.get('shasum') and 
+                                    payload.get('shasum') != '' and
+                                    payload.get('shasum') != 'null'):
+                                    
+                                    events.append(type('Row', (), {
+                                        'session_id': payload.get('session'),
+                                        'payload': payload
+                                    })())
+                                    
+                            except Exception as parse_error:
+                                logger.debug(f"Skipping corrupted payload at id {row.id}: {parse_error}")
+                                result['errors'] += 1
+                                continue
+                                
+                except Exception as fallback_error:
+                    logger.error(f"Fallback query also failed: {fallback_error}")
+                    result['message'] = (
+                        "Backfill failed: Unable to process corrupted JSON payloads in raw_events table. "
+                        "The data contains Unicode control characters that cannot be processed by PostgreSQL. "
+                        "Consider running a data cleanup script or migrating from a clean source."
+                    )
                     return result
 
-                # Process events in batches
-                batch = []
-                for event in events:
-                    try:
-                        # Parse payload - handle binary data gracefully
-                        import json
+            if not events:
+                result['message'] = "No file download events found to backfill"
+                return result
 
-                        try:
-                            payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
-                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                            logger.debug(f"Skipping event with binary/unparseable payload: {e}")
-                            result['errors'] += 1
-                            continue
+            # Process events in batches
+            batch = []
+            for event in events:
+                try:
+                    # Extract file data (payload is already sanitized and parsed)
+                    file_data = extract_file_data(event.payload, event.session_id)
+                    if file_data:
+                        file_record = create_files_record(file_data)
+                        batch.append(file_record)
+                        result['events_processed'] += 1
 
-                        # Extract file data
-                        file_data = extract_file_data(payload, event.session_id)
-                        if file_data:
-                            file_record = create_files_record(file_data)
-                            batch.append(file_record)
-                            result['events_processed'] += 1
+                    # Process batch when it reaches batch_size
+                    if len(batch) >= batch_size:
+                        inserted = self._insert_files_batch(batch)
+                        result['files_inserted'] += inserted
+                        result['batches_processed'] += 1
+                        batch = []
 
-                        # Process batch when it reaches batch_size
-                        if len(batch) >= batch_size:
-                            inserted = self._insert_files_batch(batch)
-                            result['files_inserted'] += inserted
-                            result['batches_processed'] += 1
-                            batch = []
+                except Exception as e:
+                    logger.warning(f"Error processing event: {e}")
+                    result['errors'] += 1
 
-                    except Exception as e:
-                        logger.warning(f"Error processing event: {e}")
-                        result['errors'] += 1
+            # Process remaining batch
+            if batch:
+                inserted = self._insert_files_batch(batch)
+                result['files_inserted'] += inserted
+                result['batches_processed'] += 1
 
-                # Process remaining batch
-                if batch:
-                    inserted = self._insert_files_batch(batch)
-                    result['files_inserted'] += inserted
-                    result['batches_processed'] += 1
-
-                result['message'] = (
-                    f"Backfill completed: {result['files_inserted']} files inserted "
-                    f"from {result['events_processed']} events"
-                )
+            result['message'] = (
+                f"Backfill completed: {result['files_inserted']} files inserted "
+                f"from {result['events_processed']} events"
+            )
 
         except Exception as e:
             result['error'] = str(e)
@@ -741,7 +829,10 @@ class CowrieDatabase:
 
         try:
             with self._get_engine().begin() as conn:
-                from sqlalchemy.dialects.sqlite import insert
+                from ..db.json_utils import get_dialect_name_from_engine
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                
+                dialect_name = get_dialect_name_from_engine(self._get_engine())
 
                 # Convert Files objects to dictionaries
                 file_dicts = []
@@ -765,9 +856,16 @@ class CowrieDatabase:
                     }
                     file_dicts.append(file_dict)
 
-                # Use INSERT OR IGNORE for conflict resolution
-                stmt = insert(Files.__table__).values(file_dicts)
-                stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
+                # Use database-specific conflict resolution
+                if dialect_name == "sqlite":
+                    # SQLite syntax
+                    stmt = sqlite_insert(Files.__table__).values(file_dicts)
+                    stmt = stmt.on_conflict_do_nothing()
+                else:
+                    # PostgreSQL syntax
+                    from sqlalchemy.dialects.postgresql import insert as postgres_insert
+                    stmt = postgres_insert(Files.__table__).values(file_dicts)
+                    stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
 
                 result = conn.execute(stmt)
                 return int(result.rowcount or 0)
@@ -775,6 +873,196 @@ class CowrieDatabase:
         except Exception as e:
             logger.error(f"Error inserting files batch: {e}")
             return 0
+
+    def sanitize_unicode_in_database(
+        self, 
+        batch_size: int = 1000, 
+        limit: Optional[int] = None,
+        dry_run: bool = False,
+        progress_callback: Optional[callable] = None
+    ) -> Dict[str, Any]:
+        """Sanitize Unicode control characters in existing database records.
+        
+        Args:
+            batch_size: Number of records to process in each batch
+            limit: Maximum number of records to process (None for all)
+            dry_run: If True, only report what would be changed without making changes
+            
+        Returns:
+            Sanitization result with statistics
+        """
+        result = {
+            'records_processed': 0,
+            'records_updated': 0,
+            'records_skipped': 0,
+            'errors': 0,
+            'batches_processed': 0,
+            'dry_run': dry_run,
+        }
+        
+        try:
+            from ..utils.unicode_sanitizer import UnicodeSanitizer
+            import json
+            
+            # Check if raw_events table exists
+            if not self._table_exists('raw_events'):
+                raise Exception("Raw events table does not exist.")
+                
+            from ..db.json_utils import get_dialect_name_from_engine
+            dialect_name = get_dialect_name_from_engine(self._get_engine())
+            
+            logger.info(f"Starting Unicode sanitization (dry_run={dry_run})...")
+            
+            # Process records in batches
+            offset = 0
+            while True:
+                # Get batch of records to process
+                with self._get_engine().connect() as conn:
+                    if dialect_name == "postgresql":
+                        query = text("""
+                            SELECT id, payload::text as payload_text
+                            FROM raw_events
+                            ORDER BY id ASC
+                            LIMIT :batch_size OFFSET :offset
+                        """)
+                    else:
+                        query = text("""
+                            SELECT id, payload as payload_text
+                            FROM raw_events
+                            ORDER BY id ASC
+                            LIMIT :batch_size OFFSET :offset
+                        """)
+                    
+                    if limit and (offset + batch_size) > limit:
+                        query = text(str(query).replace(":batch_size", str(limit - offset)))
+                    
+                    batch_records = conn.execute(
+                        query, 
+                        {"batch_size": batch_size, "offset": offset}
+                    ).fetchall()
+                
+                if not batch_records:
+                    break
+                
+                # Process each record in the batch
+                records_to_update = []
+                
+                for record in batch_records:
+                    try:
+                        record_id = record.id
+                        original_payload_text = record.payload_text
+                        
+                        # Check if payload contains problematic Unicode characters
+                        if not UnicodeSanitizer.is_safe_for_postgres_json(original_payload_text):
+                            # Sanitize the payload
+                            sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(original_payload_text)
+                            
+                            # Verify the sanitized payload is valid JSON and safe
+                            try:
+                                parsed_payload = json.loads(sanitized_payload_text)
+                                if UnicodeSanitizer.is_safe_for_postgres_json(sanitized_payload_text):
+                                    records_to_update.append({
+                                        'id': record_id,
+                                        'original': original_payload_text,
+                                        'sanitized': sanitized_payload_text,
+                                        'parsed': parsed_payload
+                                    })
+                                    result['records_updated'] += 1
+                                else:
+                                    logger.warning(f"Record {record_id}: Sanitized payload still not safe for PostgreSQL")
+                                    result['records_skipped'] += 1
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Record {record_id}: Sanitized payload is not valid JSON: {e}")
+                                result['records_skipped'] += 1
+                        else:
+                            result['records_skipped'] += 1
+                        
+                        result['records_processed'] += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing record {record.id}: {e}")
+                        result['errors'] += 1
+                        result['records_processed'] += 1
+                
+                # Update records in the database (unless dry run)
+                if records_to_update and not dry_run:
+                    with self._get_engine().begin() as conn:
+                        for update_record in records_to_update:
+                            try:
+                                if dialect_name == "postgresql":
+                                    # Update PostgreSQL JSONB column
+                                    update_query = text("""
+                                        UPDATE raw_events 
+                                        SET payload = :sanitized_payload::jsonb
+                                        WHERE id = :record_id
+                                    """)
+                                else:
+                                    # Update SQLite JSON column
+                                    update_query = text("""
+                                        UPDATE raw_events 
+                                        SET payload = :sanitized_payload
+                                        WHERE id = :record_id
+                                    """)
+                                
+                                conn.execute(update_query, {
+                                    "sanitized_payload": update_record['sanitized'],
+                                    "record_id": update_record['id']
+                                })
+                                
+                            except Exception as e:
+                                logger.error(f"Error updating record {update_record['id']}: {e}")
+                                result['errors'] += 1
+                
+                result['batches_processed'] += 1
+                offset += batch_size
+                
+                # Log progress and emit status
+                if result['batches_processed'] % 10 == 0:
+                    logger.info(
+                        f"Processed {result['records_processed']} records, "
+                        f"updated {result['records_updated']}, "
+                        f"skipped {result['records_skipped']}, "
+                        f"errors {result['errors']}"
+                    )
+                    
+                    # Emit progress via callback if provided
+                    if progress_callback:
+                        metrics = SanitizationMetrics(
+                            records_processed=result['records_processed'],
+                            records_updated=result['records_updated'],
+                            records_skipped=result['records_skipped'],
+                            errors=result['errors'],
+                            batches_processed=result['batches_processed'],
+                            dry_run=dry_run
+                        )
+                        progress_callback(metrics)
+                
+                # Check if we've reached the limit
+                if limit and result['records_processed'] >= limit:
+                    break
+            
+            # Final result message
+            if dry_run:
+                result['message'] = (
+                    f"Dry run completed: {result['records_processed']} records analyzed, "
+                    f"{result['records_updated']} would be updated, "
+                    f"{result['records_skipped']} would be skipped, "
+                    f"{result['errors']} errors"
+                )
+            else:
+                result['message'] = (
+                    f"Sanitization completed: {result['records_processed']} records processed, "
+                    f"{result['records_updated']} updated, "
+                    f"{result['records_skipped']} skipped, "
+                    f"{result['errors']} errors"
+                )
+                
+        except Exception as e:
+            result['error'] = str(e)
+            result['message'] = f"Sanitization failed: {e}"
+            raise Exception(f"Sanitization failed: {e}") from e
+        
+        return result
 
     def analyze_data_quality(self, sample_size: int = 1000) -> Dict[str, Any]:
         """Analyze data quality issues in the database.
@@ -1772,7 +2060,143 @@ class CowrieDatabase:
 
         return validation
 
+    def longtail_migrate(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Apply longtail analysis schema migration (v9)."""
+        from ..db.migrations import _upgrade_to_v9, _downgrade_from_v9, CURRENT_SCHEMA_VERSION
 
+        logger.info(f"🔄 Longtail migration: v{CURRENT_SCHEMA_VERSION} -> v9")
+
+        if dry_run:
+            logger.info("🔍 DRY RUN: Would apply longtail migration")
+            return {
+                "success": True,
+                "dry_run": True,
+                "migration": "v9_longtail_analysis",
+                "current_version": CURRENT_SCHEMA_VERSION,
+            }
+
+        try:
+            engine = self._get_engine()
+
+            # Apply v9 migration
+            _upgrade_to_v9(engine)
+
+            logger.info("✅ Longtail migration applied successfully")
+            return {
+                "success": True,
+                "migration_applied": "v9_longtail_analysis",
+                "new_version": 9,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Longtail migration failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def longtail_rollback(self) -> Dict[str, Any]:
+        """Rollback longtail analysis migration."""
+        from ..db.migrations import _downgrade_from_v9, CURRENT_SCHEMA_VERSION
+
+        logger.info("🔄 Rolling back longtail migration...")
+
+        try:
+            engine = self._get_engine()
+
+            # Rollback v9 migration
+            _downgrade_from_v9(engine)
+
+            logger.info("✅ Longtail rollback completed successfully")
+            return {
+                "success": True,
+                "rollback_performed": "v9_to_v8",
+                "new_version": 8,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Longtail rollback failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def validate_longtail_schema(self) -> Dict[str, Any]:
+        """Validate longtail analysis schema and tables."""
+        logger.info("🔍 Validating longtail analysis schema...")
+
+        try:
+            engine = self._get_engine()
+
+            # Check if we're at v9
+            current_version = self.get_schema_version()
+            if current_version != 9:
+                return {
+                    "success": False,
+                    "error": f"Expected schema version 9, got {current_version}",
+                }
+
+            # Check required tables exist
+            required_tables = [
+                "longtail_analysis",
+                "longtail_detections",
+            ]
+
+            missing_tables = []
+            for table in required_tables:
+                if not self._table_exists(engine, table):
+                    missing_tables.append(table)
+
+            if missing_tables:
+                return {
+                    "success": False,
+                    "error": f"Missing tables: {missing_tables}",
+                }
+
+            # Check if pgvector tables exist (if PostgreSQL)
+            if self._is_postgresql():
+                try:
+                    # Check if pgvector extension is available
+                    with engine.connect() as conn:
+                        result = conn.execute(text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"))
+                        has_pgvector = result.scalar()
+
+                    if has_pgvector:
+                        pgvector_tables = ["command_sequence_vectors", "behavioral_vectors"]
+                        for table in pgvector_tables:
+                            if not self._table_exists(engine, table):
+                                logger.warning(f"⚠️  pgvector table {table} not found")
+                    else:
+                        logger.info("ℹ️  pgvector extension not available - vector analysis disabled")
+
+                except Exception as e:
+                    logger.warning(f"⚠️  Could not check pgvector status: {e}")
+
+            # Check table structures
+            table_info = {}
+            for table in required_tables:
+                with engine.connect() as conn:
+                    # Get column information
+                    result = conn.execute(text(f"PRAGMA table_info({table})" if self._is_sqlite() else
+                                             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :table"),
+                                        {"table": table} if not self._is_sqlite() else {})
+                    columns = [{"name": row[0], "type": row[1]} for row in result]
+                    table_info[table] = columns
+
+            logger.info("✅ Longtail schema validation passed")
+            return {
+                "success": True,
+                "schema_version": current_version,
+                "tables_validated": required_tables,
+                "table_info": table_info,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Longtail schema validation failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
 
 def main():
@@ -1831,6 +2255,51 @@ def main():
         '--limit', type=int, help='Maximum number of events to process (default: all available events)'
     )
 
+    # Sanitize command
+    sanitize_parser = subparsers.add_parser(
+        'sanitize', 
+        help='Sanitize Unicode control characters in existing database records'
+    )
+    sanitize_parser.add_argument(
+        '--batch-size', 
+        type=int, 
+        default=1000, 
+        help='Number of records to process in each batch (default: 1000)'
+    )
+    sanitize_parser.add_argument(
+        '--limit', 
+        type=int, 
+        help='Maximum number of records to process (default: all available records)'
+    )
+    sanitize_parser.add_argument(
+        '--dry-run', 
+        action='store_true', 
+        help='Show what would be changed without actually making changes'
+    )
+    sanitize_parser.add_argument(
+        '--status-dir', 
+        help='Directory for status JSON files'
+    )
+    sanitize_parser.add_argument(
+        '--ingest-id', 
+        help='Status identifier for progress tracking'
+    )
+
+    # Organize command
+    organize_parser = subparsers.add_parser('organize', help='Organize files by content type (move mislocated files)')
+    organize_parser.add_argument(
+        'source', help='Source directory to scan for mislocated files'
+    )
+    organize_parser.add_argument(
+        '--dry-run', action='store_true', default=True, help='Only report what would be moved (default)'
+    )
+    organize_parser.add_argument(
+        '--move', action='store_true', help='Actually move files (overrides --dry-run)'
+    )
+    organize_parser.add_argument(
+        '--verbose', '-v', action='store_true', help='Verbose output'
+    )
+
     # Files command
     subparsers.add_parser('files', help='Display files table statistics')
 
@@ -1863,6 +2332,27 @@ def main():
     )
     repair_parser.add_argument(
         '--dry-run', action='store_true', help='Show what repairs would be made without actually applying them'
+    )
+
+    # Longtail migrate command
+    longtail_migrate_parser = subparsers.add_parser(
+        'longtail-migrate',
+        help='Apply longtail analysis schema migration (v9)'
+    )
+    longtail_migrate_parser.add_argument(
+        '--dry-run', action='store_true', help='Show what migration would be applied without executing it'
+    )
+
+    # Longtail rollback command
+    longtail_rollback_parser = subparsers.add_parser(
+        'longtail-rollback',
+        help='Rollback longtail analysis migration to v8'
+    )
+
+    # Longtail validate command
+    longtail_validate_parser = subparsers.add_parser(
+        'longtail-validate',
+        help='Validate longtail analysis schema and tables'
     )
 
     # Info command
@@ -1998,6 +2488,107 @@ def main():
                 print(f"❌ Backfill failed: {result['error']}", file=sys.stderr)
                 sys.exit(1)
 
+        elif args.command == 'sanitize':
+            print("Sanitizing Unicode control characters in database records...")
+            
+            # Set up status emitter for progress tracking
+            ingest_id = args.ingest_id or f"sanitize-{int(time.time())}"
+            emitter = StatusEmitter("sanitization", status_dir=args.status_dir)
+            
+            # Initialize metrics
+            metrics = SanitizationMetrics(
+                dry_run=args.dry_run,
+                ingest_id=ingest_id
+            )
+            emitter.record_metrics(metrics)
+            
+            start_time = time.perf_counter()
+            
+            # Run sanitization with progress callbacks
+            result = db.sanitize_unicode_in_database(
+                batch_size=args.batch_size, 
+                limit=args.limit,
+                dry_run=args.dry_run,
+                progress_callback=lambda m: emitter.record_metrics(m)
+            )
+
+            # Update final metrics
+            metrics.records_processed = result['records_processed']
+            metrics.records_updated = result['records_updated']
+            metrics.records_skipped = result['records_skipped']
+            metrics.errors = result['errors']
+            metrics.batches_processed = result['batches_processed']
+            metrics.duration_seconds = time.perf_counter() - start_time
+            emitter.record_metrics(metrics)
+
+            print(f"✓ {result['message']}")
+            if result.get('records_processed', 0) > 0:
+                print(f"  Records processed: {result['records_processed']:,}")
+                print(f"  Records updated: {result['records_updated']:,}")
+                print(f"  Records skipped: {result['records_skipped']:,}")
+                print(f"  Batches processed: {result['batches_processed']:,}")
+                if result.get('errors', 0) > 0:
+                    print(f"  Errors: {result['errors']:,}")
+
+            if 'error' in result:
+                print(f"❌ Sanitization failed: {result['error']}", file=sys.stderr)
+                sys.exit(1)
+
+        elif args.command == 'organize':
+            from .file_organizer import organize_files
+            
+            source_dir = Path(args.source)
+            if not source_dir.exists():
+                print(f"❌ Source directory does not exist: {source_dir}", file=sys.stderr)
+                sys.exit(1)
+            
+            move_files = args.move or not args.dry_run
+            
+            if args.verbose:
+                logging.basicConfig(level=logging.INFO)
+            else:
+                logging.basicConfig(level=logging.WARNING)
+            
+            print(f"Scanning directory: {source_dir}")
+            print(f"Mode: {'DRY RUN' if not move_files else 'MOVING FILES'}")
+            print()
+            
+            results = organize_files(source_dir, dry_run=not move_files, move_files=move_files)
+            
+            # Report results
+            if results['iptables_files']:
+                print(f"Found {len(results['iptables_files'])} iptables files:")
+                for file_path in results['iptables_files']:
+                    print(f"  {file_path}")
+                print()
+            
+            if results['cowrie_files']:
+                print(f"Found {len(results['cowrie_files'])} cowrie files:")
+                for file_path in results['cowrie_files']:
+                    print(f"  {file_path}")
+                print()
+            
+            if results['webhoneypot_files']:
+                print(f"Found {len(results['webhoneypot_files'])} webhoneypot files:")
+                for file_path in results['webhoneypot_files']:
+                    print(f"  {file_path}")
+                print()
+            
+            if results['unknown_files']:
+                print(f"Found {len(results['unknown_files'])} unknown files:")
+                for file_path, file_type, reason in results['unknown_files']:
+                    print(f"  {file_path} (type: {file_type}, reason: {reason})")
+                print()
+            
+            if results['errors']:
+                print(f"Encountered {len(results['errors'])} errors:")
+                for file_path, error in results['errors']:
+                    print(f"  {file_path}: {error}")
+                print()
+            
+            total_moved = len(results['iptables_files']) + len(results['cowrie_files']) + len(results['webhoneypot_files'])
+            print(f"Total files {'would be moved' if not move_files else 'moved'}: {total_moved}")
+
         elif args.command == 'analyze':
             result = db.analyze_data_quality(sample_size=args.sample_size)
 
@@ -2121,6 +2712,42 @@ def main():
                 print("  Status: May benefit from optimization")
             else:
                 print("  Status: Healthy")
+
+        elif args.command == 'longtail-migrate':
+            result = db.longtail_migrate(dry_run=args.dry_run)
+
+            if result['success']:
+                if result.get('dry_run'):
+                    print("🔍 DRY RUN: Longtail migration would be applied")
+                    print(f"   Current version: {result['current_version']}")
+                    print("   Target version: 9")
+                else:
+                    print("✅ Longtail migration applied successfully")
+                    print(f"   New version: {result['new_version']}")
+            else:
+                print(f"❌ Migration failed: {result['error']}")
+
+        elif args.command == 'longtail-rollback':
+            result = db.longtail_rollback()
+
+            if result['success']:
+                print("✅ Longtail rollback completed successfully")
+                print(f"   New version: {result['new_version']}")
+            else:
+                print(f"❌ Rollback failed: {result['error']}")
+
+        elif args.command == 'longtail-validate':
+            result = db.validate_longtail_schema()
+
+            if result['success']:
+                print("✅ Longtail schema validation passed")
+                print(f"   Schema version: {result['schema_version']}")
+                print(f"   Tables validated: {', '.join(result['tables_validated'])}")
+
+                for table, columns in result['table_info'].items():
+                    print(f"   {table}: {len(columns)} columns")
+            else:
+                print(f"❌ Schema validation failed: {result['error']}")
 
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
