@@ -27,6 +27,7 @@ from ..reporting.builders import BaseReportBuilder, ReportContext
 from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
+from .db_config import resolve_database_settings, add_database_argument
 
 
 @dataclass(slots=True)
@@ -42,15 +43,6 @@ class ReportingMetrics:
     errors: int = 0
 
 
-def _resolve_db_settings(db_arg: Optional[str]) -> DatabaseSettings:
-    if not db_arg:
-        return load_database_settings()
-    if db_arg.startswith("sqlite:"):
-        return load_database_settings(config={"url": db_arg})
-    db_path = Path(db_arg)
-    if db_path.exists() or db_arg.endswith(".sqlite"):
-        return DatabaseSettings(url=f"sqlite:///{db_path.resolve()}")
-    return load_database_settings(config={"url": db_arg})
 
 
 def _builder_for_mode(mode: str, repository: ReportingRepository, top_n: int) -> BaseReportBuilder:
@@ -198,7 +190,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--no-ssl-verify", action="store_true", help="Disable Elasticsearch SSL verification")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    settings = _resolve_db_settings(args.db)
+    settings = resolve_database_settings(args.db)
     engine = create_engine_from_settings(settings)
     apply_migrations(engine)
     session_factory = create_session_maker(engine)

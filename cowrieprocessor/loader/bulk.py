@@ -742,6 +742,9 @@ class BulkLoader:
             "payload_hash": payload_hash,
             "risk_score": processed.risk_score,
             "quarantined": processed.quarantined,
+            "session_id": processed.session_id,
+            "event_type": processed.event_type,
+            "event_timestamp": processed.event_timestamp.isoformat() if processed.event_timestamp else None,
         }
 
     def _payload_hash(self, payload: Mapping[str, Any]) -> str:

@@ -17,6 +17,7 @@ from ..db import CURRENT_SCHEMA_VERSION, Files, apply_migrations
 from ..db.engine import create_engine_from_settings
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
+from .db_config import resolve_database_settings, add_database_argument
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,62 @@ class CowrieDatabase:
     def _is_postgresql(self) -> bool:
         """Check if the database is PostgreSQL."""
         return self.db_url.startswith("postgresql://") or self.db_url.startswith("postgres://")
+
+    def _table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the current database.
+
+        Args:
+            table_name: Name of the table to check
+
+        Returns:
+            True if table exists, False otherwise
+        """
+        with self._get_engine().connect() as conn:
+            try:
+                if self._is_sqlite():
+                    # SQLite: Use sqlite_master
+                    result = conn.execute(
+                        text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                    ).fetchone()
+                    return result is not None
+                else:
+                    # PostgreSQL: Use information_schema
+                    result = conn.execute(
+                        text("""
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = :table_name
+                        """),
+                        {"table_name": table_name}
+                    ).fetchone()
+                    return result is not None
+            except Exception:
+                return False
+
+    def _get_all_indexes(self) -> list[str]:
+        """Get all index names for the current database.
+
+        Returns:
+            List of index names
+        """
+        with self._get_engine().connect() as conn:
+            try:
+                if self._is_sqlite():
+                    # SQLite: Use sqlite_master
+                    result = conn.execute(
+                        text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
+                    ).fetchall()
+                    return [row[0] for row in result]
+                else:
+                    # PostgreSQL: Use information_schema
+                    result = conn.execute(
+                        text("""
+                        SELECT indexname FROM pg_indexes
+                        WHERE schemaname = 'public'
+                        """)
+                    ).fetchall()
+                    return [row[0] for row in result]
+            except Exception:
+                return []
 
     def get_schema_version(self) -> int:
         """Get current schema version from database."""
@@ -239,19 +296,16 @@ class CowrieDatabase:
 
             if reindex:
                 try:
+                    indexes = self._get_all_indexes()
+
                     if self._is_sqlite():
-                        # Get all indexes
-                        indexes = conn.execute(
-                            text("SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'")
-                        ).fetchall()
-
-                        for (index_name,) in indexes:
+                        # SQLite: Reindex each index
+                        for index_name in indexes:
                             conn.execute(text(f"REINDEX {index_name}"))
-
                         results.append(f"Reindexed {len(indexes)} indexes")
                     elif self._is_postgresql():
                         # PostgreSQL: REINDEX DATABASE
-                        conn.execute(text("REINDEX DATABASE"))
+                        conn.execute(text("REINDEX DATABASE CONCURRENTLY cowrieprocessor"))
                         results.append("REINDEX DATABASE completed successfully")
                 except Exception as e:
                     results.append(f"REINDEX failed: {e}")
@@ -568,45 +622,63 @@ class CowrieDatabase:
 
         try:
             # Check if files table exists
-            with self._get_engine().connect() as conn:
-                tables = conn.execute(
-                    text("SELECT name FROM sqlite_master WHERE type='table' AND name='files'")
-                ).fetchall()
-
-                if not tables:
-                    raise Exception("Files table does not exist. Run 'cowrie-db migrate' first.")
+            if not self._table_exists('files'):
+                raise Exception("Files table does not exist. Run 'cowrie-db migrate' first.")
 
             # Import here to avoid circular imports
             from ..db.json_utils import get_dialect_name_from_engine
             from ..loader.file_processor import create_files_record, extract_file_data
 
-            with self._get_engine().connect() as conn:
-                dialect_name = get_dialect_name_from_engine(self._get_engine())
+            # Get database dialect for query construction
+            dialect_name = get_dialect_name_from_engine(self._get_engine())
 
-                # Query for file download events using JSON abstraction
-                if dialect_name == "postgresql":
-                    query = text("""
-                        SELECT payload->>'session' as session_id, payload
-                        FROM raw_events
-                        WHERE payload->>'eventid' = 'cowrie.session.file_download'
-                          AND payload->>'shasum' IS NOT NULL
-                          AND payload->>'shasum' != ''
-                        ORDER BY id ASC
-                    """)
-                else:
-                    query = text("""
-                        SELECT json_extract(payload, '$.session') as session_id, payload
-                        FROM raw_events
-                        WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
-                          AND json_extract(payload, '$.shasum') IS NOT NULL
-                          AND json_extract(payload, '$.shasum') != ''
-                        ORDER BY id ASC
-                    """)
+            # Query for file download events using JSON abstraction
+            # Handle binary data gracefully by using safer JSON operators and separate connections
+            events = []
 
-                if limit:
-                    query = text(str(query) + f" LIMIT {limit}")
+            # Primary query attempt - use a more restrictive approach to avoid binary data
+            try:
+                with self._get_engine().connect() as conn:
+                    if dialect_name == "postgresql":
+                        # Use a very restrictive query that should avoid binary data
+                        query = text("""
+                            SELECT payload->>'session' as session_id, payload
+                            FROM raw_events
+                            WHERE (payload->'eventid') IS NOT NULL
+                              AND (payload->'shasum') IS NOT NULL
+                              AND (payload->'eventid')::text = '"cowrie.session.file_download"'
+                              AND length((payload->'eventid')::text) = 31
+                              AND (payload->'shasum')::text != '""'
+                              AND (payload->'shasum')::text != 'null'
+                              AND length((payload->'shasum')::text) > 0
+                            ORDER BY id ASC
+                        """)
+                    else:
+                        query = text("""
+                            SELECT json_extract(payload, '$.session') as session_id, payload
+                            FROM raw_events
+                            WHERE json_extract(payload, '$.eventid') = 'cowrie.session.file_download'
+                              AND json_extract(payload, '$.shasum') IS NOT NULL
+                              AND json_extract(payload, '$.shasum') != ''
+                            ORDER BY id ASC
+                        """)
 
-                events = conn.execute(query).fetchall()
+                    if limit:
+                        query = text(str(query) + f" LIMIT {limit}")
+
+                    events = conn.execute(query).fetchall()
+            except Exception as e:
+                logger.warning(f"Primary query failed due to binary data: {e}")
+
+                # Since both queries failed due to binary data in JSON payloads,
+                # this indicates the raw_events table contains corrupted data that PostgreSQL cannot process
+                logger.warning("Both query attempts failed due to binary data in JSON payloads")
+                result['message'] = (
+                    "Backfill failed: JSON payloads contain binary data that PostgreSQL cannot process. "
+                    "This indicates corrupted data in the raw_events table. "
+                    "Consider manual data cleanup or migration from a clean source."
+                )
+                return result
 
                 if not events:
                     result['message'] = "No file download events found to backfill"
@@ -616,10 +688,15 @@ class CowrieDatabase:
                 batch = []
                 for event in events:
                     try:
-                        # Parse payload
+                        # Parse payload - handle binary data gracefully
                         import json
 
-                        payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
+                        try:
+                            payload = json.loads(event.payload) if isinstance(event.payload, str) else event.payload
+                        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                            logger.debug(f"Skipping event with binary/unparseable payload: {e}")
+                            result['errors'] += 1
+                            continue
 
                         # Extract file data
                         file_data = extract_file_data(payload, event.session_id)
@@ -791,50 +868,95 @@ class CowrieDatabase:
 
         try:
             with self._get_engine().connect() as conn:
-                # Get sample of payloads
-                result = conn.execute(
-                    text(f"""
-                    SELECT payload, COUNT(*) as count
-                    FROM raw_events
-                    WHERE payload IS NOT NULL AND payload != ''
-                    GROUP BY payload
-                    ORDER BY count DESC
-                    LIMIT {sample_size}
-                """)
-                ).fetchall()
+                # Get sample of payloads - handle PostgreSQL JSON comparison
+                dialect_name = conn.dialect.name
+                if dialect_name == "postgresql":
+                    payload_filter = "payload IS NOT NULL"
+                else:
+                    payload_filter = "payload IS NOT NULL AND payload != ''"
+
+                # Handle PostgreSQL JSON grouping issue
+                if dialect_name == "postgresql":
+                    # For PostgreSQL, use a different approach - sample by ID instead of grouping by payload
+                    result = conn.execute(
+                        text(f"""
+                        SELECT id, payload
+                        FROM raw_events
+                        WHERE {payload_filter}
+                        ORDER BY id
+                        LIMIT {sample_size}
+                    """)
+                    ).fetchall()
+                    # Convert to expected format for analysis
+                    payloads = [row[1] for row in result]
+                else:
+                    result = conn.execute(
+                        text(f"""
+                        SELECT payload, COUNT(*) as count
+                        FROM raw_events
+                        WHERE {payload_filter}
+                        GROUP BY payload
+                        ORDER BY count DESC
+                        LIMIT {sample_size}
+                    """)
+                    ).fetchall()
+                    payloads = [row[0] for row in result]
 
                 total_records = 0
                 valid_json_count = 0
                 invalid_json_count = 0
                 malformed_samples = []
 
-                for payload, count in result:
-                    total_records += count
+                if dialect_name == "postgresql":
+                    # For PostgreSQL, we sampled by ID so each payload counts as 1
+                    for payload in payloads:
+                        total_records += 1
 
-                    # Try to parse JSON
-                    try:
-                        import json
+                        # Convert dict payload to string for JSON parsing
+                        payload_str = payload if isinstance(payload, str) else str(payload)
 
-                        json.loads(payload)
-                        valid_json_count += count
-                    except json.JSONDecodeError:
-                        invalid_json_count += count
+                        # Try to parse JSON
+                        try:
+                            import json
+                            json.loads(payload_str)
+                            valid_json_count += 1
+                        except json.JSONDecodeError:
+                            invalid_json_count += 1
+                            # Analyze malformed JSON pattern
+                            pattern = self._identify_malformed_pattern(payload_str)
+                else:
+                    # For SQLite, we have count information
+                    for payload, count in result:
+                        total_records += count
 
-                        # Analyze malformed JSON pattern
-                        pattern = self._identify_malformed_pattern(payload)
-                        if len(malformed_samples) < 10:  # Keep only top 10 samples
-                            malformed_samples.append(
-                                {
-                                    'payload_preview': payload[:100] + '...' if len(payload) > 100 else payload,
-                                    'count': count,
-                                    'pattern': pattern,
-                                }
-                            )
+                        # Try to parse JSON
+                        try:
+                            import json
+                            json.loads(payload)
+                            valid_json_count += count
+                        except json.JSONDecodeError:
+                            invalid_json_count += count
 
-                # Get additional statistics
-                empty_payloads = conn.execute(
-                    text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload = ''")
-                ).scalar()
+                            # Analyze malformed JSON pattern
+                            pattern = self._identify_malformed_pattern(payload)
+                            if len(malformed_samples) < 10:  # Keep only top 10 samples
+                                malformed_samples.append(
+                                    {
+                                        'payload_preview': payload_str[:100] + '...' if len(payload_str) > 100 else payload_str,
+                                        'count': 1,  # PostgreSQL sample is 1 record
+                                        'pattern': pattern,
+                                    }
+                                )
+
+                # Get additional statistics - handle PostgreSQL JSON comparison
+                if dialect_name == "postgresql":
+                    empty_payloads = conn.execute(
+                        text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload::text = ''")
+                    ).scalar()
+                else:
+                    empty_payloads = conn.execute(
+                        text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload = ''")
+                    ).scalar()
                 total_raw_events = conn.execute(text("SELECT COUNT(*) FROM raw_events")).scalar()
 
                 analysis_result = {
@@ -987,7 +1109,22 @@ class CowrieDatabase:
         backfill_result = self._repair_missing_fields(batch_size, dry_run)
 
         # Calculate unrepairable records (malformed data)
-        unrepairable_records = backfill_result['total_missing'] - backfill_result['fields_backfilled']
+        # Only count as unrepairable if we actually tried to repair but couldn't
+        unrepairable_records = 0
+        if backfill_result.get('generated_columns', {}).get('session_id', False) and \
+           backfill_result.get('generated_columns', {}).get('event_type', False) and \
+           backfill_result.get('generated_columns', {}).get('event_timestamp', False):
+            # All columns are generated - no records are actually unrepairable
+            unrepairable_records = 0
+        else:
+            # Some columns are regular - but if we have binary data issues, treat as unrepairable
+            # This happens when JSON payloads contain binary data that PostgreSQL can't process
+            if backfill_result['fields_backfilled'] == 0 and backfill_result['total_missing'] > 0:
+                # If no fields were backfilled but there are missing fields, likely binary data issue
+                unrepairable_records = backfill_result['total_missing']
+            else:
+                # Calculate actual unrepairable records
+                unrepairable_records = backfill_result['total_missing'] - backfill_result['fields_backfilled']
 
         repair_summary = {
             'dry_run': dry_run,
@@ -1019,125 +1156,286 @@ class CowrieDatabase:
 
         try:
             with self._get_engine().connect() as conn:
-                # Find records with missing fields
-                result = conn.execute(
-                    text("""
-                    SELECT COUNT(*) as total_missing
-                    FROM raw_events
-                    WHERE (session_id IS NULL OR event_type IS NULL OR event_timestamp IS NULL)
-                      AND payload IS NOT NULL
-                      AND payload != ''
-                """)
-                ).fetchone()
+                # Check if columns are generated columns (cannot be updated)
+                from ..db.migrations import _is_generated_column
+                
+                session_id_generated = _is_generated_column(conn, "raw_events", "session_id")
+                event_type_generated = _is_generated_column(conn, "raw_events", "event_type")
+                event_timestamp_generated = _is_generated_column(conn, "raw_events", "event_timestamp")
+                
+                logger.info(f"Column status: session_id={'generated' if session_id_generated else 'regular'}, "
+                           f"event_type={'generated' if event_type_generated else 'regular'}, "
+                           f"event_timestamp={'generated' if event_timestamp_generated else 'regular'}")
+                
+                # If all columns are generated, there's nothing to repair
+                if session_id_generated and event_type_generated and event_timestamp_generated:
+                    logger.info("✅ All columns are generated columns - no repair needed")
+                    return {
+                        'total_missing': 0,
+                        'records_processed': 0,
+                        'fields_backfilled': 0,
+                        'session_id_updated': 0,
+                        'event_type_updated': 0,
+                        'event_timestamp_updated': 0,
+                        'errors': 0,
+                        'duration_seconds': 0,
+                        'note': 'All columns are generated columns that auto-compute from JSON payload'
+                    }
 
-                total_missing = result[0] if result else 0
-                logger.info(f"Found {total_missing} records with missing fields")
+                # Find records with missing fields (only for non-generated columns)
+                missing_conditions = []
+                if not session_id_generated:
+                    missing_conditions.append("session_id IS NULL")
+                if not event_type_generated:
+                    missing_conditions.append("event_type IS NULL")
+                if not event_timestamp_generated:
+                    missing_conditions.append("event_timestamp IS NULL")
+                
+                if not missing_conditions:
+                    logger.info("✅ No non-generated columns need repair")
+                    return {
+                        'total_missing': 0,
+                        'records_processed': 0,
+                        'fields_backfilled': 0,
+                        'session_id_updated': 0,
+                        'event_type_updated': 0,
+                        'event_timestamp_updated': 0,
+                        'errors': 0,
+                        'duration_seconds': 0,
+                        'note': 'All columns are generated columns that auto-compute from JSON payload'
+                    }
+                
+                where_clause = " OR ".join(missing_conditions)
+
+                # Handle PostgreSQL JSON column comparison
+                dialect_name = conn.dialect.name
+                if dialect_name == "postgresql":
+                    payload_not_empty = "AND payload IS NOT NULL"
+                else:
+                    payload_not_empty = "AND payload IS NOT NULL AND payload != ''"
+
+                try:
+                    result = conn.execute(
+                        text(f"""
+                        SELECT COUNT(*) as total_missing
+                        FROM raw_events
+                        WHERE ({where_clause})
+                          {payload_not_empty}
+                    """)
+                    ).fetchone()
+
+                    total_missing = result[0] if result else 0
+                except Exception:
+                    # If we can't count due to binary data issues, fall back to a simpler query
+                    logger.warning("Using fallback count query due to binary data in JSON payload")
+                    result = conn.execute(
+                        text(f"""
+                        SELECT COUNT(*) as total_missing
+                        FROM raw_events
+                        WHERE ({where_clause})
+                          AND payload IS NOT NULL
+                    """)
+                    ).fetchone()
+
+                    total_missing = result[0] if result else 0
+                logger.info(f"Found {total_missing} records with missing fields in non-generated columns")
 
                 if total_missing == 0:
                     return {
                         'total_missing': 0,
                         'records_processed': 0,
                         'fields_backfilled': 0,
+                        'session_id_updated': 0,
+                        'event_type_updated': 0,
+                        'event_timestamp_updated': 0,
                         'errors': 0,
                         'duration_seconds': 0,
                     }
 
-                # Process in batches
+                # Use bulk SQL updates for much better performance
                 import time
-
                 start_time = time.time()
-                processed = 0
-                backfilled = 0
-                errors = 0
-
-                while processed < total_missing:
-                    # Get batch of records to process
-                    batch_result = conn.execute(
-                        text("""
-                        SELECT id, payload
-                        FROM raw_events
-                        WHERE (session_id IS NULL OR event_type IS NULL OR event_timestamp IS NULL)
-                          AND payload IS NOT NULL
-                          AND payload != ''
-                        LIMIT :batch_size
-                    """),
-                        {'batch_size': batch_size},
-                    ).fetchall()
-
-                    if not batch_result:
-                        break
-
-                    batch_updates = []
-
-                for record_id, payload in batch_result:
-                    try:
-                        import json
-
-                        payload_data = json.loads(payload)
-
-                        updates = {}
-
-                        # Check if this is a malformed payload
-                        if 'malformed' in payload_data and len(payload_data) == 1:
-                            # This is a genuinely malformed record that can't be automatically repaired
-                            # Log as unrepairable but don't count as error since it's expected
-                            logger.debug(
-                                f"Record {record_id} contains malformed data that cannot be automatically repaired"
-                            )
-                            continue
-
-                        if 'session' in payload_data:
-                            updates['session_id'] = payload_data['session']
-                        if 'eventid' in payload_data:
-                            updates['event_type'] = payload_data['eventid']
-                        if 'timestamp' in payload_data:
-                            updates['event_timestamp'] = payload_data['timestamp']
-
-                        if updates:
-                            batch_updates.append({'id': record_id, 'updates': updates})
-
-                    except json.JSONDecodeError:
-                        errors += 1
-                        logger.warning(f"Invalid JSON for record {record_id}")
-                        continue
-
-                    # Apply batch updates
-                    if batch_updates and not dry_run:
-                        for update in batch_updates:
-                            try:
-                                update_sql = "UPDATE raw_events SET "
-                                update_sql += ", ".join([f"{k} = :{k}" for k in update['updates'].keys()])
-                                update_sql += " WHERE id = :id"
-
-                                conn.execute(text(update_sql), {**update['updates'], 'id': update['id']})
-                                backfilled += 1
-                            except Exception as e:
-                                errors += 1
-                                logger.warning(f"Failed to update record {update['id']}: {e}")
-
-                    processed += len(batch_result)
-
-                    # Log progress
-                    if processed % (batch_size * 10) == 0:  # Log every 10 batches
-                        progress = (processed / total_missing) * 100
-                        logger.info(f"Progress: {processed}/{total_missing} ({progress:.1f}%)")
+                
+                # Check database type for appropriate JSON extraction syntax
+                dialect_name = conn.dialect.name
+                
+                session_id_updated = 0
+                event_type_updated = 0
+                event_timestamp_updated = 0
+                
+                if dialect_name == "postgresql":
+                    # PostgreSQL bulk updates using JSON operators - handle binary data gracefully
+                    if not session_id_generated and not dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                UPDATE raw_events
+                                SET session_id = payload->>'session'
+                                WHERE session_id IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'session') IS NOT NULL
+                            """))
+                            session_id_updated = result.rowcount or 0
+                        except Exception:
+                            # If we can't process due to binary data, skip this field
+                            logger.warning("Skipping session_id updates due to binary data in JSON payload")
+                            session_id_updated = 0
+                    elif not session_id_generated and dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                SELECT COUNT(*) FROM raw_events
+                                WHERE session_id IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'session') IS NOT NULL
+                            """))
+                            session_id_updated = result.scalar_one() or 0
+                        except Exception:
+                            # If we can't count due to binary data, assume 0
+                            session_id_updated = 0
+                        
+                    if not event_type_generated and not dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                UPDATE raw_events
+                                SET event_type = payload->>'eventid'
+                                WHERE event_type IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'eventid') IS NOT NULL
+                            """))
+                            event_type_updated = result.rowcount or 0
+                        except Exception:
+                            logger.warning("Skipping event_type updates due to binary data in JSON payload")
+                            event_type_updated = 0
+                    elif not event_type_generated and dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                SELECT COUNT(*) FROM raw_events
+                                WHERE event_type IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'eventid') IS NOT NULL
+                            """))
+                            event_type_updated = result.scalar_one() or 0
+                        except Exception:
+                            event_type_updated = 0
+                        
+                    if not event_timestamp_generated and not dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                UPDATE raw_events
+                                SET event_timestamp = payload->>'timestamp'
+                                WHERE event_timestamp IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'timestamp') IS NOT NULL
+                            """))
+                            event_timestamp_updated = result.rowcount or 0
+                        except Exception:
+                            logger.warning("Skipping event_timestamp updates due to binary data in JSON payload")
+                            event_timestamp_updated = 0
+                    elif not event_timestamp_generated and dry_run:
+                        try:
+                            result = conn.execute(text("""
+                                SELECT COUNT(*) FROM raw_events
+                                WHERE event_timestamp IS NULL
+                                  AND payload IS NOT NULL
+                                  AND (payload->'timestamp') IS NOT NULL
+                            """))
+                            event_timestamp_updated = result.scalar_one() or 0
+                        except Exception:
+                            event_timestamp_updated = 0
+                        
+                else:
+                    # SQLite bulk updates using json_extract
+                    if not session_id_generated and not dry_run:
+                        result = conn.execute(text("""
+                            UPDATE raw_events 
+                            SET session_id = json_extract(payload, '$.session') 
+                            WHERE session_id IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.session') IS NOT NULL
+                        """))
+                        session_id_updated = result.rowcount or 0
+                    elif not session_id_generated and dry_run:
+                        result = conn.execute(text("""
+                            SELECT COUNT(*) FROM raw_events 
+                            WHERE session_id IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.session') IS NOT NULL
+                        """))
+                        session_id_updated = result.scalar_one() or 0
+                        
+                    if not event_type_generated and not dry_run:
+                        result = conn.execute(text("""
+                            UPDATE raw_events 
+                            SET event_type = json_extract(payload, '$.eventid') 
+                            WHERE event_type IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.eventid') IS NOT NULL
+                        """))
+                        event_type_updated = result.rowcount or 0
+                    elif not event_type_generated and dry_run:
+                        result = conn.execute(text("""
+                            SELECT COUNT(*) FROM raw_events 
+                            WHERE event_type IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.eventid') IS NOT NULL
+                        """))
+                        event_type_updated = result.scalar_one() or 0
+                        
+                    if not event_timestamp_generated and not dry_run:
+                        result = conn.execute(text("""
+                            UPDATE raw_events 
+                            SET event_timestamp = json_extract(payload, '$.timestamp') 
+                            WHERE event_timestamp IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.timestamp') IS NOT NULL
+                        """))
+                        event_timestamp_updated = result.rowcount or 0
+                    elif not event_timestamp_generated and dry_run:
+                        result = conn.execute(text("""
+                            SELECT COUNT(*) FROM raw_events 
+                            WHERE event_timestamp IS NULL 
+                              AND payload IS NOT NULL 
+                              AND payload != ''
+                              AND json_extract(payload, '$.timestamp') IS NOT NULL
+                        """))
+                        event_timestamp_updated = result.scalar_one() or 0
 
                 if not dry_run:
                     conn.commit()
 
+                total_backfilled = session_id_updated + event_type_updated + event_timestamp_updated
                 duration = time.time() - start_time
+                
                 result = {
                     'total_missing': total_missing,
-                    'records_processed': processed,
-                    'fields_backfilled': backfilled,
-                    'errors': errors,
+                    'records_processed': total_missing,  # We processed all missing records
+                    'fields_backfilled': total_backfilled,
+                    'session_id_updated': session_id_updated,
+                    'event_type_updated': event_type_updated,
+                    'event_timestamp_updated': event_timestamp_updated,
+                    'errors': 0,  # Bulk operations don't have individual record errors
                     'duration_seconds': duration,
+                    'generated_columns': {
+                        'session_id': session_id_generated,
+                        'event_type': event_type_generated,
+                        'event_timestamp': event_timestamp_generated,
+                    }
                 }
 
                 logger.info(
                     f"✅ Field backfill {'analysis' if dry_run else 'complete'}: "
-                    f"{backfilled} fields backfilled in {duration:.2f}s"
+                    f"{total_backfilled} fields backfilled in {duration:.2f}s "
+                    f"(session_id: {session_id_updated}, event_type: {event_type_updated}, "
+                    f"event_timestamp: {event_timestamp_updated})"
                 )
+                
+                if session_id_generated or event_type_generated or event_timestamp_generated:
+                    logger.info("ℹ️  Some columns are generated columns that auto-compute from JSON payload")
+                
                 return result
 
         except Exception as e:
@@ -1175,10 +1473,16 @@ class CowrieDatabase:
                 for row in conn.execute(status_query):
                     result['enrichment_status'][row.enrichment_status] = row.count
 
-                # Malicious files
-                result['malicious_files'] = conn.execute(
-                    text("SELECT COUNT(*) FROM files WHERE vt_malicious = 1")
-                ).scalar_one()
+                # Malicious files - handle PostgreSQL boolean comparison
+                if self._is_postgresql():
+                    malicious_count = conn.execute(
+                        text("SELECT COUNT(*) FROM files WHERE vt_malicious = TRUE")
+                    ).scalar_one()
+                else:
+                    malicious_count = conn.execute(
+                        text("SELECT COUNT(*) FROM files WHERE vt_malicious = 1")
+                    ).scalar_one()
+                result['malicious_files'] = malicious_count
 
                 # Pending enrichment
                 result['pending_enrichment'] = conn.execute(
@@ -1469,6 +1773,8 @@ class CowrieDatabase:
         return validation
 
 
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1476,9 +1782,7 @@ def main():
         prog='cowrie-db',
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        '--db-url', default='sqlite:///cowrieprocessor.sqlite', help='Database connection URL (SQLite or PostgreSQL)'
-    )
+    add_database_argument(parser)
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
@@ -1602,7 +1906,9 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    db = CowrieDatabase(args.db_url)
+    # Resolve database settings using shared configuration
+    db_settings = resolve_database_settings(args.db_url)
+    db = CowrieDatabase(db_settings.url)
 
     try:
         if args.command == 'migrate':

@@ -22,6 +22,7 @@ os.environ['TQDM_POSITION'] = '0'
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
@@ -30,6 +31,35 @@ from cowrieprocessor.db.engine import create_engine_from_settings, create_sessio
 from cowrieprocessor.settings import load_database_settings
 from cowrieprocessor.telemetry.otel import start_span
 
+
+def _load_sensors_config() -> dict[str, str] | None:
+    """Load database configuration from sensors.toml if available."""
+    sensors_file = Path("sensors.toml")
+    if not sensors_file.exists():
+        return None
+
+    try:
+        # Try tomllib first (Python 3.11+)
+        try:
+            import tomllib
+        except ImportError:
+            # Fall back to tomli for older Python versions
+            import tomli as tomllib
+
+        with sensors_file.open("rb") as handle:
+            data = tomllib.load(handle)
+
+        # Check for global database configuration
+        global_config = data.get("global", {})
+        db_url = global_config.get("db")
+        if db_url:
+            return {"url": db_url}
+
+    except Exception:
+        # If sensors.toml doesn't exist or can't be parsed, return None
+        pass
+
+    return None
 # Configure logging to work with tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -50,11 +80,16 @@ class SessionSummaryRebuilder:
             batch_size: Number of sessions to process before flushing to database
             memory_limit_mb: Memory limit in MB before forcing garbage collection
         """
-        self.settings = load_database_settings() if not db_url else None
-        if db_url:
+        # Try to load from sensors.toml first, then use explicit URL or default
+        if not db_url:
+            config = _load_sensors_config()
+            if config:
+                self.settings = load_database_settings(config=config)
+            else:
+                self.settings = load_database_settings()
+        else:
             # Create minimal settings for custom URL
             from cowrieprocessor.settings import DatabaseSettings
-
             self.settings = DatabaseSettings(url=db_url)
 
         assert self.settings is not None  # Type guard for mypy
@@ -462,12 +497,23 @@ class SessionSummaryRebuilder:
 
                         key = (session_id, normalized_command)
                         if key not in command_aggregates:
+                            # Convert string timestamp to datetime if needed
+                            ts = event.event_timestamp
+                            if isinstance(ts, str):
+                                try:
+                                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                                except ValueError:
+                                    try:
+                                        ts = datetime.fromisoformat(ts)
+                                    except ValueError:
+                                        ts = None
+
                             command_aggregates[key] = {
                                 'session_id': session_id,
                                 'command_normalized': normalized_command,
                                 'occurrences': 0,
-                                'first_seen': event.event_timestamp,
-                                'last_seen': event.event_timestamp,
+                                'first_seen': ts,
+                                'last_seen': ts,
                                 'high_risk': event.risk_score and event.risk_score > 5,
                             }
 
@@ -476,17 +522,31 @@ class SessionSummaryRebuilder:
 
                         # Update timestamps
                         if event.event_timestamp:
-                            if not agg['first_seen'] or event.event_timestamp < agg['first_seen']:
-                                agg['first_seen'] = event.event_timestamp
-                            if not agg['last_seen'] or event.event_timestamp > agg['last_seen']:
-                                agg['last_seen'] = event.event_timestamp
+                            # Convert string timestamp to datetime if needed
+                            ts = event.event_timestamp
+                            if isinstance(ts, str):
+                                try:
+                                    ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                                except ValueError:
+                                    try:
+                                        ts = datetime.fromisoformat(ts)
+                                    except ValueError:
+                                        ts = None
+
+                            if ts:
+                                if not agg['first_seen'] or ts < agg['first_seen']:
+                                    agg['first_seen'] = ts
+                                if not agg['last_seen'] or ts > agg['last_seen']:
+                                    agg['last_seen'] = ts
 
                         # Update high_risk flag
                         if event.risk_score and event.risk_score > 5:
                             agg['high_risk'] = True
 
-                    # Insert aggregated command stats
+                    # Insert aggregated command stats with PostgreSQL ON CONFLICT
                     if command_aggregates:
+                        # Convert aggregates to CommandStat objects
+                        cmd_stats_to_insert = []
                         for agg in command_aggregates.values():
                             cmd_stat = CommandStat(
                                 session_id=agg['session_id'],
@@ -496,8 +556,47 @@ class SessionSummaryRebuilder:
                                 last_seen=agg['last_seen'],
                                 high_risk=agg['high_risk'],
                             )
-                            session.add(cmd_stat)
-                            stats['commands_aggregated'] += 1
+                            cmd_stats_to_insert.append(cmd_stat)
+
+                        # Use bulk insert with ON CONFLICT for PostgreSQL
+                        if cmd_stats_to_insert:
+                            try:
+                                # For PostgreSQL, use ON CONFLICT DO UPDATE
+                                stmt = insert(CommandStat).values([
+                                    {
+                                        'session_id': cmd.session_id,
+                                        'command_normalized': cmd.command_normalized,
+                                        'occurrences': cmd.occurrences,
+                                        'first_seen': cmd.first_seen,
+                                        'last_seen': cmd.last_seen,
+                                        'high_risk': cmd.high_risk,
+                                    }
+                                    for cmd in cmd_stats_to_insert
+                                ])
+
+                                # PostgreSQL ON CONFLICT DO UPDATE
+                                stmt = stmt.on_conflict_do_update(
+                                    index_elements=['session_id', 'command_normalized'],
+                                    set_=dict(
+                                        occurrences=stmt.excluded.occurrences,
+                                        first_seen=stmt.excluded.first_seen,
+                                        last_seen=stmt.excluded.last_seen,
+                                        high_risk=stmt.excluded.high_risk,
+                                    )
+                                )
+
+                                result = session.execute(stmt)
+                                stats['commands_aggregated'] += len(cmd_stats_to_insert)
+
+                            except Exception as e:
+                                # Fallback to individual merges if bulk insert fails
+                                logger.warning(f"Bulk insert failed, falling back to individual merges: {e}")
+                                for cmd in cmd_stats_to_insert:
+                                    try:
+                                        session.merge(cmd)
+                                        stats['commands_aggregated'] += 1
+                                    except Exception as merge_error:
+                                        logger.error(f"Failed to merge command stat {cmd.session_id}/{cmd.command_normalized}: {merge_error}")
 
                         # Update session count
                         unique_sessions = len(set(agg['session_id'] for agg in command_aggregates.values()))

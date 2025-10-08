@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,12 @@ def _safe_execute_sql(connection: Connection, sql: str, description: str = "") -
             logger.info(f"Successfully executed: {description}")
         return True
     except Exception as e:
-        logger.warning(f"Failed to execute SQL ({description}): {e}")
+        logger.error(f"Failed to execute SQL: {description} - {e}")
+        # Rollback the transaction to clean state
+        try:
+            connection.rollback()
+        except Exception as rollback_error:
+            logger.error(f"Failed to rollback transaction: {rollback_error}")
         return False
 
 
@@ -175,6 +180,12 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v8(connection)
             _set_schema_version(connection, 8)
             version = 8
+
+        if version < 9:
+            _upgrade_to_v9(connection)
+            _set_schema_version(connection, 9)
+            version = 9
+
     return version
 
 
@@ -679,6 +690,304 @@ def _upgrade_to_v8(connection: Connection) -> None:
         )
     
     logger.info("Snowshoe detection schema migration (v8) completed successfully")
+
+
+def _upgrade_to_v9(connection: Connection) -> None:
+    """Upgrade to schema version 9: Add longtail analysis tables with proper data types."""
+
+    logger.info("Starting longtail analysis schema migration (v9)...")
+
+    dialect_name = connection.dialect.name
+
+    # Create longtail_analysis table with database-specific syntax
+    if not _table_exists(connection, 'longtail_analysis'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax with JSONB and TIMESTAMP WITH TIME ZONE
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_analysis (
+                    id SERIAL PRIMARY KEY,
+                    analysis_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+                    window_end TIMESTAMP WITH TIME ZONE NOT NULL,
+                    lookback_days INTEGER NOT NULL,
+
+                    -- Analysis results (proper Float types)
+                    confidence_score REAL NOT NULL,
+                    total_events_analyzed INTEGER NOT NULL,
+                    rare_command_count INTEGER NOT NULL DEFAULT 0,
+                    anomalous_sequence_count INTEGER NOT NULL DEFAULT 0,
+                    outlier_session_count INTEGER NOT NULL DEFAULT 0,
+                    emerging_pattern_count INTEGER NOT NULL DEFAULT 0,
+                    high_entropy_payload_count INTEGER NOT NULL DEFAULT 0,
+
+                    -- Results storage
+                    analysis_results JSONB NOT NULL,
+                    statistical_summary JSONB,
+                    recommendation TEXT,
+
+                    -- Performance metrics (proper Float types)
+                    analysis_duration_seconds REAL,
+                    memory_usage_mb REAL,
+
+                    -- Quality metrics (proper Float types)
+                    data_quality_score REAL,
+                    enrichment_coverage REAL,
+
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create longtail_analysis table"
+            ):
+                raise Exception("Failed to create longtail_analysis table")
+        else:
+            # SQLite syntax with JSON as TEXT and TIMESTAMP
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_analysis (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    window_start TIMESTAMP NOT NULL,
+                    window_end TIMESTAMP NOT NULL,
+                    lookback_days INTEGER NOT NULL,
+
+                    -- Analysis results (proper Float types)
+                    confidence_score REAL NOT NULL,
+                    total_events_analyzed INTEGER NOT NULL,
+                    rare_command_count INTEGER NOT NULL DEFAULT 0,
+                    anomalous_sequence_count INTEGER NOT NULL DEFAULT 0,
+                    outlier_session_count INTEGER NOT NULL DEFAULT 0,
+                    emerging_pattern_count INTEGER NOT NULL DEFAULT 0,
+                    high_entropy_payload_count INTEGER NOT NULL DEFAULT 0,
+
+                    -- Results storage
+                    analysis_results TEXT NOT NULL,  -- JSON as TEXT in SQLite
+                    statistical_summary TEXT,  -- JSON as TEXT in SQLite
+                    recommendation TEXT,
+
+                    -- Performance metrics (proper Float types)
+                    analysis_duration_seconds REAL,
+                    memory_usage_mb REAL,
+
+                    -- Quality metrics (proper Float types)
+                    data_quality_score REAL,
+                    enrichment_coverage REAL,
+
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create longtail_analysis table"
+            ):
+                raise Exception("Failed to create longtail_analysis table")
+    else:
+        logger.info("longtail_analysis table already exists, skipping creation")
+
+    # Create indexes for longtail_analysis (only if table exists)
+    if _table_exists(connection, 'longtail_analysis'):
+        indexes_to_create = [
+            ("ix_longtail_analysis_time", "longtail_analysis(analysis_time)"),
+            ("ix_longtail_analysis_window", "longtail_analysis(window_start, window_end)"),
+            ("ix_longtail_analysis_confidence", "longtail_analysis(confidence_score)"),
+            ("ix_longtail_analysis_created", "longtail_analysis(created_at)"),
+        ]
+        
+        for index_name, index_def in indexes_to_create:
+            if not _safe_execute_sql(
+                connection,
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}",
+                f"Create {index_name} index"
+            ):
+                logger.warning(f"Failed to create index {index_name}, continuing...")
+
+    # Create longtail_detections table with database-specific syntax
+    if not _table_exists(connection, 'longtail_detections'):
+        if dialect_name == 'postgresql':
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_detections (
+                    id SERIAL PRIMARY KEY,
+                    analysis_id INTEGER NOT NULL REFERENCES longtail_analysis(id) ON DELETE CASCADE,
+                    detection_type VARCHAR(32) NOT NULL,
+                    session_id VARCHAR(64),
+                    event_id INTEGER REFERENCES raw_events(id),
+
+                    -- Detection details (proper Float types)
+                    detection_data JSONB NOT NULL,
+                    confidence_score REAL NOT NULL,
+                    severity_score REAL NOT NULL,
+
+                    -- Context
+                    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                    source_ip VARCHAR(45),
+
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create longtail_detections table"
+            ):
+                raise Exception("Failed to create longtail_detections table")
+        else:
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_detections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    analysis_id INTEGER NOT NULL REFERENCES longtail_analysis(id) ON DELETE CASCADE,
+                    detection_type VARCHAR(32) NOT NULL,
+                    session_id VARCHAR(64),
+                    event_id INTEGER REFERENCES raw_events(id),
+
+                    -- Detection details (proper Float types)
+                    detection_data TEXT NOT NULL,  -- JSON as TEXT in SQLite
+                    confidence_score REAL NOT NULL,
+                    severity_score REAL NOT NULL,
+
+                    -- Context
+                    timestamp TIMESTAMP NOT NULL,
+                    source_ip VARCHAR(45),
+
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create longtail_detections table"
+            ):
+                raise Exception("Failed to create longtail_detections table")
+    else:
+        logger.info("longtail_detections table already exists, skipping creation")
+
+    # Create indexes for longtail_detections (only if table exists)
+    if _table_exists(connection, 'longtail_detections'):
+        indexes_to_create = [
+            ("ix_longtail_detections_analysis", "longtail_detections(analysis_id)"),
+            ("ix_longtail_detections_type", "longtail_detections(detection_type)"),
+            ("ix_longtail_detections_session", "longtail_detections(session_id)"),
+            ("ix_longtail_detections_timestamp", "longtail_detections(timestamp)"),
+            ("ix_longtail_detections_created", "longtail_detections(created_at)"),
+        ]
+        
+        for index_name, index_def in indexes_to_create:
+            if not _safe_execute_sql(
+                connection,
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}",
+                f"Create {index_name} index"
+            ):
+                logger.warning(f"Failed to create index {index_name}, continuing...")
+
+    # Create pgvector tables if PostgreSQL and pgvector available
+    if dialect_name == 'postgresql':
+        try:
+            # Check if pgvector extension is available
+            result = connection.execute(text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"))
+            has_pgvector = result.scalar()
+
+            if has_pgvector:
+                logger.info("pgvector extension detected, creating vector tables...")
+
+                # Create command sequence vectors table
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE TABLE command_sequence_vectors (
+                        id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(64) NOT NULL,
+                        command_sequence TEXT NOT NULL,
+                        sequence_vector VECTOR(128),  -- TF-IDF vectorized commands
+                        timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                        source_ip INET NOT NULL
+                    )
+                    """,
+                    "Create command_sequence_vectors table"
+                )
+
+                # Create HNSW index for fast similarity search
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE INDEX ON command_sequence_vectors USING hnsw (sequence_vector vector_cosine_ops);
+                    """,
+                    "Create HNSW index for command sequence vectors"
+                )
+
+                # Create behavioral pattern vectors table
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE TABLE behavioral_vectors (
+                        id SERIAL PRIMARY KEY,
+                        session_id VARCHAR(64) NOT NULL,
+                        behavioral_vector VECTOR(64),  -- Session characteristics vector
+                        session_metadata JSONB,
+                        timestamp TIMESTAMP WITH TIME ZONE NOT NULL
+                    )
+                    """,
+                    "Create behavioral_vectors table"
+                )
+
+                # Create IVFFlat index for behavioral clustering
+                _safe_execute_sql(
+                    connection,
+                    """
+                    CREATE INDEX ON behavioral_vectors
+                    USING ivfflat (behavioral_vector vector_l2_ops) WITH (lists = 100);
+                    """,
+                    "Create IVFFlat index for behavioral vectors"
+                )
+
+                logger.info("pgvector tables created successfully")
+            else:
+                logger.info("pgvector extension not available, skipping vector tables")
+        except Exception as e:
+            logger.warning(f"Failed to create pgvector tables: {e}")
+
+    logger.info("Longtail analysis schema migration (v9) completed successfully")
+
+
+def _downgrade_from_v9(connection: Connection) -> None:
+    """Rollback v9 migration if needed."""
+    logger.info("Rolling back longtail analysis tables...")
+
+    try:
+        # Drop tables in reverse order of dependencies
+        _safe_execute_sql(
+            connection,
+            "DROP TABLE IF EXISTS longtail_detections CASCADE",
+            "Drop longtail_detections table"
+        )
+
+        _safe_execute_sql(
+            connection,
+            "DROP TABLE IF EXISTS longtail_analysis CASCADE",
+            "Drop longtail_analysis table"
+        )
+
+        # If using PostgreSQL with pgvector, drop vector tables
+        if connection.dialect.name == 'postgresql':
+            _safe_execute_sql(
+                connection,
+                "DROP TABLE IF EXISTS command_sequence_vectors CASCADE",
+                "Drop command_sequence_vectors table"
+            )
+
+            _safe_execute_sql(
+                connection,
+                "DROP TABLE IF EXISTS behavioral_vectors CASCADE",
+                "Drop behavioral_vectors table"
+            )
+
+        # Update schema version
+        _safe_execute_sql(
+            connection,
+            f"UPDATE schema_metadata SET value = '8' WHERE key = '{SCHEMA_VERSION_KEY}'",
+            "Update schema version to 8"
+        )
+
+        logger.info("Rollback to v8 complete")
+
+    except Exception as e:
+        logger.error(f"Rollback failed: {e}")
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]

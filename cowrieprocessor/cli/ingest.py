@@ -27,52 +27,11 @@ from ..loader import (
     StatusEmitter,
 )
 from ..settings import DatabaseSettings, load_database_settings
+from .db_config import resolve_database_settings, add_database_argument
 
 
-def _resolve_db_settings(db_arg: str | None) -> DatabaseSettings:
-    if not db_arg:
-        # Try to load from sensors.toml first, then fall back to environment/default
-        config = _load_sensors_config()
-        if config:
-            return load_database_settings(config=config)
-        return load_database_settings()
-
-    if db_arg.startswith("sqlite:"):
-        return load_database_settings(config={"url": db_arg})
-    db_path = Path(db_arg)
-    if db_path.exists() or db_arg.endswith(".sqlite"):
-        return DatabaseSettings(url=f"sqlite:///{db_path.resolve()}")
-    return load_database_settings(config={"url": db_arg})
 
 
-def _load_sensors_config() -> dict[str, str] | None:
-    """Load database configuration from sensors.toml if available."""
-    sensors_file = Path("sensors.toml")
-    if not sensors_file.exists():
-        return None
-
-    try:
-        # Try tomllib first (Python 3.11+)
-        try:
-            import tomllib
-        except ImportError:
-            # Fall back to tomli for older Python versions
-            import tomli as tomllib
-
-        with sensors_file.open("rb") as handle:
-            data = tomllib.load(handle)
-
-        # Check for global database configuration
-        global_config = data.get("global", {})
-        db_url = global_config.get("db")
-        if db_url:
-            return {"url": db_url}
-
-    except Exception:
-        # If sensors.toml doesn't exist or can't be parsed, fall back to default
-        pass
-
-    return None
 
 
 def _make_bulk_config(args: argparse.Namespace) -> BulkLoaderConfig:
@@ -124,7 +83,7 @@ def _resolve_enrichment_service(args: argparse.Namespace) -> EnrichmentService |
 
 def run_bulk_loader(args: argparse.Namespace, sources: Sequence[str | Path]) -> int:
     """Execute the bulk loader and emit status telemetry."""
-    settings = _resolve_db_settings(args.db)
+    settings = resolve_database_settings(args.db)
     engine = create_engine_from_settings(settings)
     apply_migrations(engine)
 
@@ -145,7 +104,7 @@ def run_bulk_loader(args: argparse.Namespace, sources: Sequence[str | Path]) -> 
 
 def run_delta_loader(args: argparse.Namespace, sources: Sequence[str | Path]) -> int:
     """Execute the delta loader and emit status telemetry, including DLQ updates."""
-    settings = _resolve_db_settings(args.db)
+    settings = resolve_database_settings(args.db)
     engine = create_engine_from_settings(settings)
     apply_migrations(engine)
 

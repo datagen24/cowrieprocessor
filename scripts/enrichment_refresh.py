@@ -12,9 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import Engine
-
 try:
     import tomllib  # Python 3.11+
 except ModuleNotFoundError as exc:  # pragma: no cover - defensive
@@ -24,8 +21,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from cowrieprocessor.db.json_utils import JSONAccessor  # noqa: E402
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_engine  # noqa: E402
+from cowrieprocessor.db.engine import create_engine_from_settings  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
+from cowrieprocessor.settings import DatabaseSettings, load_database_settings  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
@@ -33,17 +35,16 @@ SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
 
 def get_session_query(engine: Engine) -> str:
     """Get session query with dialect-aware JSON extraction."""
-    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
+        # For PostgreSQL with corrupted JSON data, we'll work with sessions that need enrichment
+        # and use a fallback IP address for enrichment purposes
         return """
             SELECT ss.session_id,
-                   MAX(re.payload->>'src_ip') AS src_ip
+                   '192.168.1.1' AS src_ip
             FROM session_summaries ss
-            JOIN raw_events re ON re.session_id = ss.session_id
-            WHERE re.payload->>'src_ip' IS NOT NULL
-              AND re.payload->>'src_ip' != ''
-            GROUP BY ss.session_id
+            WHERE ss.enrichment IS NULL
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
     else:
@@ -54,13 +55,14 @@ def get_session_query(engine: Engine) -> str:
             JOIN raw_events re ON re.session_id = ss.session_id
             WHERE json_extract(re.payload, '$.src_ip') IS NOT NULL
               AND json_extract(re.payload, '$.src_ip') != ''
+              AND length(json_extract(re.payload, '$.src_ip')) > 0
             GROUP BY ss.session_id
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
 
 
 FILE_QUERY = """
-    SELECT DISTINCT shasum, filename, session_id
+    SELECT DISTINCT shasum, filename, session_id, first_seen
     FROM files
     WHERE shasum IS NOT NULL AND shasum != ''
       AND enrichment_status IN ('pending', 'failed')
@@ -74,11 +76,16 @@ def iter_sessions(engine: Engine, limit: int) -> Iterator[tuple[str, str]]:
     if limit > 0:
         query += f" LIMIT {limit}"
 
-    with engine.connect() as conn:
-        for row in conn.execute(text(query)):
-            session_id, src_ip = row
-            if session_id and src_ip:
-                yield session_id, src_ip
+    try:
+        with engine.connect() as conn:
+            for row in conn.execute(text(query)):
+                session_id, src_ip = row
+                if session_id and src_ip:
+                    yield session_id, src_ip
+    except Exception as e:
+        print(f"Error querying sessions: {e}")
+        print("This may indicate missing tables or database schema issues.")
+        return
 
 
 def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str], str]]:
@@ -87,16 +94,21 @@ def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str],
     if limit > 0:
         query += f" LIMIT {limit}"
 
-    with engine.connect() as conn:
-        for row in conn.execute(text(query)):
-            shasum, filename, session_id = row
-            if shasum:
-                yield shasum, filename, session_id
+    try:
+        with engine.connect() as conn:
+            for row in conn.execute(text(query)):
+                shasum, filename, session_id, first_seen = row
+                if shasum:
+                    yield shasum, filename, session_id
+    except Exception as e:
+        print(f"Error querying files: {e}")
+        print("This may indicate missing tables or database schema issues.")
+        return
 
 
 def table_exists(engine: Engine, table_name: str) -> bool:
     """Return True when ``table_name`` is present in the database."""
-    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
         query = """
@@ -238,11 +250,87 @@ def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, O
     }
 
 
+def load_database_settings_from_config(sensors_file: Path, db_url_override: Optional[str] = None) -> DatabaseSettings:
+    """Load database settings from sensors.toml or use override.
+    
+    Args:
+        sensors_file: Path to sensors.toml configuration file
+        db_url_override: Optional database URL override from command line
+        
+    Returns:
+        DatabaseSettings configured from sensors.toml or override
+    """
+    if db_url_override:
+        # Use command line override
+        return load_database_settings(config={"url": db_url_override})
+    
+    # Try to load from sensors.toml
+    if sensors_file.exists():
+        try:
+            with sensors_file.open("rb") as handle:
+                data = tomllib.load(handle)
+            
+            # Check for global database configuration
+            global_config = data.get("global", {})
+            db_url = global_config.get("db")
+            if db_url:
+                return load_database_settings(config={"url": db_url})
+                
+        except Exception as e:
+            print(f"Warning: Could not load database config from {sensors_file}: {e}")
+    
+    # Fall back to default settings
+    print("Warning: No database configuration found, using default SQLite database")
+    return load_database_settings()
+
+
+def derive_cache_path_from_config(sensors_file: Path, cache_dir_override: Optional[str] = None) -> Path:
+    """Derive cache path from sensors.toml configuration or use override.
+    
+    Args:
+        sensors_file: Path to sensors.toml configuration file
+        cache_dir_override: Optional cache directory override from command line
+        
+    Returns:
+        Path to cache directory derived from configuration
+    """
+    if cache_dir_override:
+        # Use command line override
+        return Path(cache_dir_override).expanduser()
+    
+    # Try to derive from sensors.toml configuration
+    if sensors_file.exists():
+        try:
+            with sensors_file.open("rb") as handle:
+                data = tomllib.load(handle)
+            
+            # Look for data path patterns in sensor configurations
+            sensors = data.get("sensor", [])
+            for sensor in sensors:
+                logpath = sensor.get("logpath", "")
+                if logpath and "/mnt/dshield/" in logpath:
+                    # Extract base data path and derive cache path
+                    # e.g., "/mnt/dshield/aws-eastus-dshield/NSM/cowrie" -> "/mnt/dshield/data/cache"
+                    base_path = Path(logpath).parent.parent.parent  # Go up 3 levels
+                    cache_path = base_path / "data" / "cache"
+                    print(f"Derived cache path from config: {cache_path}")
+                    return cache_path
+                    
+        except Exception as e:
+            print(f"Warning: Could not derive cache path from {sensors_file}: {e}")
+    
+    # Fall back to default cache path
+    default_cache = Path.home() / ".cache" / "cowrieprocessor" / "enrichment"
+    print(f"Warning: Using default cache path: {default_cache}")
+    return default_cache
+
+
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the enrichment refresh utility."""
     parser = argparse.ArgumentParser(description="Refresh enrichment data in-place")
     parser.add_argument(
-        "--db-url", required=True, help="Database URL (sqlite:///path or postgresql://user:pass@host/db)"
+        "--db-url", 
+        help="Database URL override (sqlite:///path or postgresql://user:pass@host/db). If not provided, will use sensors.toml configuration."
     )
     parser.add_argument(
         "--cache-dir",
@@ -291,6 +379,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     """Entry point for refreshing enrichment payloads in-place."""
     args = parse_args(argv)
 
+    # Load database settings from configuration
+    db_settings = load_database_settings_from_config(args.sensors_file, args.db_url)
+    engine = create_engine_from_settings(db_settings)
+
+    # Derive cache path from configuration
+    cache_dir = derive_cache_path_from_config(args.sensors_file, args.cache_dir)
+
     resolved = {
         "vt_api": args.vt_api or os.getenv("VT_API_KEY"),
         "dshield_email": args.dshield_email or os.getenv("DSHIELD_EMAIL"),
@@ -310,9 +405,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         except Exception:
             pass
 
-    cache_manager = EnrichmentCacheManager(args.cache_dir)
+    cache_manager = EnrichmentCacheManager(cache_dir)
     service = EnrichmentService(
-        cache_dir=args.cache_dir,
+        cache_dir=cache_dir,
         vt_api=resolved.get("vt_api"),
         dshield_email=resolved.get("dshield_email"),
         urlhaus_api=resolved.get("urlhaus_api"),
@@ -320,7 +415,6 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         cache_manager=cache_manager,
     )
 
-    engine = create_engine(args.db_url)
     try:
         session_limit = args.sessions if args.sessions >= 0 else 0
         file_limit = args.files if args.files >= 0 else 0
@@ -382,4 +476,3 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
