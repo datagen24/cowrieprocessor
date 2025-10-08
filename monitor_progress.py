@@ -15,6 +15,31 @@ def _render_status(name: str, data: dict) -> None:
             metrics = snapshot.get("metrics", {})
             ingest_id = snapshot.get("ingest_id")
             phase_label = snapshot.get("phase", phase_name)
+
+            # Sanitization-specific rendering
+            if phase_label == "sanitization":
+                line = f"  - {phase_label}"
+                if ingest_id:
+                    line += f" ingest={ingest_id}"
+                processed = metrics.get("records_processed")
+                updated = metrics.get("records_updated")
+                skipped = metrics.get("records_skipped")
+                errors = metrics.get("errors")
+                batches = metrics.get("batches_processed")
+                if processed is not None:
+                    line += f" processed={processed}"
+                if updated is not None:
+                    line += f" updated={updated}"
+                if skipped is not None:
+                    line += f" skipped={skipped}"
+                if errors is not None:
+                    line += f" errors={errors}"
+                if batches is not None:
+                    line += f" batches={batches}"
+                print(line)
+                continue
+
+            # Default rendering for other phases
             line = f"  - {phase_label}"
             if ingest_id:
                 line += f" ingest={ingest_id}"
@@ -38,15 +63,29 @@ def _render_status(name: str, data: dict) -> None:
     ingest_id = data.get('ingest_id')
     metrics = data.get('metrics')
     if metrics:
-        files = metrics.get('files_processed', 0)
-        events_inserted = metrics.get('events_inserted', 0)
-        events_read = metrics.get('events_read', 0)
-        duplicates = metrics.get('duplicates_skipped', 0)
-        line = f"[{name}] {phase}"
-        if ingest_id:
-            line += f" ingest={ingest_id}"
-        line += f" files={files} events={events_inserted}/{events_read} dup={duplicates}"
-        print(line)
+        # Sanitization-specific rendering
+        if phase == 'sanitization' or ('records_processed' in metrics and 'records_updated' in metrics):
+            processed = metrics.get('records_processed', 0)
+            updated = metrics.get('records_updated', 0)
+            skipped = metrics.get('records_skipped', 0)
+            errors = metrics.get('errors', 0)
+            batches = metrics.get('batches_processed', 0)
+            line = f"[{name}] {phase}"
+            if ingest_id:
+                line += f" ingest={ingest_id}"
+            line += f" processed={processed} updated={updated} skipped={skipped} errors={errors} batches={batches}"
+            print(line)
+        else:
+            # Default rendering for other phases
+            files = metrics.get('files_processed', 0)
+            events_inserted = metrics.get('events_inserted', 0)
+            events_read = metrics.get('events_read', 0)
+            duplicates = metrics.get('duplicates_skipped', 0)
+            line = f"[{name}] {phase}"
+            if ingest_id:
+                line += f" ingest={ingest_id}"
+            line += f" files={files} events={events_inserted}/{events_read} dup={duplicates}"
+            print(line)
 
         checkpoint = data.get('checkpoint', {})
         if isinstance(checkpoint, dict) and checkpoint:
