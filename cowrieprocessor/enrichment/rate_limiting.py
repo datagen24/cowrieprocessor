@@ -124,6 +124,17 @@ def with_retries(
                     
                     # Calculate backoff with jitter
                     backoff = backoff_base * (backoff_factor ** attempt)
+                    
+                    # Special handling for 401 errors (often rate limiting)
+                    if isinstance(e, requests.HTTPError) and hasattr(e, 'response'):
+                        if e.response.status_code == 401:
+                            # Longer backoff for 401 errors (rate limiting)
+                            backoff = max(backoff, 60.0)  # At least 60 seconds
+                            backoff *= 2  # Double the backoff for 401 errors
+                        elif e.response.status_code == 429:
+                            # Even longer backoff for explicit rate limiting
+                            backoff = max(backoff, 120.0)  # At least 2 minutes
+                    
                     if jitter:
                         backoff *= (0.5 + random.random() * 0.5)
                     
@@ -148,7 +159,7 @@ def create_rate_limited_session_factory(
 # Service-specific rate limits based on API documentation
 SERVICE_RATE_LIMITS = {
     "dshield": {"rate": 1.0, "burst": 2},      # Conservative for DShield
-    "virustotal": {"rate": 4.0, "burst": 5},   # VT allows 4 requests/minute
+    "virustotal": {"rate": 0.067, "burst": 1}, # VT allows 4 requests/minute = 0.067/sec
     "urlhaus": {"rate": 2.0, "burst": 3},      # Conservative for URLHaus
     "spur": {"rate": 1.0, "burst": 2},          # Conservative for SPUR
 }

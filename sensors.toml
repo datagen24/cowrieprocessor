@@ -7,10 +7,14 @@ db = "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cow
 
 report_dir = "/mnt/dshield/reports"
 
+# Longtail analysis configuration
+memory_limit_gb = 16.0  # Memory limit for longtail analysis (GB)
+memory_warning_threshold = 0.75  # Warning threshold as fraction of limit (0.75 = 75%)
+
 [[sensor]]
 name = "aws-eastus-dshield"
 logpath = "/mnt/dshield/aws-eastus-dshield/NSM/cowrie"
-summarizedays = 180
+summarizedays = 360
 email = "steve@scpeterson.com"
 vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
 urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
