@@ -28,6 +28,7 @@ from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_en
 from cowrieprocessor.db.engine import create_engine_from_settings  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from cowrieprocessor.settings import DatabaseSettings, load_database_settings  # noqa: E402
+from cowrieprocessor.status_emitter import StatusEmitter  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 SENSORS_FILE_DEFAULT = PROJECT_ROOT / "sensors.toml"
@@ -154,6 +155,37 @@ def update_session(
         conn.commit()
 
 
+def track_enrichment_stats(enrichment: dict, stats: dict) -> None:
+    """Track enrichment service usage and failures."""
+    if not isinstance(enrichment, dict):
+        return
+    
+    # Track DShield usage
+    dshield_data = enrichment.get("dshield", {})
+    if dshield_data and dshield_data.get("asn") is not None:
+        stats["dshield_calls"] += 1
+    elif dshield_data and dshield_data.get("error"):
+        stats["dshield_failures"] += 1
+    
+    # Track URLHaus usage
+    urlhaus_data = enrichment.get("urlhaus", "")
+    if urlhaus_data and urlhaus_data != "":
+        stats["urlhaus_calls"] += 1
+    
+    # Track SPUR usage
+    spur_data = enrichment.get("spur", [])
+    if spur_data and len(spur_data) > 0 and spur_data != ["", "", ""]:
+        stats["spur_calls"] += 1
+    
+    # Track VirusTotal usage
+    vt_data = enrichment.get("virustotal")
+    if vt_data and isinstance(vt_data, dict) and vt_data.get("data"):
+        stats["virustotal_calls"] += 1
+    elif vt_data is None and enrichment.get("virustotal") is None:
+        # This indicates VT was called but returned no data (not necessarily a failure)
+        pass
+
+
 def update_file(
     engine: Engine,
     file_hash: str,
@@ -178,7 +210,11 @@ def update_file(
     vt_description = attributes.get("type_description")
     vt_malicious = bool(last_analysis.get("malicious", 0) > 0) if isinstance(last_analysis, dict) else False
     vt_positives = last_analysis.get("malicious", 0) if isinstance(last_analysis, dict) else 0
-    vt_total = sum(last_analysis.values()) if isinstance(last_analysis, dict) else 0
+    # Sum only numeric values from last_analysis, skip any dict values
+    if isinstance(last_analysis, dict):
+        vt_total = sum(value for value in last_analysis.values() if isinstance(value, (int, float)))
+    else:
+        vt_total = 0
 
     # Parse timestamps
     vt_first_seen = None
@@ -252,33 +288,33 @@ def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, O
 
 def load_database_settings_from_config(sensors_file: Path, db_url_override: Optional[str] = None) -> DatabaseSettings:
     """Load database settings from sensors.toml or use override.
-    
+
     Args:
         sensors_file: Path to sensors.toml configuration file
         db_url_override: Optional database URL override from command line
-        
+
     Returns:
         DatabaseSettings configured from sensors.toml or override
     """
     if db_url_override:
         # Use command line override
         return load_database_settings(config={"url": db_url_override})
-    
+
     # Try to load from sensors.toml
     if sensors_file.exists():
         try:
             with sensors_file.open("rb") as handle:
                 data = tomllib.load(handle)
-            
+
             # Check for global database configuration
             global_config = data.get("global", {})
             db_url = global_config.get("db")
             if db_url:
                 return load_database_settings(config={"url": db_url})
-                
+
         except Exception as e:
             print(f"Warning: Could not load database config from {sensors_file}: {e}")
-    
+
     # Fall back to default settings
     print("Warning: No database configuration found, using default SQLite database")
     return load_database_settings()
@@ -286,24 +322,24 @@ def load_database_settings_from_config(sensors_file: Path, db_url_override: Opti
 
 def derive_cache_path_from_config(sensors_file: Path, cache_dir_override: Optional[str] = None) -> Path:
     """Derive cache path from sensors.toml configuration or use override.
-    
+
     Args:
         sensors_file: Path to sensors.toml configuration file
         cache_dir_override: Optional cache directory override from command line
-        
+
     Returns:
         Path to cache directory derived from configuration
     """
     if cache_dir_override:
         # Use command line override
         return Path(cache_dir_override).expanduser()
-    
+
     # Try to derive from sensors.toml configuration
     if sensors_file.exists():
         try:
             with sensors_file.open("rb") as handle:
                 data = tomllib.load(handle)
-            
+
             # Look for data path patterns in sensor configurations
             sensors = data.get("sensor", [])
             for sensor in sensors:
@@ -315,10 +351,10 @@ def derive_cache_path_from_config(sensors_file: Path, cache_dir_override: Option
                     cache_path = base_path / "data" / "cache"
                     print(f"Derived cache path from config: {cache_path}")
                     return cache_path
-                    
+
         except Exception as e:
             print(f"Warning: Could not derive cache path from {sensors_file}: {e}")
-    
+
     # Fall back to default cache path
     default_cache = Path.home() / ".cache" / "cowrieprocessor" / "enrichment"
     print(f"Warning: Using default cache path: {default_cache}")
@@ -329,8 +365,8 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     """Parse command-line arguments for the enrichment refresh utility."""
     parser = argparse.ArgumentParser(description="Refresh enrichment data in-place")
     parser.add_argument(
-        "--db-url", 
-        help="Database URL override (sqlite:///path or postgresql://user:pass@host/db). If not provided, will use sensors.toml configuration."
+        "--db-url",
+        help="Database URL override (sqlite:///path or postgresql://user:pass@host/db). If not provided, will use sensors.toml configuration.",
     )
     parser.add_argument(
         "--cache-dir",
@@ -414,61 +450,149 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         spur_api=resolved.get("spur_api"),
         cache_manager=cache_manager,
     )
+    
+    # Initialize status emitter for progress monitoring
+    status_emitter = StatusEmitter("enrichment_refresh")
+    
+    # Log available enrichment services
+    available_services = []
+    if resolved.get("dshield_email"):
+        available_services.append("DShield (IP→ASN/Geo)")
+    if resolved.get("urlhaus_api"):
+        available_services.append("URLHaus (IP reputation)")
+    if resolved.get("spur_api"):
+        available_services.append("SPUR (IP intelligence)")
+    if resolved.get("vt_api"):
+        available_services.append("VirusTotal (file analysis)")
+    
+    if available_services:
+        print(f"Available enrichment services: {', '.join(available_services)}")
+    else:
+        print("Warning: No enrichment services configured - only database updates will be performed")
 
     try:
-        session_limit = args.sessions if args.sessions >= 0 else 0
-        file_limit = args.files if args.files >= 0 else 0
+        with service:  # Use context manager for proper cleanup
+            session_limit = args.sessions if args.sessions >= 0 else 0
+            file_limit = args.files if args.files >= 0 else 0
 
-        if file_limit != 0 and not table_exists(engine, "files"):
-            print("Files table not found; skipping file enrichment refresh")
-            file_limit = 0
+            if file_limit != 0 and not table_exists(engine, "files"):
+                print("Files table not found; skipping file enrichment refresh")
+                file_limit = 0
 
-        session_count = 0
-        file_count = 0
-        last_commit = time.time()
+            session_count = 0
+            file_count = 0
+            last_commit = time.time()
+            last_status_update = time.time()
+            
+            # Track enrichment statistics
+            enrichment_stats = {
+                "dshield_calls": 0,
+                "urlhaus_calls": 0,
+                "spur_calls": 0,
+                "virustotal_calls": 0,
+                "dshield_failures": 0,
+                "urlhaus_failures": 0,
+                "spur_failures": 0,
+                "virustotal_failures": 0,
+            }
 
-        for session_id, src_ip in iter_sessions(engine, session_limit):
-            session_count += 1
-            result = service.enrich_session(session_id, src_ip)
-            enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
-            flags = service.get_session_flags(result)
-            update_session(engine, session_id, enrichment, flags)
-            if session_count % args.commit_interval == 0:
-                print(f"[sessions] committed {session_count} rows (elapsed {time.time() - last_commit:.1f}s)")
-                last_commit = time.time()
-            if session_limit > 0 and session_count >= session_limit:
-                break
+            # Record initial status
+            status_emitter.record_metrics({
+                "sessions_processed": 0,
+                "files_processed": 0,
+                "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                "files_total": file_limit if file_limit > 0 else "unlimited",
+                "enrichment_stats": enrichment_stats,
+            })
 
-        if session_count % args.commit_interval:
-            print(f"[sessions] committed tail {session_count % args.commit_interval}")
-
-        vt_api_key = resolved.get("vt_api")
-        if file_limit != 0 and vt_api_key:
-            for file_hash, filename, session_id in iter_files(engine, file_limit):
-                file_count += 1
-                result = service.enrich_file(file_hash, filename or file_hash)
+            for session_id, src_ip in iter_sessions(engine, session_limit):
+                session_count += 1
+                result = service.enrich_session(session_id, src_ip)
                 enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
-                update_file(engine, file_hash, enrichment)
-                if file_count % args.commit_interval == 0:
-                    print(f"[files] committed {file_count} rows (elapsed {time.time() - last_commit:.1f}s)")
+                flags = service.get_session_flags(result)
+                
+                # Track enrichment statistics for this session
+                track_enrichment_stats(enrichment, enrichment_stats)
+                
+                update_session(engine, session_id, enrichment, flags)
+                if session_count % args.commit_interval == 0:
+                    stats_summary = f"dshield={enrichment_stats['dshield_calls']}, urlhaus={enrichment_stats['urlhaus_calls']}, spur={enrichment_stats['spur_calls']}"
+                    print(f"[sessions] committed {session_count} rows (elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]")
                     last_commit = time.time()
-                if file_limit > 0 and file_count >= file_limit:
+                
+                # Update status every 10 items or every 30 seconds
+                if (session_count % 10 == 0 or 
+                    time.time() - last_status_update > 30):
+                    status_emitter.record_metrics({
+                        "sessions_processed": session_count,
+                        "files_processed": file_count,
+                        "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                        "files_total": file_limit if file_limit > 0 else "unlimited",
+                        "enrichment_stats": enrichment_stats.copy(),
+                    })
+                    last_status_update = time.time()
+                
+                if session_limit > 0 and session_count >= session_limit:
                     break
-            if file_count % args.commit_interval:
-                print(f"[files] committed tail {file_count % args.commit_interval}")
-        elif file_limit != 0:
-            print("No VirusTotal API key available; skipping file enrichment refresh")
 
-        print(
-            json.dumps(
-                {
-                    "sessions_updated": session_count,
-                    "files_updated": file_count,
-                    "cache_snapshot": cache_manager.snapshot(),
-                },
-                indent=2,
+            if session_count % args.commit_interval:
+                print(f"[sessions] committed tail {session_count % args.commit_interval}")
+
+            vt_api_key = resolved.get("vt_api")
+            if file_limit != 0 and vt_api_key:
+                for file_hash, filename, session_id in iter_files(engine, file_limit):
+                    file_count += 1
+                    result = service.enrich_file(file_hash, filename or file_hash)
+                    enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
+                    
+                    # Track VirusTotal statistics for this file
+                    track_enrichment_stats(enrichment, enrichment_stats)
+                    
+                    update_file(engine, file_hash, enrichment)
+                    if file_count % args.commit_interval == 0:
+                        vt_stats = f"vt={enrichment_stats['virustotal_calls']}"
+                        print(f"[files] committed {file_count} rows (elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]")
+                        last_commit = time.time()
+                    
+                    # Update status every 10 items or every 30 seconds
+                    if (file_count % 10 == 0 or 
+                        time.time() - last_status_update > 30):
+                        status_emitter.record_metrics({
+                            "sessions_processed": session_count,
+                            "files_processed": file_count,
+                            "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                            "files_total": file_limit if file_limit > 0 else "unlimited",
+                            "enrichment_stats": enrichment_stats.copy(),
+                        })
+                        last_status_update = time.time()
+                    
+                    if file_limit > 0 and file_count >= file_limit:
+                        break
+                if file_count % args.commit_interval:
+                    print(f"[files] committed tail {file_count % args.commit_interval}")
+            elif file_limit != 0:
+                print("No VirusTotal API key available; skipping file enrichment refresh")
+
+            # Record final status
+            status_emitter.record_metrics({
+                "sessions_processed": session_count,
+                "files_processed": file_count,
+                "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                "files_total": file_limit if file_limit > 0 else "unlimited",
+                "enrichment_stats": enrichment_stats,
+                "cache_snapshot": cache_manager.snapshot(),
+            })
+
+            print(
+                json.dumps(
+                    {
+                        "sessions_updated": session_count,
+                        "files_updated": file_count,
+                        "cache_snapshot": cache_manager.snapshot(),
+                    },
+                    indent=2,
+                )
             )
-        )
     finally:
         engine.dispose()
     return 0

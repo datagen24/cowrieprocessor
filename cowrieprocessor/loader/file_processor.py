@@ -147,18 +147,13 @@ def sanitize_filename(filename: str) -> str:
     Returns:
         Sanitized filename safe for storage
     """
+    from ..utils.unicode_sanitizer import UnicodeSanitizer
+    
     if not filename:
         return ""
 
-    # Remove null bytes and other control characters
-    sanitized = filename.replace("\x00", "").strip()
-
-    # Remove path traversal attempts
-    sanitized = sanitized.replace("../", "").replace("..\\", "")
-
-    # Limit length to match database column
-    if len(sanitized) > 512:
-        sanitized = sanitized[:512]
+    # Use centralized Unicode sanitization
+    sanitized = UnicodeSanitizer.sanitize_filename(filename)
 
     return sanitized
 
@@ -172,14 +167,12 @@ def sanitize_url(url: str) -> str:
     Returns:
         Sanitized URL safe for storage
     """
+    from ..utils.unicode_sanitizer import UnicodeSanitizer
+    
     if not url:
         return ""
 
-    # Remove null bytes and other control characters
-    sanitized = url.replace("\x00", "").strip()
-
-    # Limit length to match database column
-    if len(sanitized) > 1024:
-        sanitized = sanitized[:1024]
+    # Use centralized Unicode sanitization
+    sanitized = UnicodeSanitizer.sanitize_url(url)
 
     return sanitized

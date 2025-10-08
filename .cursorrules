@@ -1,0 +1,109 @@
+# Cowrie Processor - Cursor AI Development Rules
+
+## Project-Specific Requirements
+
+### Module Integration (CRITICAL)
+- ALWAYS use existing modules in `cowrieprocessor/` package instead of creating new scripts
+- NEVER create new scripts in `scripts/` directory unless absolutely necessary for automation/back-compat
+- Prefer integration into existing modules:
+  - Use `cowrieprocessor/loader/` for data ingestion
+  - Use `cowrieprocessor/enrichment/` for intelligence services  
+  - Use `cowrieprocessor/db/` for database operations
+  - Use `cowrieprocessor/cli/` for command-line interfaces
+- Root-level scripts like `process_cowrie.py` and `orchestrate_sensors.py` are for automation back-compatibility only
+
+### Status and Logging (MANDATORY)
+- ALL logging and status emissions (except progress bars) MUST use the `StatusEmitter` module
+- Import: `from cowrieprocessor.status_emitter import StatusEmitter`
+- Use `monitor_progress.py` script for monitoring long-running operations
+- Status files are written to `/mnt/dshield/data/logs/status/` by default
+- Example:
+  ```python
+  from cowrieprocessor.status_emitter import StatusEmitter
+  
+  emitter = StatusEmitter("loader", status_dir="/path/to/status")
+  emitter.record_metrics(metrics_object)
+  emitter.record_checkpoint(checkpoint_object)
+  emitter.record_dead_letters(count=5, last_reason="JSON decode error")
+  ```
+
+### Configuration Management (MANDATORY)
+- ALWAYS defer to `sensors.toml` for configuration
+- Provide overrides for specific scenarios only when necessary
+- Use the secrets resolver for sensitive configuration values
+- Configuration precedence:
+  1. `sensors.toml` (primary source)
+  2. Environment variables (for overrides)
+  3. Command-line arguments (for specific scenarios only)
+- Example sensor configuration:
+  ```toml
+  [[sensor]]
+  name = "sensor-name"
+  logpath = "/path/to/logs"
+  summarizedays = 90
+  vtapi = "env:VIRUSTOTAL_API_KEY"  # Use secrets resolver
+  ```
+
+### Secret and Security Logging (CRITICAL - ZERO TOLERANCE)
+- NEVER log secrets, API keys, tokens, or connection strings
+- NEVER log database connection strings (even in debug mode)
+- Use structured logging with sensitive data filtering
+- Implement proper secret masking in all log outputs
+- Example secure logging:
+  ```python
+  import logging
+  
+  # GOOD - Mask sensitive data
+  logger.info(f"Connecting to database at {mask_connection_string(conn_str)}")
+  logger.info(f"API key configured: {mask_api_key(api_key)}")
+  
+  # BAD - Never do this
+  logger.debug(f"Database connection: {conn_str}")  # NEVER
+  logger.info(f"Using API key: {api_key}")  # NEVER
+  ```
+- All external API calls must use proper authentication without logging credentials
+
+## Development Standards
+
+### Code Quality
+- Use `uv` for environment management: `uv sync`, `uv run ruff check .`, `uv run mypy .`
+- All functions MUST have type hints and Google-style docstrings
+- Minimum 80% test coverage required
+- Use conventional commits: `feat(module): description`, `fix(module): description`
+
+### Testing
+- Unit tests in `tests/unit/`
+- Integration tests in `tests/integration/`
+- Performance tests in `tests/performance/`
+- Use pytest markers: `@pytest.mark.integration`, `@pytest.mark.performance`
+
+### Security
+- Validate all external inputs
+- Use parameterized SQL queries
+- Implement proper error handling
+- Never commit secrets or credentials
+- Use environment variables for sensitive configuration
+
+## Quick Commands
+```bash
+# Setup
+uv sync
+uv run pre-commit install
+
+# Development
+uv run ruff check .
+uv run ruff format .
+uv run mypy .
+uv run pytest --cov=.
+
+# Monitoring
+python monitor_progress.py
+```
+
+## Enforcement
+These rules are NON-NEGOTIABLE. Violations will result in:
+1. Immediate PR rejection
+2. Required fixes before merge
+3. Documentation of repeated violations
+
+Critical violations (logging secrets, not using modules, ignoring StatusEmitter) will result in immediate rejection.

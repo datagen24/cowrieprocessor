@@ -32,6 +32,7 @@ import dropbox
 import requests
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
+from cowrieprocessor.threat_detection.longtail import run_longtail_analysis
 from enrichment_handlers import (
     dshield_query as enrichment_dshield_query,
 )
@@ -2401,7 +2402,10 @@ for filename in list_of_files:
                             max_line_bytes,
                         )
                         continue
-                    json_file = json.loads(each_line.replace('\0', ''))
+                    # Sanitize Unicode control characters before parsing JSON
+                    from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
+                    sanitized_line = UnicodeSanitizer.sanitize_json_string(each_line)
+                    json_file = json.loads(sanitized_line)
                     if isinstance(json_file, dict):
                         json_file['__source_file'] = filename
                         data.append(json_file)
@@ -2784,6 +2788,33 @@ else:
 
 print(summarystring)
 db_commit()
+
+# Run longtail analysis if requested
+longtail_analysis_requested = os.getenv("RUN_LONGTAIL_ANALYSIS", "false").lower() == "true"
+if longtail_analysis_requested:
+    try:
+        print("🔍 Running longtail threat analysis...")
+        longtail_result = run_longtail_analysis(
+            db_url=get_database_url(),
+            lookback_days=int(os.getenv("LONGTAIL_LOOKBACK_DAYS", "7")),
+            output_path=os.getenv("LONGTAIL_OUTPUT_PATH"),
+            store_results=os.getenv("LONGTAIL_STORE_RESULTS", "false").lower() == "true",
+        )
+
+        if longtail_result:
+            print("✅ Longtail analysis completed successfully")
+            if hasattr(longtail_result, 'rare_command_count'):
+                print(f"   Rare commands detected: {longtail_result.rare_command_count}")
+            if hasattr(longtail_result, 'anomalous_sequence_count'):
+                print(f"   Anomalous sequences detected: {longtail_result.anomalous_sequence_count}")
+            if hasattr(longtail_result, 'memory_usage_mb'):
+                print(f"   Memory usage: {longtail_result.memory_usage_mb:.1f}MB")
+        else:
+            print("⚠️  Longtail analysis completed with no results")
+
+    except Exception as e:
+        print(f"❌ Longtail analysis failed: {e}")
+        logging.error("Longtail analysis failed", exc_info=True)
 
 # Process complete - final status update
 write_status(state='complete', total_files=total_files, processed_files=processed_files, current_file='')

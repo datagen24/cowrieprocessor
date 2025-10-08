@@ -339,6 +339,69 @@ See `.github/workflows/ci.yml` for implementation
 - Update vulnerable dependencies immediately
 - Test thoroughly after updates
 
+## 13. Project-Specific Guidelines
+
+### 13.1 Module Integration (MANDATORY)
+- **ALWAYS use existing modules** in `cowrieprocessor/` package instead of creating new scripts
+- **NEVER create new scripts** in `scripts/` directory unless absolutely necessary for automation/back-compat
+- Prefer integration into existing modules:
+  - Use `cowrieprocessor/loader/` for data ingestion
+  - Use `cowrieprocessor/enrichment/` for intelligence services
+  - Use `cowrieprocessor/db/` for database operations
+  - Use `cowrieprocessor/cli/` for command-line interfaces
+- Root-level scripts like `process_cowrie.py` and `orchestrate_sensors.py` are for automation back-compatibility only
+
+### 13.2 Status and Logging (MANDATORY)
+- **ALL logging and status emissions** (except progress bars) MUST use the `StatusEmitter` module
+- Import and use: `from cowrieprocessor.status_emitter import StatusEmitter`
+- Use `monitor_progress.py` script for monitoring long-running operations
+- Status files are written to `/mnt/dshield/data/logs/status/` by default
+- Example usage:
+  ```python
+  from cowrieprocessor.status_emitter import StatusEmitter
+  
+  emitter = StatusEmitter("loader", status_dir="/path/to/status")
+  emitter.record_metrics(metrics_object)
+  emitter.record_checkpoint(checkpoint_object)
+  emitter.record_dead_letters(count=5, last_reason="JSON decode error")
+  ```
+
+### 13.3 Configuration Management (MANDATORY)
+- **ALWAYS defer to `sensors.toml`** for configuration
+- Provide overrides for specific scenarios only when necessary
+- Use the secrets resolver for sensitive configuration values
+- Configuration precedence:
+  1. `sensors.toml` (primary source)
+  2. Environment variables (for overrides)
+  3. Command-line arguments (for specific scenarios only)
+- Example sensor configuration:
+  ```toml
+  [[sensor]]
+  name = "sensor-name"
+  logpath = "/path/to/logs"
+  summarizedays = 90
+  vtapi = "env:VIRUSTOTAL_API_KEY"  # Use secrets resolver
+  ```
+
+### 13.4 Secret and Security Logging (CRITICAL)
+- **NEVER log secrets, API keys, tokens, or connection strings**
+- **NEVER log database connection strings** (even in debug mode)
+- Use structured logging with sensitive data filtering
+- Implement proper secret masking in all log outputs
+- Example secure logging:
+  ```python
+  import logging
+  
+  # GOOD - Mask sensitive data
+  logger.info(f"Connecting to database at {mask_connection_string(conn_str)}")
+  logger.info(f"API key configured: {mask_api_key(api_key)}")
+  
+  # BAD - Never do this
+  logger.debug(f"Database connection: {conn_str}")  # NEVER
+  logger.info(f"Using API key: {api_key}")  # NEVER
+  ```
+- All external API calls must use proper authentication without logging credentials
+
 ## ENFORCEMENT
 
 **These standards are NON-NEGOTIABLE. Any code not meeting these requirements will be rejected.**
@@ -347,6 +410,11 @@ Violations will result in:
 1. PR rejection
 2. Request for fixes
 3. Documentation of repeated violations
+
+### Critical Security Violations
+- Logging secrets, API keys, or connection strings will result in immediate PR rejection
+- Creating new scripts instead of using existing modules will require refactoring
+- Not using StatusEmitter for logging/status will require immediate fixes
 
 ## Quick Reference Commands
 
