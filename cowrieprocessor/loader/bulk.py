@@ -6,6 +6,7 @@ import bz2
 import gzip
 import hashlib
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping,
 from dateutil import parser as date_parser
 from sqlalchemy import Table, func, select
 from sqlalchemy.dialects import sqlite as sqlite_dialect
+
+logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dependency
     from sqlalchemy.dialects import postgresql as postgres_dialect
@@ -754,6 +757,25 @@ class BulkLoader:
         ).hexdigest()
 
     def _iter_source(self, path: Path) -> Iterator[tuple[int, Any]]:
+        # Check file type before processing
+        from ..utils.file_type_detector import FileTypeDetector
+        
+        should_process, file_type, reason = FileTypeDetector.should_process_as_json(path)
+        
+        if not should_process:
+            logger.warning(f"Skipping non-JSON file: {path} (type: {file_type}, reason: {reason})")
+            
+            # Create a dead letter event for tracking
+            dead_letter_event = self._make_dead_letter_event(
+                f"File type mismatch: {file_type} - {reason}",
+                source_file=str(path),
+                file_type=file_type
+            )
+            yield (0, dead_letter_event)
+            return
+        
+        logger.debug(f"Processing {file_type} file: {path}")
+        
         opener = self._resolve_opener(path)
         with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
             if self.config.hybrid_json:
@@ -818,14 +840,22 @@ class BulkLoader:
             except json.JSONDecodeError:
                 yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
 
-    def _make_dead_letter_event(self, malformed_content: str) -> dict:
-        """Create a dead letter event for malformed JSON content."""
-        return {
+    def _make_dead_letter_event(self, malformed_content: str, source_file: Optional[str] = None, file_type: Optional[str] = None) -> dict:
+        """Create a dead letter event for malformed JSON content or file type mismatches."""
+        event = {
             "_dead_letter": True,
             "_reason": "json_parsing_failed",
             "_malformed_content": malformed_content,
             "_timestamp": datetime.now(UTC).isoformat(),
         }
+        
+        if source_file:
+            event["_source_file"] = source_file
+        if file_type:
+            event["_file_type"] = file_type
+            event["_reason"] = "file_type_mismatch"
+            
+        return event
 
     def _make_dead_letter_record(
         self,
@@ -886,8 +916,13 @@ class BulkLoader:
             if not stripped:
                 continue
             try:
-                payload = json.loads(stripped)
-            except json.JSONDecodeError:
+                # Sanitize Unicode control characters before parsing JSON
+                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                sanitized_line = UnicodeSanitizer.sanitize_json_string(stripped)
+                payload = json.loads(sanitized_line)
+            except (json.JSONDecodeError, ValueError) as e:
+                # Log the specific error for debugging
+                logger.debug(f"JSON parsing failed at offset {offset}: {e}")
                 yield offset, self._make_dead_letter_event(stripped)
                 continue
             yield offset, payload
@@ -912,15 +947,19 @@ class BulkLoader:
             # Try to parse the accumulated content
             try:
                 combined_content = "\n".join(accumulated_lines)
-                payload = json.loads(combined_content)
+                # Sanitize Unicode control characters before parsing JSON
+                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
+                payload = json.loads(sanitized_content)
                 yield start_offset, payload
                 accumulated_lines = []
                 continue
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, ValueError) as e:
                 # If it's incomplete JSON, continue accumulating
                 # If we've accumulated too much, send to DLQ
                 if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
-                    yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
+                    logger.debug(f"Multiline JSON parsing failed at offset {start_offset}: {e}")
+                    yield start_offset, self._make_dead_letter_event(combined_content)
                     accumulated_lines = []
                 continue
 
@@ -928,10 +967,14 @@ class BulkLoader:
         if accumulated_lines:
             try:
                 combined_content = "\n".join(accumulated_lines)
-                payload = json.loads(combined_content)
+                # Sanitize Unicode control characters before parsing JSON
+                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
+                payload = json.loads(sanitized_content)
                 yield start_offset, payload
-            except json.JSONDecodeError:
-                yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.debug(f"Final multiline JSON parsing failed at offset {start_offset}: {e}")
+                yield start_offset, self._make_dead_letter_event(combined_content)
 
     def _resolve_opener(self, path: Path):
         if path.suffix == ".gz":
