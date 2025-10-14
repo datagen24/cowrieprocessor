@@ -31,6 +31,7 @@ This project began as a fork of the original [cowrieprocessor](https://github.co
 - **DShield**: IP reputation lookup
 - **URLhaus**: Malware URL detection
 - **SPUR.us**: Enhanced IP intelligence
+- **Have I Been Pwned (HIBP)**: Password breach detection using k-anonymity API
 - **Dropbox**: Report upload capability
 
 ### Enterprise Features
@@ -336,20 +337,16 @@ The enrichment refresh system allows you to update existing enrichment data in y
 - Refreshing enrichments after API key changes or service availability
 - Maintaining data freshness in production environments
 
-### Primary Method: `scripts/enrichment_refresh.py`
+### Primary Method: `cowrie-enrich refresh`
 
-The main enrichment refresh script supports both SQLite and PostgreSQL databases:
+The enrichment refresh functionality is now integrated into the `cowrie-enrich` CLI command:
 
 ```bash
-# Basic usage with PostgreSQL
-python scripts/enrichment_refresh.py \
-    --db-url "postgresql://user:password@host:port/database" \
-    --sessions 1000 \
-    --files 500
+# Basic usage with default limits
+cowrie-enrich refresh --sessions 1000 --files 500
 
 # Refresh all enrichments (sessions and files)
-python scripts/enrichment_refresh.py \
-    --db-url "postgresql://user:password@host:port/database" \
+cowrie-enrich refresh \
     --sessions 0 \
     --files 0 \
     --vt-api-key $VT_API_KEY \
@@ -357,29 +354,35 @@ python scripts/enrichment_refresh.py \
     --urlhaus-api-key $URLHAUS_API_KEY \
     --spur-api-key $SPUR_API_KEY
 
-# SQLite usage
-python scripts/enrichment_refresh.py \
-    --db-url "sqlite:///path/to/cowrieprocessor.sqlite" \
+# Using specific database
+cowrie-enrich refresh \
+    --database "postgresql://user:password@host:port/database" \
     --sessions 0 \
     --files 0
 
-# Using sensors.toml configuration
-python scripts/enrichment_refresh.py \
-    --db-url "postgresql://user:password@host:port/database" \
-    --sensors-file sensors.toml \
-    --sensor-index 0 \
+# SQLite usage
+cowrie-enrich refresh \
+    --database "sqlite:///path/to/cowrieprocessor.sqlite" \
     --sessions 0 \
     --files 0
+
+# Verbose output for monitoring progress
+cowrie-enrich refresh --sessions 1000 --verbose
 ```
+
+### Legacy Script (Deprecated)
+
+The standalone `scripts/enrichment_refresh.py` script is deprecated and will be removed in a future version. It now shows a deprecation warning and directs users to use the CLI command instead.
 
 ### Command Options
 
 **Database Connection:**
-- `--db-url`: Database connection URL (SQLite or PostgreSQL)
+- `--database`: Database connection URL (SQLite or PostgreSQL)
+- `--db-type`: Database type (auto-detected if not specified)
 
 **Processing Limits:**
-- `--sessions`: Number of sessions to refresh (0 for all)
-- `--files`: Number of files to refresh (0 for all)
+- `--sessions`: Number of sessions to refresh (0 for all, default: 1000)
+- `--files`: Number of files to refresh (0 for all, default: 500)
 - `--commit-interval`: Commit after this many updates (default: 100)
 
 **API Credentials:**
@@ -389,26 +392,34 @@ python scripts/enrichment_refresh.py \
 - `--spur-api-key`: SPUR API token
 
 **Configuration:**
-- `--sensors-file`: Path to sensors.toml (default: sensors.toml)
-- `--sensor-index`: Sensor entry index in sensors file (default: 0)
-- `--cache-dir`: Cache directory for enrichment payloads
+- `--cache-dir`: Cache directory for enrichment responses (default: /mnt/dshield/data/cache)
+- `--status-dir`: Directory for status files (optional)
+- `--verbose`: Enable verbose logging
 
-### Environment Variable Support
+### Credential Resolution
 
-The script supports environment variables for API credentials:
+The CLI command automatically resolves API credentials in the following order:
+
+1. **Command-line arguments** (highest priority)
+2. **Environment variables**
+3. **sensors.toml configuration** (automatic fallback)
 
 ```bash
+# Automatic credential loading from sensors.toml
+cowrie-enrich refresh --sessions 1000 --files 500
+
+# Override specific credentials via command line
+cowrie-enrich refresh --sessions 1000 --vt-api-key $VT_API_KEY
+
+# Use environment variables
 export VT_API_KEY="your_vt_key"
 export DSHIELD_EMAIL="your_email"
 export URLHAUS_API_KEY="your_urlhaus_key"
 export SPUR_API_KEY="your_spur_key"
-
-# Run without explicit API keys
-python scripts/enrichment_refresh.py \
-    --db-url "postgresql://user:password@host:port/database" \
-    --sessions 0 \
-    --files 0
+cowrie-enrich refresh --sessions 1000
 ```
+
+The CLI will automatically detect and use credentials from `sensors.toml` when no explicit credentials are provided, making it easy to run enrichment refresh without manual credential management.
 
 ### What Gets Refreshed
 
@@ -423,6 +434,34 @@ python scripts/enrichment_refresh.py \
 - Threat classification
 - Detection statistics
 - Analysis timestamps
+
+### Data Merging and Compatibility
+
+The enrichment refresh system is designed to work alongside other enrichment modules without conflicts:
+
+- **Preserves existing data**: Password enrichment data (`password_stats`) and other enrichment data is preserved
+- **Merges intelligently**: New enrichment data is merged with existing data rather than overwriting it
+- **No data loss**: Sessions with existing enrichment data from other modules remain intact
+
+**Example**: A session with password enrichment data will have IP enrichment data added without losing the password information:
+
+```json
+{
+  "password_stats": {
+    "total_attempts": 1,
+    "breached_passwords": 1,
+    "password_details": [...]
+  },
+  "dshield": {
+    "ip": {
+      "count": "5",
+      "asn": "AS1234",
+      "asname": "Example Corp"
+    }
+  },
+  "urlhaus": "malware,botnet"
+}
+```
 
 ### Integration with Loader CLI
 
@@ -649,6 +688,150 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
 cowrie-loader bulk /var/log/cowrie/json.log --db /mnt/dshield/data/db/cowrieprocessor.sqlite
 ```
+
+## Password Enrichment (HIBP)
+
+Enrich sessions with Have I Been Pwned (HIBP) password breach data to identify credential stuffing attacks vs targeted attacks with novel passwords.
+
+### Features
+- **k-Anonymity API**: Only sends 5-character SHA-1 prefix to HIBP (privacy-preserving)
+- **Breach Detection**: Identifies passwords appearing in known data breaches
+- **Prevalence Tracking**: Records how many times breached passwords appear
+- **Novel Password Identification**: Tracks unique passwords not in breach databases
+- **Daily Aggregation**: Automatic aggregation into `password_statistics` table
+- **Efficient Caching**: SHA-1 prefix caching reduces API calls (~800 passwords per prefix)
+- **Rate Limiting**: Automatic rate limiting (1 request per 1.6 seconds)
+
+### Usage
+
+**Enrich sessions** with HIBP data:
+```bash
+# Enrich last 30 days
+cowrie-enrich passwords --last-days 30 --progress
+
+# Enrich specific date range
+cowrie-enrich passwords \
+    --start-date 2025-09-01 \
+    --end-date 2025-09-30 \
+    --progress
+
+# Enrich specific sensor
+cowrie-enrich passwords \
+    --sensor prod-sensor-01 \
+    --last-days 7 \
+    --progress
+
+# Force re-enrichment (ignore existing password stats)
+cowrie-enrich passwords --last-days 30 --force --progress
+```
+
+**Prune old passwords** (remove passwords not seen in 180 days):
+```bash
+# Default 180-day retention
+cowrie-enrich prune
+
+# Custom retention period
+cowrie-enrich prune --retention-days 90 --verbose
+```
+
+**View top passwords** (most-used in time period):
+```bash
+# Top 10 passwords in last 30 days
+cowrie-enrich top-passwords --last-days 30
+
+# Top 20 passwords in specific date range
+cowrie-enrich top-passwords \
+    --start-date 2025-09-01 \
+    --end-date 2025-09-30 \
+    --limit 20
+```
+
+**View new passwords** (newly emerged):
+```bash
+# New passwords in last 7 days
+cowrie-enrich new-passwords --last-days 7
+
+# New passwords in specific date range
+cowrie-enrich new-passwords \
+    --start-date 2025-10-01 \
+    --end-date 2025-10-10 \
+    --limit 50
+```
+
+### Output Structure
+
+Password statistics are stored in `SessionSummary.enrichment['password_stats']`:
+```json
+{
+  "password_stats": {
+    "total_attempts": 5,
+    "unique_passwords": 3,
+    "breached_passwords": 2,
+    "breach_prevalence_max": 5234233,
+    "novel_password_hashes": ["sha256_hash1", "sha256_hash2"],
+    "password_details": [
+      {
+        "username": "root",
+        "password_sha256": "abc123...",
+        "breached": true,
+        "prevalence": 5234233,
+        "success": true,
+        "timestamp": "2025-09-15T10:30:00Z"
+      }
+    ]
+  }
+}
+```
+
+Daily aggregated statistics in `password_statistics` table:
+```python
+# Query daily password statistics
+from cowrieprocessor.db.models import PasswordStatistics
+stats = session.query(PasswordStatistics).filter(
+    PasswordStatistics.date == date(2025, 9, 15)
+).first()
+
+print(f"Total attempts: {stats.total_attempts}")
+print(f"Breached passwords: {stats.breached_count}")
+print(f"Novel passwords: {stats.novel_count}")
+print(f"Max prevalence: {stats.max_prevalence}")
+```
+
+### Use Cases
+
+**Detect Credential Stuffing**:
+```python
+# High ratio of breached passwords indicates credential stuffing
+if password_stats['breached_passwords'] > password_stats['unique_passwords'] * 0.8:
+    alert("Likely credential stuffing attack detected")
+```
+
+**Detect Targeted Attacks**:
+```python
+# Many novel passwords with no breaches suggests targeted attack
+if password_stats['novel_passwords'] > 5 and password_stats['breached_passwords'] == 0:
+    alert("Possible targeted attack with custom passwords")
+```
+
+**Track Password Trends**:
+```python
+# Analyze daily breach ratios over time
+daily_breach_ratio = breached_passwords / total_passwords
+if trending_down(daily_breach_ratio):
+    print("Attackers moving from breached to novel passwords")
+```
+
+### Performance Considerations
+- **Cache Hit Rate**: Typically >80% after warm-up period
+- **API Rate**: ~37 requests/minute = ~2,200 passwords/hour with full cache misses
+- **Processing Time**: <2 seconds per session on average
+- **Cache Efficiency**: 1 API call covers ~800 passwords (SHA-1 prefix caching)
+
+### Security Notes
+- Passwords are already stored in `raw_events` payload (attacker credentials)
+- HIBP API uses k-anonymity: only 5-character SHA-1 prefix is sent
+- SHA-256 hashes stored for novel password tracking (not full passwords)
+- No legitimate user passwords are processed (honeypot data only)
 
 ## Development
 

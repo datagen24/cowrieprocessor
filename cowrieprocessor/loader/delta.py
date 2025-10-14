@@ -280,7 +280,9 @@ class DeltaLoader:
             self._bulk._flush(
                 session,
                 raw_event_records,
+                dead_letters,
                 session_aggregates,
+                [],  # pending_files - empty for delta loader
                 metrics,
                 ingest_id,
                 metrics.batches_committed + 1,

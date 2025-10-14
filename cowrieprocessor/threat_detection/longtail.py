@@ -30,7 +30,11 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..db.models import SessionSummary
+from ..db.models import SessionSummary, RawEvent
+from ..enrichment.password_extractor import PasswordExtractor
+from ..enrichment.hibp_client import HIBPPasswordEnricher
+from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
+from ..enrichment.cache import EnrichmentCacheManager
 from ..db import create_session_maker, create_engine_from_settings
 from ..settings import DatabaseSettings
 
@@ -67,6 +71,10 @@ class LongtailAnalysisResult:
     
     # Statistical summary
     statistical_summary: Dict[str, Any] = field(default_factory=dict)
+
+    # Password intelligence (optional)
+    password_indicator_score: float = 0.0
+    password_intel: Dict[str, Any] = field(default_factory=dict)
 
 
 class CommandVectorizer:
@@ -262,6 +270,11 @@ class LongtailAnalyzer:
         batch_size: int = 100,  # Batch size for command extraction
         memory_limit_gb: Optional[float] = None,  # Memory limit override
         memory_warning_threshold: float = 0.75,  # Warning threshold as fraction of limit
+        # Password intelligence controls
+        enable_password_intelligence: bool = True,
+        enable_password_enrichment: bool = False,
+        max_enrichment_sessions: int = 50,
+        cache_dir: Optional[Path] = None,
     ) -> None:
         """Initialize longtail analyzer with database access and performance optimizations.
 
@@ -299,6 +312,21 @@ class LongtailAnalyzer:
         self._command_to_sessions: Dict[str, List[str]] = {}  # Track which sessions each command appears in
         self._session_characteristics: List[Dict[str, Any]] = []
         self._command_sequences: List[str] = []
+
+        # Password intelligence config/state
+        self.enable_password_intelligence = enable_password_intelligence
+        self.enable_password_enrichment = enable_password_enrichment
+        self.max_enrichment_sessions = max_enrichment_sessions
+        self._password_extractor: Optional[PasswordExtractor] = None
+        self._hibp_enricher: Optional[HIBPPasswordEnricher] = None
+        self._hibp_session: Optional[RateLimitedSession] = None
+        self._cache_manager: Optional[EnrichmentCacheManager] = None
+        if self.enable_password_enrichment:
+            rate, burst = get_service_rate_limit("hibp")
+            self._hibp_session = RateLimitedSession(rate_limit=rate, burst=burst)
+            self._cache_manager = EnrichmentCacheManager(base_dir=(cache_dir or (Path.home() / ".cache" / "cowrieprocessor")))
+            self._hibp_enricher = HIBPPasswordEnricher(self._cache_manager, self._hibp_session)
+            self._password_extractor = PasswordExtractor()
 
         # Performance optimizations
         self._command_cache: Dict[str, Dict[str, List[str]]] = {}
@@ -391,6 +419,12 @@ class LongtailAnalyzer:
             result.emerging_patterns = self._detect_emerging_patterns()
             result.high_entropy_payloads = self._detect_high_entropy_payloads(sessions)
 
+            # Password intelligence (optional)
+            if self.enable_password_intelligence:
+                password_intel = self._compute_password_intelligence(sessions)
+                result.password_intel = password_intel
+                result.password_indicator_score = float(password_intel.get("indicator_score", 0.0))
+
             # Update counts
             result.rare_command_count = len(result.rare_commands)
             result.anomalous_sequence_count = len(result.anomalous_sequences)
@@ -441,6 +475,149 @@ class LongtailAnalyzer:
         )
 
         return result
+
+    def _compute_password_intelligence(self, sessions: List[SessionSummary]) -> Dict[str, Any]:
+        """Compute password-related indicators, reusing stored enrichment and optionally enriching gaps.
+
+        Args:
+            sessions: Sessions under analysis.
+
+        Returns:
+            Dictionary with password intelligence metrics suitable for JSON output.
+        """
+        try:
+            # Aggregate from SessionSummary.enrichment if present
+            total_attempts = 0
+            unique_passwords = 0
+            breached_passwords = 0
+            max_prevalence = 0
+            sessions_with_breached: List[str] = []
+            novel_hashes: List[str] = []
+
+            sessions_needing_enrichment: List[str] = []
+
+            for s in sessions:
+                stats = None
+                if isinstance(s.enrichment, dict):
+                    stats = (
+                        s.enrichment.get("password_stats")
+                        or s.enrichment.get("passwords")
+                    )
+
+                if isinstance(stats, dict) and stats.get("total_attempts", 0) > 0:
+                    ta = int(stats.get("total_attempts", 0))
+                    up = int(stats.get("unique_passwords", 0))
+                    bp = int(stats.get("breached_passwords", 0))
+                    pv = int(stats.get("breach_prevalence_max", 0))
+                    total_attempts += ta
+                    unique_passwords += up
+                    breached_passwords += bp
+                    max_prevalence = max(max_prevalence, pv)
+                    if bp > 0:
+                        sessions_with_breached.append(s.session_id)
+                    nh = stats.get("novel_password_hashes") or []
+                    if isinstance(nh, list):
+                        novel_hashes.extend([str(h) for h in nh])
+                else:
+                    if self.enable_password_enrichment and len(sessions_needing_enrichment) < self.max_enrichment_sessions:
+                        sessions_needing_enrichment.append(s.session_id)
+
+            # Opportunistic enrichment for a limited set of sessions
+            enriched_details: List[Dict[str, Any]] = []
+            if self.enable_password_enrichment and sessions_needing_enrichment and self._password_extractor and self._hibp_enricher:
+                # Fetch raw login events for target sessions in one query
+                try:
+                    with self.session_factory() as db_session:
+                        result = db_session.execute(text(
+                            """
+                            SELECT id, session_id, event_type, event_timestamp, payload
+                            FROM raw_events
+                            WHERE session_id = ANY(:session_ids)
+                            AND event_type IN ('cowrie.login.success', 'cowrie.login.failed')
+                            """
+                        ), {"session_ids": sessions_needing_enrichment})
+
+                        # Convert rows to lightweight RawEvent-like objects
+                        events_by_session: Dict[str, List[RawEvent]] = {}
+                        for row in result:
+                            # Minimal struct with attributes used by PasswordExtractor
+                            re = RawEvent()
+                            re.id = row.id
+                            re.session_id = row.session_id
+                            re.event_type = row.event_type
+                            re.event_timestamp = row.event_timestamp
+                            re.payload = row.payload
+                            events_by_session.setdefault(row.session_id, []).append(re)
+
+                    # Extract and check passwords with HIBP
+                    checked_cache: Dict[str, Dict[str, Any]] = {}
+                    for sid, evs in events_by_session.items():
+                        attempts = self._password_extractor.extract_from_events(evs)
+                        for attempt in attempts:
+                            pwd = attempt["password"]
+                            h = attempt["password_sha256"]
+                            if pwd not in checked_cache:
+                                res = self._hibp_enricher.check_password(pwd)
+                                checked_cache[pwd] = res
+                            else:
+                                res = checked_cache[pwd]
+                            if res.get("breached"):
+                                breached_passwords += 1
+                                sessions_with_breached.append(sid)
+                                max_prevalence = max(max_prevalence, int(res.get("prevalence", 0)))
+                            else:
+                                novel_hashes.append(h)
+                            total_attempts += 1
+                            # Track limited details (hashes only)
+                            enriched_details.append({
+                                "session_id": sid,
+                                "username": attempt.get("username", ""),
+                                "password_sha256": h,
+                                "breached": bool(res.get("breached", False)),
+                                "prevalence": int(res.get("prevalence", 0)),
+                                "timestamp": attempt.get("timestamp", ""),
+                            })
+                except Exception as e:
+                    logger.warning(f"Password gap enrichment failed: {e}")
+
+            # Deduplicate novels and sessions
+            novel_hashes = list(dict.fromkeys(novel_hashes))
+            sessions_with_breached = list(dict.fromkeys(sessions_with_breached))
+
+            # Compute indicator score (bounded 0..1)
+            # Heuristic: weight breached sessions and prevalence more than raw attempts
+            indicator = 0.0
+            if total_attempts > 0:
+                breach_ratio = min(1.0, breached_passwords / max(total_attempts, 1))
+                session_ratio = min(1.0, len(sessions_with_breached) / max(len(sessions), 1))
+                prevalence_component = 1.0 - (1.0 / (1.0 + max_prevalence))  # approaches 1 as prevalence grows
+                indicator = 0.5 * session_ratio + 0.3 * breach_ratio + 0.2 * prevalence_component
+
+            return {
+                "total_attempts": int(total_attempts),
+                "unique_passwords": int(unique_passwords),
+                "breached_passwords": int(breached_passwords),
+                "breach_prevalence_max": int(max_prevalence),
+                "novel_password_hashes": novel_hashes[:100],  # cap for JSON size
+                "sessions_with_breached": sessions_with_breached[:100],
+                "enriched_gap_sessions": sessions_needing_enrichment,
+                "enriched_details_sample": enriched_details[:50],
+                "indicator_score": round(indicator, 4),
+            }
+        except Exception as e:
+            logger.error(f"Password intelligence computation failed: {e}")
+            return {
+                "total_attempts": 0,
+                "unique_passwords": 0,
+                "breached_passwords": 0,
+                "breach_prevalence_max": 0,
+                "novel_password_hashes": [],
+                "sessions_with_breached": [],
+                "enriched_gap_sessions": [],
+                "enriched_details_sample": [],
+                "indicator_score": 0.0,
+                "error": str(e),
+            }
 
     def benchmark_vector_dimensions(
         self,

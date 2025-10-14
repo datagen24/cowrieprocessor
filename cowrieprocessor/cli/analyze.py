@@ -492,6 +492,28 @@ def main(argv: Iterable[str] | None = None) -> int:
         "--ingest-id",
         help="Ingest identifier for status tracking"
     )
+    # Password intelligence flags
+    longtail_parser.add_argument(
+        "--password-intelligence",
+        action="store_true",
+        help="Enable password intelligence indicator in longtail analysis",
+    )
+    longtail_parser.add_argument(
+        "--password-enrichment",
+        action="store_true",
+        help="Opportunistically enrich up to a limited number of sessions with HIBP",
+    )
+    longtail_parser.add_argument(
+        "--max-enrichment-sessions",
+        type=int,
+        default=50,
+        help="Maximum sessions to enrich when --password-enrichment is enabled (default: 50)",
+    )
+    longtail_parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="Cache directory for HIBP prefix responses (default: ~/.cache/cowrieprocessor)",
+    )
     
     # Snowshoe report command
     report_parser = subparsers.add_parser(
@@ -597,6 +619,10 @@ def longtail_analyze(args: argparse.Namespace) -> int:
             batch_size=args.batch_size,
             memory_limit_gb=memory_limit_gb,
             memory_warning_threshold=memory_config["memory_warning_threshold"],
+            enable_password_intelligence=bool(args.password_intelligence),
+            enable_password_enrichment=bool(args.password_enrichment),
+            max_enrichment_sessions=int(args.max_enrichment_sessions),
+            cache_dir=args.cache_dir,
         )
 
         # Perform analysis
