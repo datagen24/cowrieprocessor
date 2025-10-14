@@ -7,7 +7,7 @@ that can cause issues with PostgreSQL JSON processing and database operations.
 import json
 import logging
 import re
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Union
 
 logger = logging.getLogger(__name__)
 

@@ -36,7 +36,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 # Using uv to manage a virtual environment and resolve dependencies from this pyproject.
-dev-dependencies = [
+
+[dependency-groups]
+dev = [
   "ruff==0.12.11",
   "mypy==1.14.1",
   "types-requests==2.32.0.20240914",

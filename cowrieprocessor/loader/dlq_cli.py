@@ -182,7 +182,7 @@ def export_dlq_events(
     session_factory = create_session_maker(engine)
 
     with session_factory() as session:
-        query = session.query(DeadLetterEvent).filter(DeadLetterEvent.resolved == False)
+        query = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved)
 
         if reason_filter:
             query = query.filter(DeadLetterEvent.reason == reason_filter)
@@ -239,7 +239,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Analyze command
-    analyze_parser = subparsers.add_parser("analyze", help="Analyze DLQ patterns")
+    subparsers.add_parser("analyze", help="Analyze DLQ patterns")
 
     # Reprocess command
     reprocess_parser = subparsers.add_parser("reprocess", help="Reprocess DLQ events")

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 # Limit OpenMP threads to prevent resource issues - MUST be set before importing any libraries
 import os
+
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
@@ -30,8 +31,8 @@ from typing import Any, Dict
 
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
 from cowrieprocessor.db.migrations import apply_migrations
-from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 from cowrieprocessor.settings import DatabaseSettings
+from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 
 # Configure logging
 logging.basicConfig(

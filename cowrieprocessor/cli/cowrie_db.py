@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -13,13 +14,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker
 
 from ..db import CURRENT_SCHEMA_VERSION, Files, apply_migrations
 from ..db.engine import create_engine_from_settings
+from ..db.json_utils import get_dialect_name_from_engine
+from ..db.migrations import _downgrade_from_v9, _upgrade_to_v9
 from ..settings import DatabaseSettings
 from ..status_emitter import StatusEmitter
-from .db_config import resolve_database_settings, add_database_argument
+from ..utils.unicode_sanitizer import UnicodeSanitizer
+from .db_config import add_database_argument, resolve_database_settings
 
 
 @dataclass
@@ -680,8 +685,6 @@ class CowrieDatabase:
                     
                     # Process each event to extract valid file download events
                     events = []
-                    from ..utils.unicode_sanitizer import UnicodeSanitizer
-                    import json
                     
                     for row in raw_events:
                         try:
@@ -734,8 +737,6 @@ class CowrieDatabase:
                         
                         # Process each event with enhanced error handling
                         events = []
-                        from ..utils.unicode_sanitizer import UnicodeSanitizer
-                        import json
                         
                         for row in raw_events:
                             try:
@@ -829,9 +830,6 @@ class CowrieDatabase:
 
         try:
             with self._get_engine().begin() as conn:
-                from ..db.json_utils import get_dialect_name_from_engine
-                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-                
                 dialect_name = get_dialect_name_from_engine(self._get_engine())
 
                 # Convert Files objects to dictionaries
@@ -887,6 +885,7 @@ class CowrieDatabase:
             batch_size: Number of records to process in each batch
             limit: Maximum number of records to process (None for all)
             dry_run: If True, only report what would be changed without making changes
+            progress_callback: Optional callback function to report progress
             
         Returns:
             Sanitization result with statistics
@@ -901,14 +900,10 @@ class CowrieDatabase:
         }
         
         try:
-            from ..utils.unicode_sanitizer import UnicodeSanitizer
-            import json
-            
             # Check if raw_events table exists
             if not self._table_exists('raw_events'):
                 raise Exception("Raw events table does not exist.")
                 
-            from ..db.json_utils import get_dialect_name_from_engine
             dialect_name = get_dialect_name_from_engine(self._get_engine())
             
             logger.info(f"Starting Unicode sanitization (dry_run={dry_run})...")
@@ -969,7 +964,9 @@ class CowrieDatabase:
                                     })
                                     result['records_updated'] += 1
                                 else:
-                                    logger.warning(f"Record {record_id}: Sanitized payload still not safe for PostgreSQL")
+                                    logger.warning(
+                                        f"Record {record_id}: Sanitized payload still not safe for PostgreSQL"
+                                    )
                                     result['records_skipped'] += 1
                             except json.JSONDecodeError as e:
                                 logger.warning(f"Record {record_id}: Sanitized payload is not valid JSON: {e}")
@@ -1230,7 +1227,9 @@ class CowrieDatabase:
                             if len(malformed_samples) < 10:  # Keep only top 10 samples
                                 malformed_samples.append(
                                     {
-                                        'payload_preview': payload_str[:100] + '...' if len(payload_str) > 100 else payload_str,
+                                        'payload_preview': (
+                                            payload_str[:100] + '...' if len(payload_str) > 100 else payload_str
+                                        ),
                                         'count': 1,  # PostgreSQL sample is 1 record
                                         'pattern': pattern,
                                     }
@@ -2062,8 +2061,6 @@ class CowrieDatabase:
 
     def longtail_migrate(self, dry_run: bool = False) -> Dict[str, Any]:
         """Apply longtail analysis schema migration (v9)."""
-        from ..db.migrations import _upgrade_to_v9, _downgrade_from_v9, CURRENT_SCHEMA_VERSION
-
         logger.info(f"🔄 Longtail migration: v{CURRENT_SCHEMA_VERSION} -> v9")
 
         if dry_run:
@@ -2097,8 +2094,6 @@ class CowrieDatabase:
 
     def longtail_rollback(self) -> Dict[str, Any]:
         """Rollback longtail analysis migration."""
-        from ..db.migrations import _downgrade_from_v9, CURRENT_SCHEMA_VERSION
-
         logger.info("🔄 Rolling back longtail migration...")
 
         try:
@@ -2158,7 +2153,9 @@ class CowrieDatabase:
                 try:
                     # Check if pgvector extension is available
                     with engine.connect() as conn:
-                        result = conn.execute(text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')"))
+                        result = conn.execute(
+                            text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+                        )
                         has_pgvector = result.scalar()
 
                     if has_pgvector:
@@ -2177,9 +2174,16 @@ class CowrieDatabase:
             for table in required_tables:
                 with engine.connect() as conn:
                     # Get column information
-                    result = conn.execute(text(f"PRAGMA table_info({table})" if self._is_sqlite() else
-                                             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :table"),
-                                        {"table": table} if not self._is_sqlite() else {})
+                    if self._is_sqlite():
+                        query = text(f"PRAGMA table_info({table})")
+                        params = {}
+                    else:
+                        query = text(
+                            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :table"
+                        )
+                        params = {"table": table}
+                    
+                    result = conn.execute(query, params)
                     columns = [{"name": row[0], "type": row[1]} for row in result]
                     table_info[table] = columns
 
@@ -2344,13 +2348,13 @@ def main():
     )
 
     # Longtail rollback command
-    longtail_rollback_parser = subparsers.add_parser(
+    subparsers.add_parser(
         'longtail-rollback',
         help='Rollback longtail analysis migration to v8'
     )
 
     # Longtail validate command
-    longtail_validate_parser = subparsers.add_parser(
+    subparsers.add_parser(
         'longtail-validate',
         help='Validate longtail analysis schema and tables'
     )
@@ -2586,7 +2590,11 @@ def main():
                     print(f"  {file_path}: {error}")
                 print()
             
-            total_moved = len(results['iptables_files']) + len(results['cowrie_files']) + len(results['webhoneypot_files'])
+            total_moved = (
+                len(results['iptables_files']) + 
+                len(results['cowrie_files']) + 
+                len(results['webhoneypot_files'])
+            )
             print(f"Total files {'would be moved' if not move_files else 'moved'}: {total_moved}")
 
         elif args.command == 'analyze':

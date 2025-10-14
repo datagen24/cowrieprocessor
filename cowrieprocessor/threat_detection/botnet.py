@@ -7,20 +7,19 @@ credentials, SSH keys, or other coordination mechanisms.
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import logging
-import hashlib
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from ..db.models import SessionSummary, RawEvent, CommandStat
+from ..db.models import CommandStat, RawEvent, SessionSummary
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +218,8 @@ class BotnetCoordinatorDetector:
                     for key in session_data.keys():
                         try:
                             ip_obj = ipaddress.ip_address(key)
-                            # For botnet detection, allow private IPs since botnets often use compromised internal networks
+                            # For botnet detection, allow private IPs since botnets often use
+                            # compromised internal networks
                             # Only reject loopback and link-local addresses
                             if not (ip_obj.is_loopback or ip_obj.is_link_local):
                                 return key
@@ -585,7 +585,10 @@ class BotnetCoordinatorDetector:
             "similar_command_ips": [],
             "coordinated_timing": False,
             "geographic_clustering": False,
-            "recommendation": "ERROR: Unable to complete analysis" if error else "NO DATA: Insufficient data for analysis",
+            "recommendation": (
+                "ERROR: Unable to complete analysis" if error 
+                else "NO DATA: Insufficient data for analysis"
+            ),
             "indicators": {
                 "credentials": {"reused_credentials": set(), "has_credential_reuse": False, "reuse_ratio": 0.0},
                 "commands": {"similar_commands": set(), "has_similar_commands": False, "avg_similarity": 0.0},

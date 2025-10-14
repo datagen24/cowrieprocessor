@@ -1,7 +1,9 @@
 """Tests for Unicode sanitization utilities."""
 
 import json
+
 import pytest
+
 from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
 
 
@@ -107,7 +109,8 @@ class TestUnicodeSanitizer:
             ("../../../etc/passwd", "etc/passwd"),  # path traversal
             ("file\x00\x01\x02name.txt", "filename.txt"),
             ("", ""),
-            ("very_long_filename_" + "x" * 1000, "very_long_filename_" + "x" * (512 - len("very_long_filename_"))),  # length limit
+            ("very_long_filename_" + "x" * 1000, 
+             "very_long_filename_" + "x" * (512 - len("very_long_filename_"))),  # length limit
         ]
         
         for input_filename, expected in test_cases:
@@ -202,7 +205,10 @@ class TestUnicodeSanitizer:
     def test_real_world_cowrie_examples(self):
         """Test with real-world examples from Cowrie logs."""
         # Example from the error message
-        problematic_json = '{"eventid": "cowrie.session.connect", "message": "Remote SSH version: \\u0016\\u0003\\u0001\\u0000"}'
+        problematic_json = (
+            '{"eventid": "cowrie.session.connect", '
+            '"message": "Remote SSH version: \\u0016\\u0003\\u0001\\u0000"}'
+        )
         
         result = UnicodeSanitizer.sanitize_json_string(problematic_json)
         parsed = json.loads(result)

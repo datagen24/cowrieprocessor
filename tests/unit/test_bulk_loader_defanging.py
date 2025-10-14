@@ -151,7 +151,7 @@ class TestIntelligentDefanging:
             quarantine_threshold=80,
         )
         loader = BulkLoader(engine, config)
-        metrics = loader.load_paths([source])
+        loader.load_paths([source])
 
         # Should use legacy neutralization
         with engine.connect() as conn:

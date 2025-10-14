@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Quick PostgreSQL loading stats - shows tuples/second and key metrics.
-"""
+"""Quick PostgreSQL loading stats - shows tuples/second and key metrics."""
 
 import argparse
 import time
@@ -104,6 +103,7 @@ def monitor_loading(engine: Engine, interval: int = 5):
 
 
 def main():
+    """Main entry point for the quick PostgreSQL stats viewer."""
     parser = argparse.ArgumentParser(description='Quick PostgreSQL loading monitor')
     parser.add_argument('--db-url', help='PostgreSQL connection URL')
     parser.add_argument('--interval', type=int, default=5, help='Check interval in seconds')

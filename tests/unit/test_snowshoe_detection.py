@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock, patch
-from typing import Dict, Any
+from datetime import UTC, datetime, timedelta
+from unittest.mock import Mock
 
-from cowrieprocessor.threat_detection.snowshoe import SnowshoeDetector
+import pytest
+
 from cowrieprocessor.db.models import SessionSummary
+from cowrieprocessor.threat_detection.snowshoe import SnowshoeDetector
 
 
 class TestSnowshoeDetector:
@@ -577,7 +577,11 @@ class TestSnowshoeDetectorIntegration:
         assert result["geographic_spread"] < 0.5
         
         # Should have appropriate recommendation
-        assert "NO DETECTION" in result["recommendation"] or "LOW CONFIDENCE" in result["recommendation"] or "Insufficient data" in result["recommendation"]
+        assert (
+            "NO DETECTION" in result["recommendation"] or 
+            "LOW CONFIDENCE" in result["recommendation"] or 
+            "Insufficient data" in result["recommendation"]
+        )
 
     def test_sensitivity_threshold_adjustment(self, snowshoe_sessions: list[SessionSummary]) -> None:
         """Test that sensitivity threshold affects detection results."""
@@ -594,7 +598,10 @@ class TestSnowshoeDetectorIntegration:
         
         # If low sensitivity detects, high sensitivity should be less likely to detect
         if result_low["is_likely_snowshoe"]:
-            assert not result_high["is_likely_snowshoe"] or result_high["confidence_score"] < result_low["confidence_score"]
+            assert (
+                not result_high["is_likely_snowshoe"] or 
+                result_high["confidence_score"] < result_low["confidence_score"]
+            )
 
     def test_window_size_impact(self, snowshoe_sessions: list[SessionSummary]) -> None:
         """Test that different window sizes produce different results."""
@@ -611,5 +618,8 @@ class TestSnowshoeDetectorIntegration:
         assert result_long["confidence_score"] >= 0
         
         # The analysis metadata should reflect different window sizes
-        assert result_short["analysis_metadata"]["window_hours"] == 2 or result_short["analysis_metadata"]["window_hours"] == 24
+        assert (
+            result_short["analysis_metadata"]["window_hours"] == 2 or 
+            result_short["analysis_metadata"]["window_hours"] == 24
+        )
         assert result_long["analysis_metadata"]["window_hours"] == 168

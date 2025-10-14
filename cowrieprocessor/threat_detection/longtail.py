@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # Limit OpenMP threads to prevent resource issues - MUST be set before importing numpy/sklearn
 import os
+
 os.environ['OMP_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
@@ -11,6 +12,7 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
 import hashlib
+import ipaddress
 import json
 import logging
 import pickle
@@ -22,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import ipaddress
 import numpy as np
 import psutil
 from sklearn.cluster import DBSCAN
@@ -30,12 +31,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy import text
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..db.models import SessionSummary, RawEvent
-from ..enrichment.password_extractor import PasswordExtractor
-from ..enrichment.hibp_client import HIBPPasswordEnricher
-from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
+from ..db import create_engine_from_settings, create_session_maker
+from ..db.models import RawEvent, SessionSummary
 from ..enrichment.cache import EnrichmentCacheManager
-from ..db import create_session_maker, create_engine_from_settings
+from ..enrichment.hibp_client import HIBPPasswordEnricher
+from ..enrichment.password_extractor import PasswordExtractor
+from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
 from ..settings import DatabaseSettings
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,10 @@ class LongtailAnalyzer:
             batch_size: Number of sessions to process in each batch (default: 100)
             memory_limit_gb: Memory limit override (GB, None for auto-detection)
             memory_warning_threshold: Warning threshold as fraction of limit (default: 0.75)
+            enable_password_intelligence: Enable password intelligence analysis
+            enable_password_enrichment: Enable password enrichment via HIBP
+            max_enrichment_sessions: Maximum number of sessions to enrich
+            cache_dir: Directory for enrichment cache
         """
         self.session_factory = session_factory
         self.rarity_threshold = rarity_threshold
@@ -324,7 +329,9 @@ class LongtailAnalyzer:
         if self.enable_password_enrichment:
             rate, burst = get_service_rate_limit("hibp")
             self._hibp_session = RateLimitedSession(rate_limit=rate, burst=burst)
-            self._cache_manager = EnrichmentCacheManager(base_dir=(cache_dir or (Path.home() / ".cache" / "cowrieprocessor")))
+            self._cache_manager = EnrichmentCacheManager(
+                base_dir=(cache_dir or (Path.home() / ".cache" / "cowrieprocessor"))
+            )
             self._hibp_enricher = HIBPPasswordEnricher(self._cache_manager, self._hibp_session)
             self._password_extractor = PasswordExtractor()
 
@@ -354,7 +361,10 @@ class LongtailAnalyzer:
                 # Use user-specified memory limit
                 memory_limit_mb = self.memory_limit_gb * 1024
                 warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
-                logger.info(f"Using user-specified memory limit: {self.memory_limit_gb:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)")
+                logger.info(
+                    f"Using user-specified memory limit: {self.memory_limit_gb:.1f}GB "
+                    f"(warning at {self.memory_warning_threshold_fraction*100:.0f}%)"
+                )
             else:
                 # Auto-detect based on system memory
                 total_memory_gb = psutil.virtual_memory().total / (1024**3)
@@ -368,7 +378,10 @@ class LongtailAnalyzer:
                     memory_limit_mb = 2 * 1024  # 2GB
                     warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
                     
-                logger.info(f"System memory: {total_memory_gb:.1f}GB, setting analysis limit to {memory_limit_mb/1024:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)")
+                logger.info(
+                    f"System memory: {total_memory_gb:.1f}GB, setting analysis limit to "
+                    f"{memory_limit_mb/1024:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)"
+                )
             
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)
             resource.setrlimit(resource.RLIMIT_AS, (int(memory_limit_mb * 1024 * 1024), hard))
@@ -459,7 +472,10 @@ class LongtailAnalyzer:
         result.memory_usage_mb = end_memory - start_memory
 
         if result.memory_usage_mb > self._memory_warning_threshold:  # Dynamic warning threshold
-            logger.warning(f"High memory usage: {result.memory_usage_mb:.1f}MB (threshold: {self._memory_warning_threshold:.1f}MB)")
+            logger.warning(
+                f"High memory usage: {result.memory_usage_mb:.1f}MB "
+                f"(threshold: {self._memory_warning_threshold:.1f}MB)"
+            )
 
         logger.info(
             "Longtail analysis completed: duration=%.2fs, memory=%.1fMB, rare_commands=%d, "
@@ -519,12 +535,20 @@ class LongtailAnalyzer:
                     if isinstance(nh, list):
                         novel_hashes.extend([str(h) for h in nh])
                 else:
-                    if self.enable_password_enrichment and len(sessions_needing_enrichment) < self.max_enrichment_sessions:
+                    if (
+                        self.enable_password_enrichment and 
+                        len(sessions_needing_enrichment) < self.max_enrichment_sessions
+                    ):
                         sessions_needing_enrichment.append(s.session_id)
 
             # Opportunistic enrichment for a limited set of sessions
             enriched_details: List[Dict[str, Any]] = []
-            if self.enable_password_enrichment and sessions_needing_enrichment and self._password_extractor and self._hibp_enricher:
+            if (
+                self.enable_password_enrichment and 
+                sessions_needing_enrichment and 
+                self._password_extractor and 
+                self._hibp_enricher
+            ):
                 # Fetch raw login events for target sessions in one query
                 try:
                     with self.session_factory() as db_session:
@@ -974,7 +998,10 @@ class LongtailAnalyzer:
                     end_idx = min(start_idx + batch_size, len(session_ids))
                     batch_session_ids = session_ids[start_idx:end_idx]
                     
-                    logger.debug(f"Processing batch {batch_num + 1}/{total_batches} ({len(batch_session_ids)} sessions)")
+                    logger.debug(
+                        f"Processing batch {batch_num + 1}/{total_batches} "
+                        f"({len(batch_session_ids)} sessions)"
+                    )
                     
                     # Use a simpler approach that avoids problematic operators
                     # Don't check payload->>'input' in WHERE - do it in Python to avoid Unicode issues
@@ -994,7 +1021,10 @@ class LongtailAnalyzer:
                                 command_raw = payload['input']
                                 if command_raw:
                                     # Clean Unicode control characters
-                                    clean_command = ''.join(char for char in str(command_raw) if ord(char) >= 32 or char in '\t\n\r')
+                                    clean_command = ''.join(
+                                        char for char in str(command_raw) 
+                                        if ord(char) >= 32 or char in '\t\n\r'
+                                    )
                                     clean_command = clean_command.strip()
                                     if clean_command:
                                         commands_by_session[row.session_id].append(clean_command)

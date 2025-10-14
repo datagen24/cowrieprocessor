@@ -1,10 +1,12 @@
 """Integration tests for Unicode control character handling in data processing."""
 
 import json
-import pytest
 from unittest.mock import Mock
-from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
+
+import pytest
+
 from cowrieprocessor.loader.bulk import BulkLoader
+from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
 
 
 class TestUnicodeHandlingIntegration:
@@ -106,7 +108,10 @@ class TestUnicodeHandlingIntegration:
     def test_real_world_error_scenario(self):
         """Test the specific error scenario from the user's report."""
         # This is the exact error from the user's message
-        problematic_json = '{"eventid": "cowrie.session.file_download", "message": "Remote SSH version: \\u0016\\u0003\\u0001\\u0000"}'
+        problematic_json = (
+            '{"eventid": "cowrie.session.file_download", '
+            '"message": "Remote SSH version: \\u0016\\u0003\\u0001\\u0000"}'
+        )
         
         # Process through the sanitizer
         sanitized_json = UnicodeSanitizer.sanitize_json_string(problematic_json)
@@ -126,12 +131,16 @@ class TestUnicodeHandlingIntegration:
         """Test that backfill operations can handle Unicode control characters."""
         # Mock event with problematic payload
         mock_event = Mock()
-        mock_event.payload = '{"eventid": "cowrie.session.file_download", "shasum": "abc123", "filename": "file\\u0000name.txt"}'
+        mock_event.payload = (
+            '{"eventid": "cowrie.session.file_download", '
+            '"shasum": "abc123", "filename": "file\\u0000name.txt"}'
+        )
         mock_event.session_id = "test_session"
         
         # Test the sanitization logic that would be used in backfill
-        from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
         import json
+
+        from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
         
         try:
             if isinstance(mock_event.payload, str):
@@ -163,7 +172,7 @@ class TestUnicodeHandlingIntegration:
         for json_str in large_data:
             try:
                 sanitized = UnicodeSanitizer.sanitize_json_string(json_str)
-                parsed = json.loads(sanitized)
+                json.loads(sanitized)
                 processed_count += 1
             except Exception:
                 pass

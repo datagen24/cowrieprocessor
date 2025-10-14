@@ -9,11 +9,10 @@ from __future__ import annotations
 import ipaddress
 import logging
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-import pandas as pd
 from sklearn.cluster import DBSCAN
 
 from ..db.models import SessionSummary
@@ -482,7 +481,7 @@ class SnowshoeDetector:
         volume = indicators["volume"]
         timing = indicators["timing"]
         geographic = indicators["geographic"]
-        behavioral = indicators["behavioral"]
+        # behavioral = indicators["behavioral"]  # Unused for now
         
         score = 0.0
         
@@ -542,12 +541,29 @@ class SnowshoeDetector:
             "low_volume_ips": [],
             "coordinated_timing": False,
             "geographic_spread": 0.0,
-            "recommendation": "ERROR: Unable to complete analysis" if error else "NO DATA: Insufficient data for analysis",
+            "recommendation": (
+                "ERROR: Unable to complete analysis" if error 
+                else "NO DATA: Insufficient data for analysis"
+            ),
             "indicators": {
-                "volume": {"single_attempt_ips": [], "low_volume_ips": [], "single_attempt_ratio": 0.0, "low_volume_ratio": 0.0, "total_ips": 0},
-                "timing": {"has_clustering": False, "cluster_count": 0, "largest_cluster_size": 0, "time_coordination_score": 0.0},
-                "geographic": {"countries": [], "asns": [], "country_count": 0, "asn_count": 0, "country_diversity": 0.0, "asn_diversity": 0.0, "diversity_score": 0.0, "is_diverse": False},
-                "behavioral": {"avg_session_duration": 0.0, "duration_variance": 0.0, "duration_consistency": 0.0, "avg_commands_per_ip": 0.0, "behavioral_similarity_score": 0.0, "is_similar_behavior": False},
+                "volume": {
+                    "single_attempt_ips": [], "low_volume_ips": [], 
+                    "single_attempt_ratio": 0.0, "low_volume_ratio": 0.0, "total_ips": 0
+                },
+                "timing": {
+                    "has_clustering": False, "cluster_count": 0, 
+                    "largest_cluster_size": 0, "time_coordination_score": 0.0
+                },
+                "geographic": {
+                    "countries": [], "asns": [], "country_count": 0, "asn_count": 0, 
+                    "country_diversity": 0.0, "asn_diversity": 0.0, "diversity_score": 0.0, 
+                    "is_diverse": False
+                },
+                "behavioral": {
+                    "avg_session_duration": 0.0, "duration_variance": 0.0, 
+                    "duration_consistency": 0.0, "avg_commands_per_ip": 0.0, 
+                    "behavioral_similarity_score": 0.0, "is_similar_behavior": False
+                },
             },
             "analysis_metadata": {
                 "total_sessions": 0,

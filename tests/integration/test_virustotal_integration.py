@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
-from enrichment_handlers import EnrichmentService
 from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
+from enrichment_handlers import EnrichmentService
 
 
 class TestVirusTotalIntegration:
@@ -20,25 +19,7 @@ class TestVirusTotalIntegration:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
         
-        # Mock VirusTotal response
-        mock_vt_response = {
-            "data": {
-                "id": "test-file-id",
-                "type": "file",
-                "attributes": {
-                    "last_analysis_stats": {
-                        "malicious": 5,
-                        "harmless": 10,
-                        "suspicious": 2,
-                        "undetected": 20,
-                    },
-                    "md5": "test-md5",
-                    "sha1": "test-sha1",
-                    "sha256": "test-sha256",
-                    "size": 1024,
-                }
-            }
-        }
+        # Mock VirusTotal response (not used in this test)
         
         with patch('cowrieprocessor.enrichment.virustotal_handler.vt.Client') as mock_client_class:
             # Mock the client and file object
@@ -146,8 +127,14 @@ class TestVirusTotalIntegration:
             # Mock user info and quota responses
             mock_client.get_json.side_effect = [
                 {"data": {"id": "test-user-id"}},
-                {"data": {"attributes": {"api_requests_daily": 500, "api_requests_hourly": 200, "api_requests_monthly": 5000, "api_requests": 1000}}},
-                {"data": {"attributes": {"api_requests_daily": 100, "api_requests_hourly": 50, "api_requests_monthly": 1000, "api_requests": 250}}}
+                {"data": {"attributes": {
+                    "api_requests_daily": 500, "api_requests_hourly": 200, 
+                    "api_requests_monthly": 5000, "api_requests": 1000
+                }}},
+                {"data": {"attributes": {
+                    "api_requests_daily": 100, "api_requests_hourly": 50, 
+                    "api_requests_monthly": 1000, "api_requests": 250
+                }}}
             ]
             
             service = EnrichmentService(

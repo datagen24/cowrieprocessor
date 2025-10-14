@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from cowrieprocessor.db.base import Base
@@ -255,9 +254,9 @@ def test_cache_efficiency(cache_manager, mock_rate_limiter):
     # Check same password multiple times
     password = "testpassword"
     
-    result1 = hibp_enricher.check_password(password)
-    result2 = hibp_enricher.check_password(password)
-    result3 = hibp_enricher.check_password(password)
+    hibp_enricher.check_password(password)
+    hibp_enricher.check_password(password)
+    hibp_enricher.check_password(password)
     
     # Verify only one API call was made
     stats = hibp_enricher.get_stats()

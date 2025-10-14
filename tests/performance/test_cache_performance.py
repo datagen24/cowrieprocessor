@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import tempfile
 import time
 from pathlib import Path
@@ -217,8 +216,9 @@ class TestCachePerformance:
 
     def test_memory_efficiency(self, cache_manager: EnrichmentCacheManager) -> None:
         """Test that cache operations don't consume excessive memory."""
-        import psutil
         import os
+
+        import psutil
         
         # Get initial memory usage
         process = psutil.Process(os.getpid())
@@ -246,7 +246,10 @@ class TestCachePerformance:
         reads_memory_increase = after_reads_memory - after_store_memory
         
         # Memory shouldn't grow significantly during reads
-        assert reads_memory_increase < 10 * 1024 * 1024, f"Memory usage increased by {reads_memory_increase / 1024 / 1024:.1f}MB during reads"
+        assert reads_memory_increase < 10 * 1024 * 1024, (
+            f"Memory usage increased by {reads_memory_increase / 1024 / 1024:.1f}MB "
+            f"during reads"
+        )
         
         print(f"Memory increase after store: {memory_increase / 1024 / 1024:.1f}MB")
         print(f"Memory increase after reads: {reads_memory_increase / 1024 / 1024:.1f}MB")

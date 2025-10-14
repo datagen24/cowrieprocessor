@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import Mock, patch
 
-import pytest
-from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from cowrieprocessor.db.engine import detect_database_features, has_pgvector, is_postgresql

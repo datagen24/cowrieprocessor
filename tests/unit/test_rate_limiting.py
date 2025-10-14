@@ -9,9 +9,9 @@ import pytest
 import requests
 
 from cowrieprocessor.enrichment.rate_limiting import (
-    RateLimiter,
-    RateLimitedSession,
     SERVICE_RATE_LIMITS,
+    RateLimitedSession,
+    RateLimiter,
     get_service_rate_limit,
     with_retries,
 )
@@ -32,7 +32,7 @@ class TestRateLimiter:
         limiter = RateLimiter(rate=10.0, burst=5)
         
         # Should be able to acquire tokens immediately
-        start_time = time.time()
+        time.time()
         # Note: This is a simplified test since we can't easily test async behavior
         # In a real implementation, this would need proper async testing
         assert limiter.tokens == 5
@@ -149,14 +149,13 @@ class TestRetryDecorator:
     def test_retry_with_jitter(self) -> None:
         """Test that jitter is applied to backoff."""
         call_count = 0
-        backoff_times = []
         
         @with_retries(max_retries=2, backoff_base=0.1, jitter=True)
         def flaky_function() -> str:
             nonlocal call_count
             call_count += 1
             if call_count < 3:
-                start_time = time.time()
+                time.time()
                 raise requests.RequestException("Temporary failure")
             return "success"
         
@@ -220,10 +219,11 @@ class TestRateLimitingIntegration:
 
     def test_enrichment_service_with_rate_limiting(self) -> None:
         """Test that EnrichmentService can be configured with rate limiting."""
-        from enrichment_handlers import EnrichmentService
-        from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from cowrieprocessor.enrichment import EnrichmentCacheManager
+        from enrichment_handlers import EnrichmentService
         
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -244,10 +244,11 @@ class TestRateLimitingIntegration:
 
     def test_enrichment_service_without_rate_limiting(self) -> None:
         """Test that EnrichmentService can be configured without rate limiting."""
-        from enrichment_handlers import EnrichmentService
-        from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from pathlib import Path
         import tempfile
+        from pathlib import Path
+
+        from cowrieprocessor.enrichment import EnrichmentCacheManager
+        from enrichment_handlers import EnrichmentService
         
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)

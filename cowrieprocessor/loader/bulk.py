@@ -17,14 +17,6 @@ from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping,
 from dateutil import parser as date_parser
 from sqlalchemy import Table, func, select
 from sqlalchemy.dialects import sqlite as sqlite_dialect
-
-logger = logging.getLogger(__name__)
-
-try:  # pragma: no cover - optional dependency
-    from sqlalchemy.dialects import postgresql as postgres_dialect
-except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
-    postgres_dialect = cast(Any, None)
-
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -32,6 +24,13 @@ from ..db import Files, RawEvent, SessionSummary, create_session_maker
 from ..telemetry import start_span
 from .defanging import CommandDefanger, get_command_risk_score
 from .file_processor import extract_file_data
+
+logger = logging.getLogger(__name__)
+
+try:  # pragma: no cover - optional dependency
+    from sqlalchemy.dialects import postgresql as postgres_dialect
+except ModuleNotFoundError:  # pragma: no cover - Postgres optional in tests
+    postgres_dialect = cast(Any, None)
 
 JsonDict = Dict[str, Any]
 TelemetryCallback = Callable[["BulkLoaderMetrics"], None]
@@ -840,7 +839,12 @@ class BulkLoader:
             except json.JSONDecodeError:
                 yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
 
-    def _make_dead_letter_event(self, malformed_content: str, source_file: Optional[str] = None, file_type: Optional[str] = None) -> dict:
+    def _make_dead_letter_event(
+        self, 
+        malformed_content: str, 
+        source_file: Optional[str] = None, 
+        file_type: Optional[str] = None
+    ) -> dict:
         """Create a dead letter event for malformed JSON content or file type mismatches."""
         event = {
             "_dead_letter": True,
