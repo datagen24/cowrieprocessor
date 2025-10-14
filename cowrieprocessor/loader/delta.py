@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from ..db import DeadLetterEvent, IngestCursor, RawEvent
 from ..telemetry import start_span
+from ..enrichment.ssh_key_extractor import SSHKeyExtractor
 from .bulk import (
     COMMAND_EVENT_HINTS,
     FILE_EVENT_HINTS,
@@ -56,6 +57,7 @@ class DeltaLoader:
         self.config = config or DeltaLoaderConfig()
         self._bulk = BulkLoader(engine, self.config.bulk, enrichment_service=enrichment_service)
         self._session_factory = self._bulk._session_factory  # reuse session factory
+        self._ssh_key_extractor = SSHKeyExtractor()
 
     def load_paths(
         self,
@@ -159,6 +161,19 @@ class DeltaLoader:
                                     aggregate.update_timestamp(processed.event_timestamp)
                                 aggregate.highest_risk = max(aggregate.highest_risk, processed.risk_score)
                                 aggregate.source_files.add(str(path))
+                                
+                                # Extract SSH keys from command events
+                                if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
+                                    if processed.input and "authorized_keys" in processed.input:
+                                        try:
+                                            extracted_keys = self._ssh_key_extractor.extract_keys_from_command(processed.input)
+                                            if extracted_keys:
+                                                aggregate.ssh_key_injections += len(extracted_keys)
+                                                for key in extracted_keys:
+                                                    aggregate.unique_ssh_keys.add(key.key_hash)
+                                        except Exception:
+                                            # Log error but don't fail the ingestion
+                                            pass
 
                             metrics.last_source = str(path)
                             metrics.last_offset = offset
