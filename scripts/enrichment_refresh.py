@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Refresh enrichment payloads for existing sessions and files."""
+"""Refresh enrichment payloads for existing sessions and files.
+
+DEPRECATED: This standalone script is deprecated. Use the cowrie-enrich CLI instead:
+
+    cowrie-enrich refresh --sessions 1000 --files 500
+
+This script will be removed in a future version.
+"""
 
 from __future__ import annotations
 
@@ -46,6 +53,9 @@ def get_session_query(engine: Engine) -> str:
                    '192.168.1.1' AS src_ip
             FROM session_summaries ss
             WHERE ss.enrichment IS NULL
+               OR ss.enrichment::text = 'null'
+               OR ss.enrichment::text = '{}'
+               OR ss.enrichment::text = ''
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
     else:
@@ -57,6 +67,10 @@ def get_session_query(engine: Engine) -> str:
             WHERE json_extract(re.payload, '$.src_ip') IS NOT NULL
               AND json_extract(re.payload, '$.src_ip') != ''
               AND length(json_extract(re.payload, '$.src_ip')) > 0
+              AND (ss.enrichment IS NULL 
+                   OR ss.enrichment = 'null'
+                   OR ss.enrichment = '{}'
+                   OR ss.enrichment = '')
             GROUP BY ss.session_id
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
@@ -133,20 +147,49 @@ def update_session(
     enrichment_payload: dict,
     flags: dict,
 ) -> None:
-    """Persist refreshed enrichment JSON and derived flags for a session."""
-    sql = """
-        UPDATE session_summaries
-        SET enrichment = :enrichment,
-            vt_flagged = :vt_flagged,
-            dshield_flagged = :dshield_flagged,
-            updated_at = CURRENT_TIMESTAMP
+    """Persist refreshed enrichment JSON and derived flags for a session.
+    
+    This function merges the new enrichment data with existing enrichment data
+    to avoid overwriting data from other enrichment modules (e.g., password_stats).
+    """
+    # First, get the existing enrichment data
+    get_sql = """
+        SELECT enrichment FROM session_summaries 
         WHERE session_id = :session_id
     """
+    
     with engine.connect() as conn:
+        # Get existing enrichment data
+        result = conn.execute(text(get_sql), {"session_id": session_id}).fetchone()
+        existing_enrichment = {}
+        
+        if result and result[0]:
+            try:
+                existing_enrichment = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+            except (json.JSONDecodeError, TypeError):
+                # If we can't parse the existing data, start fresh
+                existing_enrichment = {}
+        
+        # Merge the new enrichment data with existing data
+        # New data takes precedence over existing data for the same keys
+        merged_enrichment = existing_enrichment.copy()
+        if enrichment_payload:
+            merged_enrichment.update(enrichment_payload)
+        
+        # Update the session with merged enrichment data
+        update_sql = """
+            UPDATE session_summaries
+            SET enrichment = :enrichment,
+                vt_flagged = :vt_flagged,
+                dshield_flagged = :dshield_flagged,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE session_id = :session_id
+        """
+        
         conn.execute(
-            text(sql),
+            text(update_sql),
             {
-                "enrichment": json.dumps(enrichment_payload) if enrichment_payload else None,
+                "enrichment": json.dumps(merged_enrichment) if merged_enrichment else None,
                 "vt_flagged": bool(flags.get("vt_flagged")),
                 "dshield_flagged": bool(flags.get("dshield_flagged")),
                 "session_id": session_id,
@@ -413,6 +456,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     """Entry point for refreshing enrichment payloads in-place."""
+    print("WARNING: This standalone script is deprecated.")
+    print("Use the cowrie-enrich CLI instead:")
+    print("  cowrie-enrich refresh --sessions 1000 --files 500")
+    print("This script will be removed in a future version.\n")
+    
     args = parse_args(argv)
 
     # Load database settings from configuration

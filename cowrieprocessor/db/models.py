@@ -9,6 +9,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -369,6 +370,78 @@ class LongtailDetection(Base):
     )
 
 
+class PasswordStatistics(Base):
+    """Aggregated password breach statistics by date."""
+
+    __tablename__ = "password_statistics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, unique=True)
+    total_attempts = Column(Integer, nullable=False, server_default="0")
+    unique_passwords = Column(Integer, nullable=False, server_default="0")
+    breached_count = Column(Integer, nullable=False, server_default="0")
+    novel_count = Column(Integer, nullable=False, server_default="0")
+    max_prevalence = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_password_statistics_created", "created_at"),
+    )
+
+
+class PasswordTracking(Base):
+    """Track individual passwords with HIBP results and temporal usage patterns."""
+
+    __tablename__ = "password_tracking"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    password_hash = Column(String(64), nullable=False, unique=True, index=True)
+    password_text = Column(Text, nullable=False)
+
+    # HIBP enrichment
+    breached = Column(Boolean, nullable=False, server_default=false())
+    breach_prevalence = Column(Integer, nullable=True)
+    last_hibp_check = Column(DateTime(timezone=True), nullable=True)
+
+    # Temporal tracking
+    first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    times_seen = Column(Integer, nullable=False, server_default="1")
+    unique_sessions = Column(Integer, nullable=False, server_default="1")
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_password_tracking_hash", "password_hash", unique=True),
+        Index("ix_password_tracking_last_seen", "last_seen"),
+        Index("ix_password_tracking_breached", "breached"),
+        Index("ix_password_tracking_times_seen", "times_seen"),
+    )
+
+
+class PasswordSessionUsage(Base):
+    """Junction table linking passwords to sessions for detailed tracking."""
+
+    __tablename__ = "password_session_usage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    password_id = Column(Integer, ForeignKey("password_tracking.id", ondelete="CASCADE"), nullable=False)
+    session_id = Column(String(64), ForeignKey("session_summaries.session_id"), nullable=False)
+    username = Column(String(256), nullable=True)
+    success = Column(Boolean, nullable=False, server_default=false())
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("password_id", "session_id", name="uq_password_session"),
+        Index("ix_password_session_password", "password_id"),
+        Index("ix_password_session_session", "session_id"),
+        Index("ix_password_session_timestamp", "timestamp"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "SchemaMetadata",
@@ -381,4 +454,7 @@ __all__ = [
     "SnowshoeDetection",
     "LongtailAnalysis",
     "LongtailDetection",
+    "PasswordStatistics",
+    "PasswordTracking",
+    "PasswordSessionUsage",
 ]

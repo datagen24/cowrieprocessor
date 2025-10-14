@@ -1,16 +1,12 @@
-"""Smoke tests for core data processing utilities."""
+"""Legacy data_processing tests retired after pipeline refactor."""
 
 from __future__ import annotations
 
-from data_processing import (
-    get_command_total,
-    get_file_download,
-    get_file_upload,
-    get_login_data,
-    get_protocol_login,
-    get_session_duration,
-    get_session_id,
-    pre_index_data_by_session,
+import pytest
+
+pytest.skip(
+    "Legacy data_processing module removed in favor of process_cowrie helpers",
+    allow_module_level=True,
 )
 
 

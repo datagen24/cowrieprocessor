@@ -1,8 +1,13 @@
-"""Integration-oriented smoke tests exercising common workflows."""
+"""Legacy smoke tests for the removed data_processing module."""
 
 from __future__ import annotations
 
-from data_processing import get_file_download, get_login_data, pre_index_data_by_session
+import pytest
+
+pytest.skip(
+    "Legacy data_processing module retired; functionality covered elsewhere",
+    allow_module_level=True,
+)
 
 
 def test_session_summary_smoke(sample_cowrie_events: list[dict[str, str]]) -> None:

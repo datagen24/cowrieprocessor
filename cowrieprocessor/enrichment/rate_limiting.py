@@ -165,6 +165,7 @@ SERVICE_RATE_LIMITS = {
     "virustotal": {"rate": 0.067, "burst": 1},  # VT allows 4 requests/minute = 0.067/sec
     "urlhaus": {"rate": 2.0, "burst": 3},  # Conservative for URLHaus
     "spur": {"rate": 1.0, "burst": 2},  # Conservative for SPUR
+    "hibp": {"rate": 0.625, "burst": 1},  # HIBP requires 1.6s between requests = 0.625 req/sec
 }
 
 
