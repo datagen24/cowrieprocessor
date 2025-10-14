@@ -333,7 +333,7 @@ class SSHKeyAnalytics:
                 "unique_sessions": key.unique_sessions,
                 "first_seen": key.first_seen,
                 "last_seen": key.last_seen,
-                "key_size_bits": key.key_size_bits,
+                "key_size_bits": key.key_bits,
             })
             
         return results
