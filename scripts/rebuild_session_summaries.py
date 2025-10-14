@@ -60,6 +60,8 @@ def _load_sensors_config() -> dict[str, str] | None:
         pass
 
     return None
+
+
 # Configure logging to work with tqdm
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -90,6 +92,7 @@ class SessionSummaryRebuilder:
         else:
             # Create minimal settings for custom URL
             from cowrieprocessor.settings import DatabaseSettings
+
             self.settings = DatabaseSettings(url=db_url)
 
         assert self.settings is not None  # Type guard for mypy
@@ -562,17 +565,19 @@ class SessionSummaryRebuilder:
                         if cmd_stats_to_insert:
                             try:
                                 # For PostgreSQL, use ON CONFLICT DO UPDATE
-                                stmt = insert(CommandStat).values([
-                                    {
-                                        'session_id': cmd.session_id,
-                                        'command_normalized': cmd.command_normalized,
-                                        'occurrences': cmd.occurrences,
-                                        'first_seen': cmd.first_seen,
-                                        'last_seen': cmd.last_seen,
-                                        'high_risk': cmd.high_risk,
-                                    }
-                                    for cmd in cmd_stats_to_insert
-                                ])
+                                stmt = insert(CommandStat).values(
+                                    [
+                                        {
+                                            'session_id': cmd.session_id,
+                                            'command_normalized': cmd.command_normalized,
+                                            'occurrences': cmd.occurrences,
+                                            'first_seen': cmd.first_seen,
+                                            'last_seen': cmd.last_seen,
+                                            'high_risk': cmd.high_risk,
+                                        }
+                                        for cmd in cmd_stats_to_insert
+                                    ]
+                                )
 
                                 # PostgreSQL ON CONFLICT DO UPDATE
                                 stmt = stmt.on_conflict_do_update(
@@ -582,10 +587,10 @@ class SessionSummaryRebuilder:
                                         first_seen=stmt.excluded.first_seen,
                                         last_seen=stmt.excluded.last_seen,
                                         high_risk=stmt.excluded.high_risk,
-                                    )
+                                    ),
                                 )
 
-                                result = session.execute(stmt)
+                                session.execute(stmt)
                                 stats['commands_aggregated'] += len(cmd_stats_to_insert)
 
                             except Exception as e:
@@ -596,7 +601,10 @@ class SessionSummaryRebuilder:
                                         session.merge(cmd)
                                         stats['commands_aggregated'] += 1
                                     except Exception as merge_error:
-                                        logger.error(f"Failed to merge command stat {cmd.session_id}/{cmd.command_normalized}: {merge_error}")
+                                        logger.error(
+                                            f"Failed to merge command stat {cmd.session_id}/"
+                                            f"{cmd.command_normalized}: {merge_error}"
+                                        )
 
                         # Update session count
                         unique_sessions = len(set(agg['session_id'] for agg in command_aggregates.values()))

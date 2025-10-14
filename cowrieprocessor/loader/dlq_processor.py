@@ -175,28 +175,28 @@ class JSONRepairStrategies:
     def fix_unescaped_quotes(content: str) -> str:
         """Fix unescaped quotes in string values."""
         import re
-        
+
         # Handle simple case: quote in middle of string value
         # Pattern: "key": "value"with"quote"
         # Replace with: "key": "value\"with\"quote"
-        
+
         # Look for string values with unescaped quotes
         # This regex finds: "key": "value"with"quote"
         pattern = r'("[\w_]+"\s*:\s*")([^"]*")([^"]*")([^"]*")'
-        
+
         def fix_quote_match(match):
             key_part = match.group(1)  # "key": "
             value_start = match.group(2)  # "value"
             middle_part = match.group(3)  # "with"
             value_end = match.group(4)  # "quote"
-            
+
             # Reconstruct with escaped quotes
             fixed_value = value_start[:-1] + '\\"' + middle_part[1:-1] + '\\"' + value_end[1:]
             return key_part + fixed_value
-        
+
         # Apply the fix
         content = re.sub(pattern, fix_quote_match, content)
-        
+
         # Fallback: simple line-by-line approach for other cases
         lines = content.split('\n')
         fixed_lines = []
@@ -211,9 +211,9 @@ class JSONRepairStrategies:
                     # Find the value part after the colon
                     colon_pos = line.find(': "')
                     if colon_pos != -1:
-                        key_part = line[:colon_pos + 3]  # Include ': "'
-                        value_part = line[colon_pos + 3:]
-                        
+                        key_part = line[: colon_pos + 3]  # Include ': "'
+                        value_part = line[colon_pos + 3 :]
+
                         # Escape quotes in the value part, but preserve the closing quote
                         if value_part.endswith('"'):
                             value_part = value_part[:-1]  # Remove closing quote
@@ -231,10 +231,10 @@ class JSONRepairStrategies:
     def repair_json(cls, content: str) -> str:
         """Apply all repair strategies to malformed JSON content."""
         from ..utils.unicode_sanitizer import UnicodeSanitizer
-        
+
         # First sanitize Unicode control characters
         content = UnicodeSanitizer.sanitize_unicode_string(content, strict=False)
-        
+
         # Apply repairs in order
         content = cls.fix_unescaped_quotes(content)
         content = cls.fix_trailing_commas(content)
@@ -248,6 +248,7 @@ class EventStitcher:
     """Stitches fragmented events into complete Cowrie events."""
 
     def __init__(self):
+        """Initialize the event stitcher."""
         self.validator = CowrieEventValidator()
         self.repair_strategies = JSONRepairStrategies()
 
@@ -295,8 +296,6 @@ class EventStitcher:
         Returns:
             Repaired event dictionary or None if repair failed
         """
-        analysis = self.analyze_dlq_content(malformed_content)
-
         # Try different repair strategies
         repair_attempts = [
             malformed_content,  # Try as-is first
@@ -310,8 +309,9 @@ class EventStitcher:
             try:
                 # Sanitize Unicode control characters before parsing
                 from ..utils.unicode_sanitizer import UnicodeSanitizer
+
                 sanitized_content = UnicodeSanitizer.sanitize_json_string(attempt_content)
-                
+
                 # Try to parse the repaired content
                 event = json.loads(sanitized_content)
 
@@ -646,6 +646,7 @@ class DLQProcessor:
     """Main processor for handling Dead Letter Queue events."""
 
     def __init__(self, db_path: Optional[str] = None):
+        """Initialize the DLQ processor."""
         self.db_path = db_path
         self.stitcher = EventStitcher()
         self.processed_count = 0
@@ -676,7 +677,7 @@ class DLQProcessor:
 
         with session_factory() as session:
             # Query DLQ events
-            query = session.query(DeadLetterEvent).filter(DeadLetterEvent.resolved == False)
+            query = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved)
 
             if reason_filter:
                 query = query.filter(DeadLetterEvent.reason == reason_filter)
@@ -762,7 +763,7 @@ class DLQProcessor:
                 },
             )
 
-            result = session.execute(stmt)
+            session.execute(stmt)
 
             # Always consider this a success since we either inserted or updated
             return True
@@ -832,7 +833,7 @@ class DLQProcessor:
         session_factory = create_session_maker(engine)
 
         with session_factory() as session:
-            dlq_events = session.query(DeadLetterEvent).filter(DeadLetterEvent.resolved == False).all()
+            dlq_events = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved).all()
 
             patterns["total_events"] = len(dlq_events)
 

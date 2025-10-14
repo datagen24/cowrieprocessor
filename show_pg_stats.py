@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Simple PostgreSQL stats viewer - shows current database performance metrics.
-"""
+"""Simple PostgreSQL stats viewer - shows current database performance metrics."""
 
 import argparse
 from datetime import datetime, timezone
@@ -94,6 +93,7 @@ def print_stats(stats: dict):
 
 
 def main():
+    """Main entry point for the PostgreSQL stats viewer."""
     parser = argparse.ArgumentParser(description='Show current PostgreSQL statistics')
     parser.add_argument('--db-url', help='PostgreSQL connection URL')
 

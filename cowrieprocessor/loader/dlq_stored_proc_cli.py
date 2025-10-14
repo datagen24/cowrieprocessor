@@ -113,7 +113,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Create procedures command
-    create_parser = subparsers.add_parser("create", help="Create stored procedures")
+    subparsers.add_parser("create", help="Create stored procedures")
 
     # Process command
     process_parser = subparsers.add_parser("process", help="Process DLQ events")
@@ -121,14 +121,14 @@ def main() -> None:
     process_parser.add_argument("--reason", help="Filter by failure reason")
 
     # Stats command
-    stats_parser = subparsers.add_parser("stats", help="Get DLQ statistics")
+    subparsers.add_parser("stats", help="Get DLQ statistics")
 
     # Cleanup command
     cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup resolved DLQ events")
     cleanup_parser.add_argument("--older-than-days", type=int, default=30, help="Delete events older than N days")
 
     # Test command
-    test_parser = subparsers.add_parser("test", help="Test stored procedures")
+    subparsers.add_parser("test", help="Test stored procedures")
 
     args = parser.parse_args()
 

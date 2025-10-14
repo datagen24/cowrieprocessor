@@ -528,10 +528,10 @@ def main():
 
         # Get database URLs from config
         postgres_url = args.postgres_url or config.get("global", {}).get("db")
-        sqlite_url = (
-            args.sqlite_url
-            or f"sqlite:///{config.get('global', {}).get('sqlite_test_db', '/mnt/dshield/data/db/cowrieprocessors.sqlite')}"
+        default_sqlite_path = config.get('global', {}).get(
+            'sqlite_test_db', '/mnt/dshield/data/db/cowrieprocessors.sqlite'
         )
+        sqlite_url = args.sqlite_url or f"sqlite:///{default_sqlite_path}"
 
         print(f"📋 Configuration loaded from: {args.sensors_file}")
         print(f"🗃️  SQLite URL: {sqlite_url}")

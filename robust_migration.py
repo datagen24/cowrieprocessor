@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Robust SQLite to PostgreSQL Migration Script
+"""Robust SQLite to PostgreSQL Migration Script.
 
 This script handles malformed JSON data and other data quality issues
 that can occur during migration from SQLite to PostgreSQL.
@@ -29,6 +29,7 @@ class RobustMigrationTester:
     """Robust migration tester that handles data quality issues."""
 
     def __init__(self, sqlite_url: str, postgres_url: str, batch_size: int = 1000):
+        """Initialize the robust migration tester."""
         self.sqlite_url = sqlite_url
         self.postgres_url = postgres_url
         self.batch_size = batch_size
@@ -435,7 +436,7 @@ class RobustMigrationTester:
                             # Try to continue with next batch
                             try:
                                 conn.rollback()
-                            except:
+                            except Exception:
                                 pass
 
                     imported_counts[table_name] = imported_count
@@ -594,10 +595,10 @@ def main():
         with open(args.sensors_file, "rb") as f:
             config = tomllib.load(f)
 
-        sqlite_url = (
-            args.sqlite_url
-            or f"sqlite:///{config.get('global', {}).get('sqlite_test_db', '/mnt/dshield/data/db/cowrieprocessors.sqlite')}"
+        default_sqlite_path = config.get('global', {}).get(
+            'sqlite_test_db', '/mnt/dshield/data/db/cowrieprocessors.sqlite'
         )
+        sqlite_url = args.sqlite_url or f"sqlite:///{default_sqlite_path}"
         postgres_url = args.postgres_url or config.get("global", {}).get("db")
 
         logger.info(f"📋 Configuration loaded from: {args.sensors_file}")

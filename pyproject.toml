@@ -36,7 +36,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.uv]
 # Using uv to manage a virtual environment and resolve dependencies from this pyproject.
-dev-dependencies = [
+
+[dependency-groups]
+dev = [
   "ruff==0.12.11",
   "mypy==1.14.1",
   "types-requests==2.32.0.20240914",
@@ -123,3 +125,4 @@ cowrie-report = "cowrieprocessor.cli.report:main"
 cowrie-health = "cowrieprocessor.cli.health:main"
 cowrie-db = "cowrieprocessor.cli.cowrie_db:main"
 cowrie-analyze = "cowrieprocessor.cli.analyze:main"
+cowrie-enrich = "cowrieprocessor.cli.enrich_passwords:main"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -60,3 +61,43 @@ def test_cleanup_expired_removes_stale_entries(tmp_path: Path) -> None:
     assert stats['deleted'] == 1
     assert stale_path.exists() is False
     assert fresh_path.exists() is True
+
+
+def test_hibp_cache_path_structure(tmp_path: Path) -> None:
+    """HIBP cache entries should be organized by SHA-1 prefix buckets."""
+    manager = EnrichmentCacheManager(tmp_path)
+    path = manager.get_path('hibp', 'ABCDE')
+
+    rel_path = path.relative_to(tmp_path)
+    assert rel_path.parts[0] == 'hibp'
+    assert rel_path.parts[1:4] == ('AB', 'CD', 'E')
+    assert path.name == 'ABCDE.json'
+
+
+def test_dshield_cache_path_structure(tmp_path: Path) -> None:
+    """DShield cache entries should shard IPv4 addresses by octet."""
+    manager = EnrichmentCacheManager(tmp_path)
+    path = manager.get_path('dshield', '203.0.113.5')
+
+    rel_path = path.relative_to(tmp_path)
+    assert rel_path.parts[0] == 'dshield'
+    assert rel_path.parts[1:4] == ('203', '0', '113')
+    assert path.name == '5.json'
+
+
+def test_legacy_cache_migrates_to_new_layout(tmp_path: Path) -> None:
+    """Existing legacy cache files should migrate to the new layout on access."""
+    manager = EnrichmentCacheManager(tmp_path)
+    cache_key = 'ABCDE'
+    digest = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()
+
+    legacy_path = tmp_path / 'hibp' / digest[:2] / f'{digest}.json'
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_path.write_text('{"value": 1}', encoding='utf-8')
+
+    cached = manager.get_cached('hibp', cache_key)
+    assert cached == {'value': 1}
+
+    new_path = manager.get_path('hibp', cache_key)
+    assert new_path.exists()
+    assert not legacy_path.exists()

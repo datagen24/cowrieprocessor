@@ -160,20 +160,34 @@ class VirusTotalHandler:
                     "id": serialize_value(file_obj.id if hasattr(file_obj, 'id') else None),
                     "type": serialize_value(file_obj.type if hasattr(file_obj, 'type') else None),
                     "attributes": {
-                        "last_analysis_stats": serialize_value(file_obj.last_analysis_stats if hasattr(file_obj, 'last_analysis_stats') else None),
-                        "last_analysis_results": serialize_value(file_obj.last_analysis_results if hasattr(file_obj, 'last_analysis_results') else None),
-                        "first_submission_date": serialize_value(file_obj.first_submission_date if hasattr(file_obj, 'first_submission_date') else None),
-                        "last_submission_date": serialize_value(file_obj.last_submission_date if hasattr(file_obj, 'last_submission_date') else None),
+                        "last_analysis_stats": serialize_value(
+                            file_obj.last_analysis_stats if hasattr(file_obj, 'last_analysis_stats') else None
+                        ),
+                        "last_analysis_results": serialize_value(
+                            file_obj.last_analysis_results if hasattr(file_obj, 'last_analysis_results') else None
+                        ),
+                        "first_submission_date": serialize_value(
+                            file_obj.first_submission_date if hasattr(file_obj, 'first_submission_date') else None
+                        ),
+                        "last_submission_date": serialize_value(
+                            file_obj.last_submission_date if hasattr(file_obj, 'last_submission_date') else None
+                        ),
                         "md5": serialize_value(file_obj.md5 if hasattr(file_obj, 'md5') else None),
                         "sha1": serialize_value(file_obj.sha1 if hasattr(file_obj, 'sha1') else None),
                         "sha256": serialize_value(file_obj.sha256 if hasattr(file_obj, 'sha256') else None),
                         "size": serialize_value(file_obj.size if hasattr(file_obj, 'size') else None),
-                        "type_description": serialize_value(file_obj.type_description if hasattr(file_obj, 'type_description') else None),
+                        "type_description": serialize_value(
+                            file_obj.type_description if hasattr(file_obj, 'type_description') else None
+                        ),
                         "names": serialize_value(file_obj.names if hasattr(file_obj, 'names') else None),
                         "tags": serialize_value(file_obj.tags if hasattr(file_obj, 'tags') else None),
                         "reputation": serialize_value(file_obj.reputation if hasattr(file_obj, 'reputation') else None),
-                        "total_votes": serialize_value(file_obj.total_votes if hasattr(file_obj, 'total_votes') else None),
-                        "meaningful_name": serialize_value(file_obj.meaningful_name if hasattr(file_obj, 'meaningful_name') else None),
+                        "total_votes": serialize_value(
+                            file_obj.total_votes if hasattr(file_obj, 'total_votes') else None
+                        ),
+                        "meaningful_name": serialize_value(
+                            file_obj.meaningful_name if hasattr(file_obj, 'meaningful_name') else None
+                        ),
                     },
                 }
             }

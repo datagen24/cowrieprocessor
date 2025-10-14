@@ -2,6 +2,40 @@
 
 All notable changes to the Cowrie Processor script will be documented in this file.
 
+## [2025-10-14] - HIBP Password Enrichment, CLI, and Schema v10
+
+### Added
+- HIBP (Have I Been Pwned) password breach enrichment with k-anonymity.
+- New CLI entry point `cowrie-enrich` with subcommands:
+  - `passwords` to enrich sessions with password breach data
+  - `prune` to remove old passwords (default retention 180 days)
+  - `top-passwords` and `new-passwords` reporting utilities
+  - `refresh` to refresh enrichments (sessions/files) with sensors.toml-aware credential resolution
+- Database schema v10 with new tables:
+  - `password_statistics` (daily aggregation)
+  - `password_tracking` (per-password temporal tracking)
+  - `password_session_usage` (junction table)
+- Comprehensive documentation:
+  - `README.md` section "Password Enrichment (HIBP)"
+  - `HIBP_PASSWORD_ENRICHMENT_IMPLEMENTATION.md`
+  - `docs/data_dictionary.md` updated for v10 tables
+- Tests:
+  - Unit tests for HIBP client and password extractor
+  - Integration tests for end-to-end password enrichment
+
+### Changed
+- `pyproject.toml`: publish `cowrie-enrich` console script, align tooling.
+- `cowrieprocessor/db/models.py` and `migrations.py`: implement schema v10.
+- Enrichment cache and rate limiting updated to include HIBP service.
+- `README.md`: expanded usage for `cowrie-enrich` and enrichment refresh guidance.
+
+### Fixed
+- Minor robustness improvements in enrichment refresh paths and Unicode handling.
+
+### Notes
+- HIBP API uses k-anonymity (only 5-char SHA-1 prefix sent); no secrets required.
+- Production requires running migrations to v10: `uv run cowrie-db migrate`.
+
 ## [2025-09-14] - Upstream backports, docs, and tooling
 
 ### Added

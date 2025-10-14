@@ -4,9 +4,9 @@
 
 This data dictionary provides comprehensive documentation for all tables, columns, and relationships in the Cowrie Processor database. The system supports both PostgreSQL and SQLite backends with different feature sets.
 
-**Current Schema Version**: 9  
+**Current Schema Version**: 10  
 **Supported Databases**: PostgreSQL 12+, SQLite 3.8+  
-**Last Updated**: 2024
+**Last Updated**: October 2025
 
 ---
 
@@ -20,8 +20,9 @@ This data dictionary provides comprehensive documentation for all tables, column
 6. [Ingest Tracking](#ingest-tracking)
 7. [Dead Letter Queue](#dead-letter-queue)
 8. [Analysis Tables](#analysis-tables)
-9. [Vector Tables](#vector-tables)
-10. [Legacy Tables](#legacy-tables)
+9. [Password Statistics](#password-statistics)
+10. [Vector Tables](#vector-tables)
+11. [Legacy Tables](#legacy-tables)
 
 ---
 
@@ -448,6 +449,106 @@ This data dictionary provides comprehensive documentation for all tables, column
 
 ---
 
+## Password Statistics
+
+### password_statistics
+
+**Purpose**: Aggregated password breach statistics by date for HIBP enrichment tracking.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | SERIAL | NO | auto | Primary key |
+| date | DATE | NO | - | Date for statistics (unique) |
+| total_attempts | INTEGER | NO | 0 | Total password attempts on this date |
+| unique_passwords | INTEGER | NO | 0 | Number of unique passwords |
+| breached_count | INTEGER | NO | 0 | Number of breached passwords found |
+| novel_count | INTEGER | NO | 0 | Number of novel (non-breached) passwords |
+| max_prevalence | INTEGER | YES | - | Maximum breach prevalence seen |
+| created_at | TIMESTAMP WITH TIME ZONE | NO | NOW() | Creation timestamp |
+| updated_at | TIMESTAMP WITH TIME ZONE | NO | NOW() | Last update timestamp |
+
+**Indexes**:
+- Primary key on `id`
+- Unique constraint on `date`
+- `ix_password_statistics_created` on `created_at`
+
+**Usage**: Daily aggregation of password enrichment statistics from HIBP API. Tracks credential stuffing trends vs novel password usage. Used for analyzing attacker behavior patterns and identifying shifts from breached to custom passwords.
+
+**Related Enrichment Data**: Password statistics are also stored per-session in `SessionSummary.enrichment['password_stats']` JSON field, which includes:
+- `total_attempts`: Number of login attempts
+- `unique_passwords`: Unique passwords used
+- `breached_passwords`: Count of breached passwords
+- `breach_prevalence_max`: Maximum times any password appeared in breaches
+- `novel_password_hashes`: SHA-256 hashes of non-breached passwords
+- `password_details`: Array of password attempt details (username, hash, breach status, timestamp)
+
+**Security Notes**:
+- Passwords in enrichment JSON are stored as SHA-256 hashes only
+- Uses HIBP k-anonymity API (only 5-char SHA-1 prefix sent)
+- Tracks attacker passwords from honeypot (not legitimate credentials)
+
+---
+
+### password_tracking
+
+**Purpose**: Track individual passwords with HIBP results and temporal usage patterns.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | SERIAL | NO | auto | Primary key |
+| password_hash | VARCHAR(64) | NO | - | SHA-256 hash of password (unique) |
+| password_text | TEXT | NO | - | Actual password text (attacker credential) |
+| breached | BOOLEAN | NO | FALSE | Whether password found in HIBP breaches |
+| breach_prevalence | INTEGER | YES | - | Times password appeared in breaches |
+| last_hibp_check | TIMESTAMP WITH TIME ZONE | YES | - | Last HIBP API check timestamp |
+| first_seen | TIMESTAMP WITH TIME ZONE | NO | NOW() | First time password was seen |
+| last_seen | TIMESTAMP WITH TIME ZONE | NO | NOW() | Last time password was seen |
+| times_seen | INTEGER | NO | 1 | Total occurrences across all sessions |
+| unique_sessions | INTEGER | NO | 1 | Number of unique sessions using password |
+| created_at | TIMESTAMP WITH TIME ZONE | NO | NOW() | Creation timestamp |
+| updated_at | TIMESTAMP WITH TIME ZONE | NO | NOW() | Last update timestamp |
+
+**Indexes**:
+- Primary key on `id`
+- Unique index `ix_password_tracking_hash` on `password_hash`
+- `ix_password_tracking_last_seen` on `last_seen`
+- `ix_password_tracking_breached` on `breached`
+- `ix_password_tracking_times_seen` on `times_seen`
+
+**Usage**: Temporal tracking of individual passwords for trend analysis. Enables queries like "most-used passwords", "newly emerged passwords", and "password lifecycle analysis". Pruned automatically via `cowrie-enrich prune` (180-day default retention).
+
+**Pruning Strategy**: Passwords not seen in 180 days are removed to manage table size. Cascade delete removes associated `password_session_usage` records.
+
+---
+
+### password_session_usage
+
+**Purpose**: Junction table linking passwords to sessions for detailed tracking and pivot queries.
+
+| Column | Type | Nullable | Default | Description |
+|--------|------|----------|---------|-------------|
+| id | SERIAL | NO | auto | Primary key |
+| password_id | INTEGER | NO | - | Foreign key to password_tracking.id |
+| session_id | VARCHAR(64) | NO | - | Foreign key to session_summaries.session_id |
+| username | VARCHAR(256) | YES | - | Username from login attempt |
+| success | BOOLEAN | NO | FALSE | Whether login was successful |
+| timestamp | TIMESTAMP WITH TIME ZONE | NO | - | Timestamp of login attempt |
+
+**Indexes**:
+- Primary key on `id`
+- Unique constraint `uq_password_session` on `(password_id, session_id)`
+- `ix_password_session_password` on `password_id`
+- `ix_password_session_session` on `session_id`
+- `ix_password_session_timestamp` on `timestamp`
+
+**Foreign Keys**:
+- `password_id` → `password_tracking(id)` ON DELETE CASCADE
+- `session_id` → `session_summaries(session_id)`
+
+**Usage**: Enables pivot queries from passwords to sessions and vice versa. Supports queries like "which sessions used password X" and "which passwords were used in session Y". Automatically cleaned when passwords are pruned (cascade delete).
+
+---
+
 ## Vector Tables (PostgreSQL with pgvector extension)
 
 ### command_sequence_vectors
@@ -708,6 +809,7 @@ This data dictionary provides comprehensive documentation for all tables, column
 - **Version 7**: Enhanced DLQ features (PostgreSQL only)
 - **Version 8**: Snowshoe detection tables
 - **Version 9**: Longtail analysis and vector tables
+- **Version 10**: Password statistics for HIBP enrichment (October 2025)
 
 ### Backward Compatibility
 
