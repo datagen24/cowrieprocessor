@@ -102,13 +102,9 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                 RawEvent.event_type.contains("command")
             )
             if start_date:
-                # Convert datetime to string format for comparison with string column
-                start_date_str = start_date.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                query = query.filter(RawEvent.event_timestamp >= start_date_str)
+                query = query.filter(RawEvent.event_timestamp >= start_date)
             if end_date:
-                # Convert datetime to string format for comparison with string column
-                end_date_str = end_date.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                query = query.filter(RawEvent.event_timestamp <= end_date_str)
+                query = query.filter(RawEvent.event_timestamp <= end_date)
                 
             total_events = query.count()
             logger.info(f"Processing {total_events} command events")
@@ -129,13 +125,9 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                     RawEvent.event_type.contains("command")
                 )
                 if start_date:
-                    # Convert datetime to string format for comparison with string column
-                    start_date_str = start_date.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                    batch_query = batch_query.filter(RawEvent.event_timestamp >= start_date_str)
+                    batch_query = batch_query.filter(RawEvent.event_timestamp >= start_date)
                 if end_date:
-                    # Convert datetime to string format for comparison with string column
-                    end_date_str = end_date.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                    batch_query = batch_query.filter(RawEvent.event_timestamp <= end_date_str)
+                    batch_query = batch_query.filter(RawEvent.event_timestamp <= end_date)
                     
                 batch_events = batch_query.order_by(RawEvent.event_timestamp).offset(offset).limit(batch_size).all()
                 
