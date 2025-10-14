@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +195,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v11(connection)
             _set_schema_version(connection, 11)
             version = 11
+
+        if version < 12:
+            _upgrade_to_v12(connection)
+            _set_schema_version(connection, 12)
+            version = 12
 
     return version
 
@@ -1550,6 +1555,79 @@ def _upgrade_to_v11(connection: Connection) -> None:
         )
 
     logger.info("SSH key intelligence schema migration (v11) completed successfully")
+
+
+def _upgrade_to_v12(connection: Connection) -> None:
+    """Upgrade to schema version 12: Convert event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE."""
+    logger.info("Starting event_timestamp type conversion migration (v12)...")
+    
+    dialect_name = connection.dialect.name
+    
+    # Check if event_timestamp column exists and is currently VARCHAR
+    if _column_exists(connection, "raw_events", "event_timestamp"):
+        if dialect_name == "postgresql":
+            # PostgreSQL: Convert VARCHAR to TIMESTAMP WITH TIME ZONE
+            logger.info("Converting event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE (PostgreSQL)")
+            
+            # First, add a temporary column with the correct type
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE raw_events ADD COLUMN event_timestamp_new TIMESTAMP WITH TIME ZONE",
+                "Add temporary event_timestamp_new column"
+            )
+            
+            # Populate the new column by converting the string values
+            _safe_execute_sql(
+                connection,
+                """
+                UPDATE raw_events 
+                SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE 
+                WHERE event_timestamp IS NOT NULL 
+                AND event_timestamp != ''
+                """,
+                "Convert string timestamps to datetime"
+            )
+            
+            # Drop the old column and rename the new one
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE raw_events DROP COLUMN event_timestamp",
+                "Drop old event_timestamp column"
+            )
+            
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE raw_events RENAME COLUMN event_timestamp_new TO event_timestamp",
+                "Rename new column to event_timestamp"
+            )
+            
+            # Recreate the index
+            _safe_execute_sql(
+                connection,
+                "DROP INDEX IF EXISTS ix_raw_events_event_timestamp",
+                "Drop old event_timestamp index"
+            )
+            
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
+                "Create new event_timestamp index"
+            )
+            
+            logger.info("PostgreSQL event_timestamp conversion completed")
+            
+        else:
+            # SQLite: Keep as string for compatibility
+            logger.info("SQLite detected - keeping event_timestamp as string for compatibility")
+            
+            # SQLite doesn't support changing column types easily, so we'll keep it as string
+            # but we can add a computed column for datetime operations if needed
+            logger.info("SQLite event_timestamp remains as VARCHAR for compatibility")
+    
+    else:
+        logger.warning("event_timestamp column not found - skipping conversion")
+    
+    logger.info("Event timestamp type conversion migration (v12) completed successfully")
 
 
 def _downgrade_from_v9(connection: Connection) -> None:

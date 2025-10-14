@@ -26,6 +26,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.elements import Case
 
 from .base import Base
+from .json_utils import get_dialect_name_from_engine
 
 
 class SchemaState(Base):
@@ -74,7 +75,7 @@ class RawEvent(Base):
     # Real columns for extracted JSON fields (replacing computed columns)
     session_id = Column(String(64), nullable=True, index=True)
     event_type = Column(String(128), nullable=True, index=True)
-    event_timestamp = Column(String(64), nullable=True, index=True)
+    event_timestamp = Column(DateTime(timezone=True), nullable=True, index=True)
 
     @hybrid_property
     def session_id_computed(self) -> Any:
@@ -128,8 +129,23 @@ class RawEvent(Base):
         Returns:
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
+        from sqlalchemy.dialects import postgresql
+        from sqlalchemy.dialects import sqlite
+        
+        # For PostgreSQL, we need to cast the JSON string to timestamp
+        # For SQLite, we'll use the string as-is for backward compatibility
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+        
+        if dialect_name == "postgresql":
+            # PostgreSQL: cast JSON string to TIMESTAMP WITH TIME ZONE
+            json_timestamp = func.cast(func.json_extract(cls.payload, "$.timestamp"), postgresql.TIMESTAMP(timezone=True))
+        else:
+            # SQLite: keep as string for backward compatibility
+            json_timestamp = func.json_extract(cls.payload, "$.timestamp")
+            
         return case(
-            (cls.event_timestamp.isnot(None), cls.event_timestamp), else_=func.json_extract(cls.payload, "$.timestamp")
+            (cls.event_timestamp.isnot(None), cls.event_timestamp), 
+            else_=json_timestamp
         )
 
     __table_args__ = (
