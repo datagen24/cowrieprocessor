@@ -96,7 +96,7 @@ def check_password_with_retry(self, password: str) -> Dict[str, Any]:
             'error': str(e),
         }
 '''
-    
+
     print("HIBP Client Optimization Patch:")
     print("=" * 50)
     print(patch_code)

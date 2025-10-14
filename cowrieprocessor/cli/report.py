@@ -42,8 +42,6 @@ class ReportingMetrics:
     errors: int = 0
 
 
-
-
 def _builder_for_mode(mode: str, repository: ReportingRepository, top_n: int) -> BaseReportBuilder:
     if mode == "daily":
         return DailyReportBuilder(repository, top_n=top_n)

@@ -30,6 +30,7 @@ from .db_config import add_database_argument, resolve_database_settings
 @dataclass
 class SanitizationMetrics:
     """Metrics for Unicode sanitization operations."""
+
     records_processed: int = 0
     records_updated: int = 0
     records_skipped: int = 0
@@ -38,6 +39,7 @@ class SanitizationMetrics:
     duration_seconds: float = 0.0
     dry_run: bool = False
     ingest_id: Optional[str] = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +102,7 @@ class CowrieDatabase:
                         SELECT table_name FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name = :table_name
                         """),
-                        {"table_name": table_name}
+                        {"table_name": table_name},
                     ).fetchone()
                     return result is not None
             except Exception:
@@ -682,31 +684,31 @@ class CowrieDatabase:
                         query = text(str(query) + f" LIMIT {limit}")
 
                     raw_events = conn.execute(query).fetchall()
-                    
+
                     # Process each event to extract valid file download events
                     events = []
-                    
+
                     for row in raw_events:
                         try:
                             # Sanitize the payload text before parsing
                             sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(row.payload_text)
                             payload = json.loads(sanitized_payload_text)
-                            
+
                             # Check if this is a valid file download event
-                            if (payload.get('eventid') == 'cowrie.session.file_download' and 
-                                payload.get('shasum') and 
-                                payload.get('shasum') != '' and
-                                payload.get('shasum') != 'null'):
-                                
-                                events.append(type('Row', (), {
-                                    'session_id': payload.get('session'),
-                                    'payload': payload
-                                })())
+                            if (
+                                payload.get('eventid') == 'cowrie.session.file_download'
+                                and payload.get('shasum')
+                                and payload.get('shasum') != ''
+                                and payload.get('shasum') != 'null'
+                            ):
+                                events.append(
+                                    type('Row', (), {'session_id': payload.get('session'), 'payload': payload})()
+                                )
                         except (json.JSONDecodeError, ValueError, AttributeError) as e:
                             logger.debug(f"Skipping invalid JSON payload at id {row.id}: {e}")
                             result['errors'] += 1
                             continue
-                            
+
             except Exception as e:
                 logger.warning(f"Primary query failed due to binary data: {e}")
 
@@ -734,18 +736,18 @@ class CowrieDatabase:
                             query = text(str(query) + f" LIMIT {limit}")
 
                         raw_events = conn.execute(query).fetchall()
-                        
+
                         # Process each event with enhanced error handling
                         events = []
-                        
+
                         for row in raw_events:
                             try:
                                 # Multiple sanitization attempts
                                 payload_text = row.payload_text
-                                
+
                                 # First, try basic Unicode sanitization
                                 sanitized = UnicodeSanitizer.sanitize_unicode_string(payload_text, strict=True)
-                                
+
                                 # Try to parse as JSON
                                 try:
                                     payload = json.loads(sanitized)
@@ -753,23 +755,23 @@ class CowrieDatabase:
                                     # Try more aggressive sanitization
                                     sanitized = UnicodeSanitizer.sanitize_json_string(payload_text)
                                     payload = json.loads(sanitized)
-                                
+
                                 # Check if this is a valid file download event
-                                if (payload.get('eventid') == 'cowrie.session.file_download' and 
-                                    payload.get('shasum') and 
-                                    payload.get('shasum') != '' and
-                                    payload.get('shasum') != 'null'):
-                                    
-                                    events.append(type('Row', (), {
-                                        'session_id': payload.get('session'),
-                                        'payload': payload
-                                    })())
-                                    
+                                if (
+                                    payload.get('eventid') == 'cowrie.session.file_download'
+                                    and payload.get('shasum')
+                                    and payload.get('shasum') != ''
+                                    and payload.get('shasum') != 'null'
+                                ):
+                                    events.append(
+                                        type('Row', (), {'session_id': payload.get('session'), 'payload': payload})()
+                                    )
+
                             except Exception as parse_error:
                                 logger.debug(f"Skipping corrupted payload at id {row.id}: {parse_error}")
                                 result['errors'] += 1
                                 continue
-                                
+
                 except Exception as fallback_error:
                     logger.error(f"Fallback query also failed: {fallback_error}")
                     result['message'] = (
@@ -862,6 +864,7 @@ class CowrieDatabase:
                 else:
                     # PostgreSQL syntax
                     from sqlalchemy.dialects.postgresql import insert as postgres_insert
+
                     stmt = postgres_insert(Files.__table__).values(file_dicts)
                     stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
 
@@ -873,20 +876,20 @@ class CowrieDatabase:
             return 0
 
     def sanitize_unicode_in_database(
-        self, 
-        batch_size: int = 1000, 
+        self,
+        batch_size: int = 1000,
         limit: Optional[int] = None,
         dry_run: bool = False,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
     ) -> Dict[str, Any]:
         """Sanitize Unicode control characters in existing database records.
-        
+
         Args:
             batch_size: Number of records to process in each batch
             limit: Maximum number of records to process (None for all)
             dry_run: If True, only report what would be changed without making changes
             progress_callback: Optional callback function to report progress
-            
+
         Returns:
             Sanitization result with statistics
         """
@@ -898,16 +901,16 @@ class CowrieDatabase:
             'batches_processed': 0,
             'dry_run': dry_run,
         }
-        
+
         try:
             # Check if raw_events table exists
             if not self._table_exists('raw_events'):
                 raise Exception("Raw events table does not exist.")
-                
+
             dialect_name = get_dialect_name_from_engine(self._get_engine())
-            
+
             logger.info(f"Starting Unicode sanitization (dry_run={dry_run})...")
-            
+
             # Process records in batches
             offset = 0
             while True:
@@ -927,41 +930,40 @@ class CowrieDatabase:
                             ORDER BY id ASC
                             LIMIT :batch_size OFFSET :offset
                         """)
-                    
+
                     if limit and (offset + batch_size) > limit:
                         query = text(str(query).replace(":batch_size", str(limit - offset)))
-                    
-                    batch_records = conn.execute(
-                        query, 
-                        {"batch_size": batch_size, "offset": offset}
-                    ).fetchall()
-                
+
+                    batch_records = conn.execute(query, {"batch_size": batch_size, "offset": offset}).fetchall()
+
                 if not batch_records:
                     break
-                
+
                 # Process each record in the batch
                 records_to_update = []
-                
+
                 for record in batch_records:
                     try:
                         record_id = record.id
                         original_payload_text = record.payload_text
-                        
+
                         # Check if payload contains problematic Unicode characters
                         if not UnicodeSanitizer.is_safe_for_postgres_json(original_payload_text):
                             # Sanitize the payload
                             sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(original_payload_text)
-                            
+
                             # Verify the sanitized payload is valid JSON and safe
                             try:
                                 parsed_payload = json.loads(sanitized_payload_text)
                                 if UnicodeSanitizer.is_safe_for_postgres_json(sanitized_payload_text):
-                                    records_to_update.append({
-                                        'id': record_id,
-                                        'original': original_payload_text,
-                                        'sanitized': sanitized_payload_text,
-                                        'parsed': parsed_payload
-                                    })
+                                    records_to_update.append(
+                                        {
+                                            'id': record_id,
+                                            'original': original_payload_text,
+                                            'sanitized': sanitized_payload_text,
+                                            'parsed': parsed_payload,
+                                        }
+                                    )
                                     result['records_updated'] += 1
                                 else:
                                     logger.warning(
@@ -973,14 +975,14 @@ class CowrieDatabase:
                                 result['records_skipped'] += 1
                         else:
                             result['records_skipped'] += 1
-                        
+
                         result['records_processed'] += 1
-                        
+
                     except Exception as e:
                         logger.error(f"Error processing record {record.id}: {e}")
                         result['errors'] += 1
                         result['records_processed'] += 1
-                
+
                 # Update records in the database (unless dry run)
                 if records_to_update and not dry_run:
                     with self._get_engine().begin() as conn:
@@ -1000,19 +1002,19 @@ class CowrieDatabase:
                                         SET payload = :sanitized_payload
                                         WHERE id = :record_id
                                     """)
-                                
-                                conn.execute(update_query, {
-                                    "sanitized_payload": update_record['sanitized'],
-                                    "record_id": update_record['id']
-                                })
-                                
+
+                                conn.execute(
+                                    update_query,
+                                    {"sanitized_payload": update_record['sanitized'], "record_id": update_record['id']},
+                                )
+
                             except Exception as e:
                                 logger.error(f"Error updating record {update_record['id']}: {e}")
                                 result['errors'] += 1
-                
+
                 result['batches_processed'] += 1
                 offset += batch_size
-                
+
                 # Log progress and emit status
                 if result['batches_processed'] % 10 == 0:
                     logger.info(
@@ -1021,7 +1023,7 @@ class CowrieDatabase:
                         f"skipped {result['records_skipped']}, "
                         f"errors {result['errors']}"
                     )
-                    
+
                     # Emit progress via callback if provided
                     if progress_callback:
                         metrics = SanitizationMetrics(
@@ -1030,14 +1032,14 @@ class CowrieDatabase:
                             records_skipped=result['records_skipped'],
                             errors=result['errors'],
                             batches_processed=result['batches_processed'],
-                            dry_run=dry_run
+                            dry_run=dry_run,
                         )
                         progress_callback(metrics)
-                
+
                 # Check if we've reached the limit
                 if limit and result['records_processed'] >= limit:
                     break
-            
+
             # Final result message
             if dry_run:
                 result['message'] = (
@@ -1053,12 +1055,12 @@ class CowrieDatabase:
                     f"{result['records_skipped']} skipped, "
                     f"{result['errors']} errors"
                 )
-                
+
         except Exception as e:
             result['error'] = str(e)
             result['message'] = f"Sanitization failed: {e}"
             raise Exception(f"Sanitization failed: {e}") from e
-        
+
         return result
 
     def analyze_data_quality(self, sample_size: int = 1000) -> Dict[str, Any]:
@@ -1203,6 +1205,7 @@ class CowrieDatabase:
                         # Try to parse JSON
                         try:
                             import json
+
                             json.loads(payload_str)
                             valid_json_count += 1
                         except json.JSONDecodeError:
@@ -1217,6 +1220,7 @@ class CowrieDatabase:
                         # Try to parse JSON
                         try:
                             import json
+
                             json.loads(payload)
                             valid_json_count += count
                         except json.JSONDecodeError:
@@ -1398,9 +1402,11 @@ class CowrieDatabase:
         # Calculate unrepairable records (malformed data)
         # Only count as unrepairable if we actually tried to repair but couldn't
         unrepairable_records = 0
-        if backfill_result.get('generated_columns', {}).get('session_id', False) and \
-           backfill_result.get('generated_columns', {}).get('event_type', False) and \
-           backfill_result.get('generated_columns', {}).get('event_timestamp', False):
+        if (
+            backfill_result.get('generated_columns', {}).get('session_id', False)
+            and backfill_result.get('generated_columns', {}).get('event_type', False)
+            and backfill_result.get('generated_columns', {}).get('event_timestamp', False)
+        ):
             # All columns are generated - no records are actually unrepairable
             unrepairable_records = 0
         else:
@@ -1445,15 +1451,17 @@ class CowrieDatabase:
             with self._get_engine().connect() as conn:
                 # Check if columns are generated columns (cannot be updated)
                 from ..db.migrations import _is_generated_column
-                
+
                 session_id_generated = _is_generated_column(conn, "raw_events", "session_id")
                 event_type_generated = _is_generated_column(conn, "raw_events", "event_type")
                 event_timestamp_generated = _is_generated_column(conn, "raw_events", "event_timestamp")
-                
-                logger.info(f"Column status: session_id={'generated' if session_id_generated else 'regular'}, "
-                           f"event_type={'generated' if event_type_generated else 'regular'}, "
-                           f"event_timestamp={'generated' if event_timestamp_generated else 'regular'}")
-                
+
+                logger.info(
+                    f"Column status: session_id={'generated' if session_id_generated else 'regular'}, "
+                    f"event_type={'generated' if event_type_generated else 'regular'}, "
+                    f"event_timestamp={'generated' if event_timestamp_generated else 'regular'}"
+                )
+
                 # If all columns are generated, there's nothing to repair
                 if session_id_generated and event_type_generated and event_timestamp_generated:
                     logger.info("✅ All columns are generated columns - no repair needed")
@@ -1466,7 +1474,7 @@ class CowrieDatabase:
                         'event_timestamp_updated': 0,
                         'errors': 0,
                         'duration_seconds': 0,
-                        'note': 'All columns are generated columns that auto-compute from JSON payload'
+                        'note': 'All columns are generated columns that auto-compute from JSON payload',
                     }
 
                 # Find records with missing fields (only for non-generated columns)
@@ -1477,7 +1485,7 @@ class CowrieDatabase:
                     missing_conditions.append("event_type IS NULL")
                 if not event_timestamp_generated:
                     missing_conditions.append("event_timestamp IS NULL")
-                
+
                 if not missing_conditions:
                     logger.info("✅ No non-generated columns need repair")
                     return {
@@ -1489,9 +1497,9 @@ class CowrieDatabase:
                         'event_timestamp_updated': 0,
                         'errors': 0,
                         'duration_seconds': 0,
-                        'note': 'All columns are generated columns that auto-compute from JSON payload'
+                        'note': 'All columns are generated columns that auto-compute from JSON payload',
                     }
-                
+
                 where_clause = " OR ".join(missing_conditions)
 
                 # Handle PostgreSQL JSON column comparison
@@ -1541,26 +1549,29 @@ class CowrieDatabase:
 
                 # Use bulk SQL updates for much better performance
                 import time
+
                 start_time = time.time()
-                
+
                 # Check database type for appropriate JSON extraction syntax
                 dialect_name = conn.dialect.name
-                
+
                 session_id_updated = 0
                 event_type_updated = 0
                 event_timestamp_updated = 0
-                
+
                 if dialect_name == "postgresql":
                     # PostgreSQL bulk updates using JSON operators - handle binary data gracefully
                     if not session_id_generated and not dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 UPDATE raw_events
                                 SET session_id = payload->>'session'
                                 WHERE session_id IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'session') IS NOT NULL
-                            """))
+                            """)
+                            )
                             session_id_updated = result.rowcount or 0
                         except Exception:
                             # If we can't process due to binary data, skip this field
@@ -1568,127 +1579,149 @@ class CowrieDatabase:
                             session_id_updated = 0
                     elif not session_id_generated and dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 SELECT COUNT(*) FROM raw_events
                                 WHERE session_id IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'session') IS NOT NULL
-                            """))
+                            """)
+                            )
                             session_id_updated = result.scalar_one() or 0
                         except Exception:
                             # If we can't count due to binary data, assume 0
                             session_id_updated = 0
-                        
+
                     if not event_type_generated and not dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 UPDATE raw_events
                                 SET event_type = payload->>'eventid'
                                 WHERE event_type IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'eventid') IS NOT NULL
-                            """))
+                            """)
+                            )
                             event_type_updated = result.rowcount or 0
                         except Exception:
                             logger.warning("Skipping event_type updates due to binary data in JSON payload")
                             event_type_updated = 0
                     elif not event_type_generated and dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 SELECT COUNT(*) FROM raw_events
                                 WHERE event_type IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'eventid') IS NOT NULL
-                            """))
+                            """)
+                            )
                             event_type_updated = result.scalar_one() or 0
                         except Exception:
                             event_type_updated = 0
-                        
+
                     if not event_timestamp_generated and not dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 UPDATE raw_events
                                 SET event_timestamp = payload->>'timestamp'
                                 WHERE event_timestamp IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'timestamp') IS NOT NULL
-                            """))
+                            """)
+                            )
                             event_timestamp_updated = result.rowcount or 0
                         except Exception:
                             logger.warning("Skipping event_timestamp updates due to binary data in JSON payload")
                             event_timestamp_updated = 0
                     elif not event_timestamp_generated and dry_run:
                         try:
-                            result = conn.execute(text("""
+                            result = conn.execute(
+                                text("""
                                 SELECT COUNT(*) FROM raw_events
                                 WHERE event_timestamp IS NULL
                                   AND payload IS NOT NULL
                                   AND (payload->'timestamp') IS NOT NULL
-                            """))
+                            """)
+                            )
                             event_timestamp_updated = result.scalar_one() or 0
                         except Exception:
                             event_timestamp_updated = 0
-                        
+
                 else:
                     # SQLite bulk updates using json_extract
                     if not session_id_generated and not dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             UPDATE raw_events 
                             SET session_id = json_extract(payload, '$.session') 
                             WHERE session_id IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.session') IS NOT NULL
-                        """))
+                        """)
+                        )
                         session_id_updated = result.rowcount or 0
                     elif not session_id_generated and dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             SELECT COUNT(*) FROM raw_events 
                             WHERE session_id IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.session') IS NOT NULL
-                        """))
+                        """)
+                        )
                         session_id_updated = result.scalar_one() or 0
-                        
+
                     if not event_type_generated and not dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             UPDATE raw_events 
                             SET event_type = json_extract(payload, '$.eventid') 
                             WHERE event_type IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.eventid') IS NOT NULL
-                        """))
+                        """)
+                        )
                         event_type_updated = result.rowcount or 0
                     elif not event_type_generated and dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             SELECT COUNT(*) FROM raw_events 
                             WHERE event_type IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.eventid') IS NOT NULL
-                        """))
+                        """)
+                        )
                         event_type_updated = result.scalar_one() or 0
-                        
+
                     if not event_timestamp_generated and not dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             UPDATE raw_events 
                             SET event_timestamp = json_extract(payload, '$.timestamp') 
                             WHERE event_timestamp IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.timestamp') IS NOT NULL
-                        """))
+                        """)
+                        )
                         event_timestamp_updated = result.rowcount or 0
                     elif not event_timestamp_generated and dry_run:
-                        result = conn.execute(text("""
+                        result = conn.execute(
+                            text("""
                             SELECT COUNT(*) FROM raw_events 
                             WHERE event_timestamp IS NULL 
                               AND payload IS NOT NULL 
                               AND payload != ''
                               AND json_extract(payload, '$.timestamp') IS NOT NULL
-                        """))
+                        """)
+                        )
                         event_timestamp_updated = result.scalar_one() or 0
 
                 if not dry_run:
@@ -1696,7 +1729,7 @@ class CowrieDatabase:
 
                 total_backfilled = session_id_updated + event_type_updated + event_timestamp_updated
                 duration = time.time() - start_time
-                
+
                 result = {
                     'total_missing': total_missing,
                     'records_processed': total_missing,  # We processed all missing records
@@ -1710,7 +1743,7 @@ class CowrieDatabase:
                         'session_id': session_id_generated,
                         'event_type': event_type_generated,
                         'event_timestamp': event_timestamp_generated,
-                    }
+                    },
                 }
 
                 logger.info(
@@ -1719,10 +1752,10 @@ class CowrieDatabase:
                     f"(session_id: {session_id_updated}, event_type: {event_type_updated}, "
                     f"event_timestamp: {event_timestamp_updated})"
                 )
-                
+
                 if session_id_generated or event_type_generated or event_timestamp_generated:
                     logger.info("ℹ️  Some columns are generated columns that auto-compute from JSON payload")
-                
+
                 return result
 
         except Exception as e:
@@ -2182,7 +2215,7 @@ class CowrieDatabase:
                             "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = :table"
                         )
                         params = {"table": table}
-                    
+
                     result = conn.execute(query, params)
                     columns = [{"name": row[0], "type": row[1]} for row in result]
                     table_info[table] = columns
@@ -2261,48 +2294,28 @@ def main():
 
     # Sanitize command
     sanitize_parser = subparsers.add_parser(
-        'sanitize', 
-        help='Sanitize Unicode control characters in existing database records'
+        'sanitize', help='Sanitize Unicode control characters in existing database records'
     )
     sanitize_parser.add_argument(
-        '--batch-size', 
-        type=int, 
-        default=1000, 
-        help='Number of records to process in each batch (default: 1000)'
+        '--batch-size', type=int, default=1000, help='Number of records to process in each batch (default: 1000)'
     )
     sanitize_parser.add_argument(
-        '--limit', 
-        type=int, 
-        help='Maximum number of records to process (default: all available records)'
+        '--limit', type=int, help='Maximum number of records to process (default: all available records)'
     )
     sanitize_parser.add_argument(
-        '--dry-run', 
-        action='store_true', 
-        help='Show what would be changed without actually making changes'
+        '--dry-run', action='store_true', help='Show what would be changed without actually making changes'
     )
-    sanitize_parser.add_argument(
-        '--status-dir', 
-        help='Directory for status JSON files'
-    )
-    sanitize_parser.add_argument(
-        '--ingest-id', 
-        help='Status identifier for progress tracking'
-    )
+    sanitize_parser.add_argument('--status-dir', help='Directory for status JSON files')
+    sanitize_parser.add_argument('--ingest-id', help='Status identifier for progress tracking')
 
     # Organize command
     organize_parser = subparsers.add_parser('organize', help='Organize files by content type (move mislocated files)')
-    organize_parser.add_argument(
-        'source', help='Source directory to scan for mislocated files'
-    )
+    organize_parser.add_argument('source', help='Source directory to scan for mislocated files')
     organize_parser.add_argument(
         '--dry-run', action='store_true', default=True, help='Only report what would be moved (default)'
     )
-    organize_parser.add_argument(
-        '--move', action='store_true', help='Actually move files (overrides --dry-run)'
-    )
-    organize_parser.add_argument(
-        '--verbose', '-v', action='store_true', help='Verbose output'
-    )
+    organize_parser.add_argument('--move', action='store_true', help='Actually move files (overrides --dry-run)')
+    organize_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
 
     # Files command
     subparsers.add_parser('files', help='Display files table statistics')
@@ -2340,24 +2353,17 @@ def main():
 
     # Longtail migrate command
     longtail_migrate_parser = subparsers.add_parser(
-        'longtail-migrate',
-        help='Apply longtail analysis schema migration (v9)'
+        'longtail-migrate', help='Apply longtail analysis schema migration (v9)'
     )
     longtail_migrate_parser.add_argument(
         '--dry-run', action='store_true', help='Show what migration would be applied without executing it'
     )
 
     # Longtail rollback command
-    subparsers.add_parser(
-        'longtail-rollback',
-        help='Rollback longtail analysis migration to v8'
-    )
+    subparsers.add_parser('longtail-rollback', help='Rollback longtail analysis migration to v8')
 
     # Longtail validate command
-    subparsers.add_parser(
-        'longtail-validate',
-        help='Validate longtail analysis schema and tables'
-    )
+    subparsers.add_parser('longtail-validate', help='Validate longtail analysis schema and tables')
 
     # Info command
     subparsers.add_parser(
@@ -2494,26 +2500,23 @@ def main():
 
         elif args.command == 'sanitize':
             print("Sanitizing Unicode control characters in database records...")
-            
+
             # Set up status emitter for progress tracking
             ingest_id = args.ingest_id or f"sanitize-{int(time.time())}"
             emitter = StatusEmitter("sanitization", status_dir=args.status_dir)
-            
+
             # Initialize metrics
-            metrics = SanitizationMetrics(
-                dry_run=args.dry_run,
-                ingest_id=ingest_id
-            )
+            metrics = SanitizationMetrics(dry_run=args.dry_run, ingest_id=ingest_id)
             emitter.record_metrics(metrics)
-            
+
             start_time = time.perf_counter()
-            
+
             # Run sanitization with progress callbacks
             result = db.sanitize_unicode_in_database(
-                batch_size=args.batch_size, 
+                batch_size=args.batch_size,
                 limit=args.limit,
                 dry_run=args.dry_run,
-                progress_callback=lambda m: emitter.record_metrics(m)
+                progress_callback=lambda m: emitter.record_metrics(m),
             )
 
             # Update final metrics
@@ -2540,60 +2543,58 @@ def main():
 
         elif args.command == 'organize':
             from .file_organizer import organize_files
-            
+
             source_dir = Path(args.source)
             if not source_dir.exists():
                 print(f"❌ Source directory does not exist: {source_dir}", file=sys.stderr)
                 sys.exit(1)
-            
+
             move_files = args.move or not args.dry_run
-            
+
             if args.verbose:
                 logging.basicConfig(level=logging.INFO)
             else:
                 logging.basicConfig(level=logging.WARNING)
-            
+
             print(f"Scanning directory: {source_dir}")
             print(f"Mode: {'DRY RUN' if not move_files else 'MOVING FILES'}")
             print()
-            
+
             results = organize_files(source_dir, dry_run=not move_files, move_files=move_files)
-            
+
             # Report results
             if results['iptables_files']:
                 print(f"Found {len(results['iptables_files'])} iptables files:")
                 for file_path in results['iptables_files']:
                     print(f"  {file_path}")
                 print()
-            
+
             if results['cowrie_files']:
                 print(f"Found {len(results['cowrie_files'])} cowrie files:")
                 for file_path in results['cowrie_files']:
                     print(f"  {file_path}")
                 print()
-            
+
             if results['webhoneypot_files']:
                 print(f"Found {len(results['webhoneypot_files'])} webhoneypot files:")
                 for file_path in results['webhoneypot_files']:
                     print(f"  {file_path}")
                 print()
-            
+
             if results['unknown_files']:
                 print(f"Found {len(results['unknown_files'])} unknown files:")
                 for file_path, file_type, reason in results['unknown_files']:
                     print(f"  {file_path} (type: {file_type}, reason: {reason})")
                 print()
-            
+
             if results['errors']:
                 print(f"Encountered {len(results['errors'])} errors:")
                 for file_path, error in results['errors']:
                     print(f"  {file_path}: {error}")
                 print()
-            
+
             total_moved = (
-                len(results['iptables_files']) + 
-                len(results['cowrie_files']) + 
-                len(results['webhoneypot_files'])
+                len(results['iptables_files']) + len(results['cowrie_files']) + len(results['webhoneypot_files'])
             )
             print(f"Total files {'would be moved' if not move_files else 'moved'}: {total_moved}")
 

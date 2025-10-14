@@ -54,9 +54,9 @@ def get_test_sessions(db_url: str, limit: int = 10) -> list[SessionSummary] | No
         with session_factory() as session:
             # Get sessions from last 30 days
             cutoff_date = datetime.now(UTC) - timedelta(days=30)
-            sessions = session.query(SessionSummary).filter(
-                SessionSummary.first_event_at >= cutoff_date
-            ).limit(limit).all()
+            sessions = (
+                session.query(SessionSummary).filter(SessionSummary.first_event_at >= cutoff_date).limit(limit).all()
+            )
 
             logger.info(f"✅ Retrieved {len(sessions)} sessions for testing")
             return sessions
@@ -103,18 +103,9 @@ def run_longtail_analysis_test(db_url: str) -> dict[str, any]:
 
 def main() -> int:
     """Main test function."""
-    parser = argparse.ArgumentParser(
-        description="Test longtail analysis against real database"
-    )
-    parser.add_argument(
-        "--db-url",
-        required=True,
-        help="Database URL (e.g., postgresql://user:pass@localhost/cowrie)"
-    )
-    parser.add_argument(
-        "--output",
-        help="Output file for test results (default: stdout)"
-    )
+    parser = argparse.ArgumentParser(description="Test longtail analysis against real database")
+    parser.add_argument("--db-url", required=True, help="Database URL (e.g., postgresql://user:pass@localhost/cowrie)")
+    parser.add_argument("--output", help="Output file for test results (default: stdout)")
 
     args = parser.parse_args()
 

@@ -28,15 +28,10 @@ def create_mock_event(event_type: str, payload: dict) -> RawEvent:
 
 def test_extract_from_login_success(password_extractor):
     """Test extracting password from successful login."""
-    events = [
-        create_mock_event(
-            'cowrie.login.success',
-            {'username': 'root', 'password': 'password123'}
-        )
-    ]
-    
+    events = [create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'password123'})]
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 1
     assert results[0]['password'] == 'password123'
     assert results[0]['username'] == 'root'
@@ -46,15 +41,10 @@ def test_extract_from_login_success(password_extractor):
 
 def test_extract_from_login_failed(password_extractor):
     """Test extracting password from failed login."""
-    events = [
-        create_mock_event(
-            'cowrie.login.failed',
-            {'username': 'admin', 'password': 'wrongpass'}
-        )
-    ]
-    
+    events = [create_mock_event('cowrie.login.failed', {'username': 'admin', 'password': 'wrongpass'})]
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 1
     assert results[0]['password'] == 'wrongpass'
     assert results[0]['username'] == 'admin'
@@ -68,9 +58,9 @@ def test_extract_multiple_attempts(password_extractor):
         create_mock_event('cowrie.login.failed', {'username': 'root', 'password': 'pass2'}),
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'pass3'}),
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 3
     assert results[0]['password'] == 'pass1'
     assert results[1]['password'] == 'pass2'
@@ -85,9 +75,9 @@ def test_skip_non_login_events(password_extractor):
         create_mock_event('cowrie.command.input', {'input': 'ls -la'}),
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'pass123'}),
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 1
     assert results[0]['password'] == 'pass123'
 
@@ -99,9 +89,9 @@ def test_skip_events_without_password(password_extractor):
         create_mock_event('cowrie.login.failed', {'username': 'admin', 'password': None}),  # Null password
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'valid'}),
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 1
     assert results[0]['password'] == 'valid'
 
@@ -112,9 +102,9 @@ def test_skip_events_without_payload(password_extractor):
     event.event_type = 'cowrie.login.success'
     event.payload = None
     event.event_timestamp = "2025-10-10T10:00:00Z"
-    
+
     results = password_extractor.extract_from_events([event])
-    
+
     assert len(results) == 0
 
 
@@ -122,16 +112,11 @@ def test_password_sha256_hash_correct(password_extractor):
     """Test that SHA-256 hash is calculated correctly."""
     test_password = "testpassword123"
     expected_hash = hashlib.sha256(test_password.encode('utf-8')).hexdigest()
-    
-    events = [
-        create_mock_event(
-            'cowrie.login.success',
-            {'username': 'root', 'password': test_password}
-        )
-    ]
-    
+
+    events = [create_mock_event('cowrie.login.success', {'username': 'root', 'password': test_password})]
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert results[0]['password_sha256'] == expected_hash
 
 
@@ -140,12 +125,12 @@ def test_extract_with_missing_username(password_extractor):
     events = [
         create_mock_event(
             'cowrie.login.success',
-            {'password': 'password123'}  # No username
+            {'password': 'password123'},  # No username
         )
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert len(results) == 1
     assert results[0]['password'] == 'password123'
     assert results[0]['username'] == ''  # Default empty string
@@ -159,9 +144,9 @@ def test_extract_unique_passwords(password_extractor):
         create_mock_event('cowrie.login.failed', {'username': 'admin', 'password': 'pass1'}),  # Duplicate
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'pass3'}),
     ]
-    
+
     unique_passwords = password_extractor.extract_unique_passwords(events)
-    
+
     assert len(unique_passwords) == 3
     assert 'pass1' in unique_passwords
     assert 'pass2' in unique_passwords
@@ -171,9 +156,9 @@ def test_extract_unique_passwords(password_extractor):
 def test_extract_unique_passwords_empty(password_extractor):
     """Test extracting unique passwords from empty events."""
     events = []
-    
+
     unique_passwords = password_extractor.extract_unique_passwords(events)
-    
+
     assert len(unique_passwords) == 0
 
 
@@ -183,9 +168,9 @@ def test_event_type_preserved(password_extractor):
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'pass1'}),
         create_mock_event('cowrie.login.failed', {'username': 'admin', 'password': 'pass2'}),
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     assert results[0]['event_type'] == 'cowrie.login.success'
     assert results[1]['event_type'] == 'cowrie.login.failed'
 
@@ -197,9 +182,9 @@ def test_timestamp_preserved(password_extractor):
     event.event_type = 'cowrie.login.success'
     event.payload = {'username': 'root', 'password': 'pass123'}
     event.event_timestamp = test_timestamp
-    
+
     results = password_extractor.extract_from_events([event])
-    
+
     assert results[0]['timestamp'] == test_timestamp
 
 
@@ -210,9 +195,9 @@ def test_handles_non_string_password(password_extractor):
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': ['pass']}),  # List
         create_mock_event('cowrie.login.success', {'username': 'root', 'password': 'validpass'}),
     ]
-    
+
     results = password_extractor.extract_from_events(events)
-    
+
     # Only the valid string password should be extracted
     assert len(results) == 1
     assert results[0]['password'] == 'validpass'
@@ -221,7 +206,6 @@ def test_handles_non_string_password(password_extractor):
 def test_empty_events_list(password_extractor):
     """Test extraction from empty events list."""
     results = password_extractor.extract_from_events([])
-    
+
     assert len(results) == 0
     assert isinstance(results, list)
-

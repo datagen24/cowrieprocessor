@@ -128,13 +128,13 @@ def create_session_maker(engine: Engine) -> sessionmaker[Session]:
 
 def detect_database_features(engine: Engine) -> dict[str, Any]:
     """Detect available database features with runtime capability detection.
-    
+
     Args:
         engine: SQLAlchemy engine to analyze
-        
+
     Returns:
         Dictionary containing detected features and capabilities
-        
+
     Example:
         {
             'database_type': 'postgresql',
@@ -153,13 +153,13 @@ def detect_database_features(engine: Engine) -> dict[str, Any]:
         'pgvector_version': None,
         'dlq_advanced': False,
         'vector_longtail': False,
-        'max_dimensions': 0
+        'max_dimensions': 0,
     }
-    
+
     with engine.connect() as conn:
         dialect = conn.dialect.name
         features['database_type'] = dialect
-        
+
         if dialect == 'postgresql':
             # Get PostgreSQL version
             try:
@@ -168,27 +168,29 @@ def detect_database_features(engine: Engine) -> dict[str, Any]:
                 features['version'] = version_str
             except Exception:
                 features['version'] = 'Unknown'
-            
+
             # Check for pgvector extension
             features['pgvector'] = has_pgvector(engine)
-            
+
             if features['pgvector']:
                 # Get pgvector version
                 try:
-                    result = conn.execute(text("""
+                    result = conn.execute(
+                        text("""
                         SELECT extversion FROM pg_extension WHERE extname = 'vector'
-                    """))
+                    """)
+                    )
                     features['pgvector_version'] = result.scalar()
                 except Exception:
                     features['pgvector_version'] = 'Unknown'
-                
+
                 # pgvector enables vector-based longtail analysis
                 features['vector_longtail'] = True
                 features['max_dimensions'] = 2000  # pgvector limit
-            
+
             # PostgreSQL gets advanced DLQ features
             features['dlq_advanced'] = True
-            
+
         elif dialect == 'sqlite':
             # Get SQLite version
             try:
@@ -196,19 +198,19 @@ def detect_database_features(engine: Engine) -> dict[str, Any]:
                 features['version'] = result.scalar()
             except Exception:
                 features['version'] = 'Unknown'
-            
+
             # SQLite uses traditional statistical methods
             features['vector_longtail'] = False
-    
+
     return features
 
 
 def is_postgresql(engine: Engine) -> bool:
     """Check if engine is PostgreSQL.
-    
+
     Args:
         engine: SQLAlchemy engine to check
-        
+
     Returns:
         True if engine is PostgreSQL, False otherwise
     """
@@ -217,23 +219,25 @@ def is_postgresql(engine: Engine) -> bool:
 
 def has_pgvector(engine: Engine) -> bool:
     """Check if pgvector extension is available.
-    
+
     Args:
         engine: SQLAlchemy engine to check
-        
+
     Returns:
         True if pgvector extension is available, False otherwise
     """
     if not is_postgresql(engine):
         return False
-    
+
     try:
         with engine.connect() as conn:
-            result = conn.execute(text("""
+            result = conn.execute(
+                text("""
                 SELECT EXISTS(
                     SELECT 1 FROM pg_extension WHERE extname = 'vector'
                 )
-            """))
+            """)
+            )
             return bool(result.scalar())
     except Exception:
         return False

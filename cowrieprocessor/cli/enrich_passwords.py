@@ -200,9 +200,7 @@ def _track_password(
         (
             obj
             for obj in db_session.new
-            if isinstance(obj, PasswordSessionUsage)
-            and obj.password_id == password_id
-            and obj.session_id == session_id
+            if isinstance(obj, PasswordSessionUsage) and obj.password_id == password_id and obj.session_id == session_id
         ),
         None,
     )
@@ -842,7 +840,7 @@ def enrich_passwords(args: argparse.Namespace) -> int:
 def get_session_query(engine: Engine) -> str:
     """Get session query with dialect-aware JSON extraction for enrichment refresh."""
     from ..db.json_utils import get_dialect_name_from_engine
-    
+
     dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
@@ -891,9 +889,9 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
     """Safely extract source IP from raw_events using Unicode sanitizer."""
     from ..db.json_utils import get_dialect_name_from_engine
     from ..utils.unicode_sanitizer import UnicodeSanitizer
-    
+
     dialect_name = get_dialect_name_from_engine(engine)
-    
+
     try:
         with engine.connect() as conn:
             if dialect_name == "postgresql":
@@ -931,14 +929,14 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
                     return result[0]
     except Exception as e:
         logger.debug(f"Failed to extract IP for session {session_id}: {e}")
-    
+
     return None
 
 
 def iter_sessions(engine: Engine, limit: int) -> Iterator[tuple[str, str]]:
     """Yield session IDs and source IPs in FIFO order."""
     from ..db.json_utils import get_dialect_name_from_engine
-    
+
     dialect_name = get_dialect_name_from_engine(engine)
     query = get_session_query(engine)
     if limit > 0:
@@ -955,7 +953,7 @@ def iter_sessions(engine: Engine, limit: int) -> Iterator[tuple[str, str]]:
                         src_ip = real_ip if real_ip else fallback_ip
                     else:
                         src_ip = fallback_ip
-                    
+
                     if src_ip:
                         yield session_id, src_ip
     except Exception as e:
@@ -985,7 +983,7 @@ def iter_files(engine: Engine, limit: int) -> Iterator[tuple[str, Optional[str],
 def table_exists(engine: Engine, table_name: str) -> bool:
     """Return True when ``table_name`` is present in the database."""
     from ..db.json_utils import get_dialect_name_from_engine
-    
+
     dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
@@ -1011,7 +1009,7 @@ def update_session(
     flags: dict,
 ) -> None:
     """Persist refreshed enrichment JSON and derived flags for a session.
-    
+
     This function merges the new enrichment data with existing enrichment data
     to avoid overwriting data from other enrichment modules (e.g., password_stats).
     """
@@ -1020,25 +1018,25 @@ def update_session(
         SELECT enrichment FROM session_summaries 
         WHERE session_id = :session_id
     """
-    
+
     with engine.connect() as conn:
         # Get existing enrichment data
         result = conn.execute(text(get_sql), {"session_id": session_id}).fetchone()
         existing_enrichment = {}
-        
+
         if result and result[0]:
             try:
                 existing_enrichment = json.loads(result[0]) if isinstance(result[0], str) else result[0]
             except (json.JSONDecodeError, TypeError):
                 # If we can't parse the existing data, start fresh
                 existing_enrichment = {}
-        
+
         # Merge the new enrichment data with existing data
         # New data takes precedence over existing data for the same keys
         merged_enrichment = existing_enrichment.copy()
         if enrichment_payload:
             merged_enrichment.update(enrichment_payload)
-        
+
         # Update the session with merged enrichment data
         update_sql = """
             UPDATE session_summaries
@@ -1048,7 +1046,7 @@ def update_session(
                 updated_at = CURRENT_TIMESTAMP
             WHERE session_id = :session_id
         """
-        
+
         conn.execute(
             text(update_sql),
             {
@@ -1145,24 +1143,24 @@ def track_enrichment_stats(enrichment: dict, stats: dict) -> None:
     """Track enrichment service usage and failures."""
     if not isinstance(enrichment, dict):
         return
-    
+
     # Track DShield usage
     dshield_data = enrichment.get("dshield", {})
     if dshield_data and dshield_data.get("ip", {}).get("asname", ""):
         stats["dshield_calls"] += 1
     elif dshield_data and dshield_data.get("error"):
         stats["dshield_failures"] += 1
-    
+
     # Track URLHaus usage
     urlhaus_data = enrichment.get("urlhaus", "")
     if urlhaus_data and urlhaus_data != "":
         stats["urlhaus_calls"] += 1
-    
+
     # Track SPUR usage
     spur_data = enrichment.get("spur", [])
     if spur_data and len(spur_data) > 0 and spur_data != ["", "", ""]:
         stats["spur_calls"] += 1
-    
+
     # Track VirusTotal usage
     vt_data = enrichment.get("virustotal")
     if vt_data and isinstance(vt_data, dict) and vt_data.get("data"):
@@ -1176,12 +1174,12 @@ def load_sensor_credentials(sensor_file: Path, sensor_index: int) -> dict[str, O
     """Load API credentials from a sensors.toml configuration file."""
     if not sensor_file.exists():
         raise RuntimeError(f"Sensors file not found: {sensor_file}")
-    
+
     try:
         import tomllib  # Python 3.11+
     except ModuleNotFoundError:
         raise RuntimeError("Python 3.11+ is required for sensors.toml support")
-    
+
     with sensor_file.open("rb") as handle:
         data = tomllib.load(handle)
     sensors = data.get("sensor") or []
@@ -1205,16 +1203,16 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         level=logging.INFO if args.verbose else logging.WARNING,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     )
-    
+
     logger.info("Starting enrichment refresh...")
-    
+
     # Load database settings
     db_settings = resolve_database_settings(args.database)
     engine = create_engine_from_settings(db_settings)
-    
+
     # Apply migrations to ensure schema is up to date
     apply_migrations(engine)
-    
+
     # Resolve API credentials from command line, environment, or sensors.toml
     resolved_credentials = {
         "vt_api": args.vt_api_key or os.getenv("VT_API_KEY"),
@@ -1222,15 +1220,16 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         "urlhaus_api": args.urlhaus_api_key or os.getenv("URLHAUS_API_KEY"),
         "spur_api": args.spur_api_key or os.getenv("SPUR_API_KEY"),
     }
-    
+
     # If no credentials provided via command line or environment, try to load from sensors.toml
     if not any(resolved_credentials.values()):
         try:
             # Look for sensors.toml in the project root
             from pathlib import Path
+
             project_root = Path(__file__).resolve().parents[2]
             sensors_file = project_root / "sensors.toml"
-            
+
             if sensors_file.exists():
                 logger.info(f"Loading API credentials from {sensors_file}")
                 creds = load_sensor_credentials(sensors_file, 0)  # Use first sensor by default
@@ -1243,9 +1242,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         # For any missing individual credential, try to fill from sensors file if available
         try:
             from pathlib import Path
+
             project_root = Path(__file__).resolve().parents[2]
             sensors_file = project_root / "sensors.toml"
-            
+
             if sensors_file.exists():
                 creds = load_sensor_credentials(sensors_file, 0)
                 for key in ("vt_api", "dshield_email", "urlhaus_api", "spur_api"):
@@ -1253,20 +1253,21 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                         resolved_credentials[key] = creds.get(key)
         except Exception:
             pass
-    
+
     # Initialize enrichment service
     try:
         # Import here to avoid circular imports
         import sys
         from pathlib import Path
-        
+
         from ..enrichment import EnrichmentCacheManager
+
         # Add project root to path to import enrichment_handlers
         project_root = Path(__file__).resolve().parents[2]
         if str(project_root) not in sys.path:
             sys.path.insert(0, str(project_root))
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir_path = Path(args.cache_dir)
         cache_manager = EnrichmentCacheManager(cache_dir_path)
         service = EnrichmentService(
@@ -1278,20 +1279,21 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             cache_manager=cache_manager,
             enable_telemetry=False,  # Disable telemetry to avoid status directory issues
         )
-        
+
         # Initialize status emitter for progress monitoring
         # Use local temp directory if no status directory is provided and default doesn't exist
         status_dir = args.status_dir
         if not status_dir:
             from pathlib import Path
+
             default_status_dir = Path("/mnt/dshield/data/logs/status")
             if not default_status_dir.exists():
                 # Use a local temp directory if the default doesn't exist
                 status_dir = Path.home() / ".cache" / "cowrieprocessor" / "status"
                 logger.info(f"Using local status directory: {status_dir}")
-        
+
         status_emitter = StatusEmitter("enrichment_refresh", status_dir=status_dir)
-        
+
         # Log available enrichment services
         available_services = []
         if resolved_credentials.get("dshield_email"):
@@ -1302,7 +1304,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             available_services.append("SPUR (IP intelligence)")
         if resolved_credentials.get("vt_api"):
             available_services.append("VirusTotal (file analysis)")
-        
+
         if available_services:
             logger.info(f"Available enrichment services: {', '.join(available_services)}")
         else:
@@ -1320,7 +1322,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             file_count = 0
             last_commit = time.time()
             last_status_update = time.time()
-            
+
             # Track enrichment statistics
             enrichment_stats = {
                 "dshield_calls": 0,
@@ -1334,13 +1336,15 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             }
 
             # Record initial status
-            status_emitter.record_metrics({
-                "sessions_processed": 0,
-                "files_processed": 0,
-                "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                "files_total": file_limit if file_limit > 0 else "unlimited",
-                "enrichment_stats": enrichment_stats,
-            })
+            status_emitter.record_metrics(
+                {
+                    "sessions_processed": 0,
+                    "files_processed": 0,
+                    "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                    "files_total": file_limit if file_limit > 0 else "unlimited",
+                    "enrichment_stats": enrichment_stats,
+                }
+            )
 
             # Process sessions
             for session_id, src_ip in iter_sessions(engine, session_limit):
@@ -1348,10 +1352,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                 result = service.enrich_session(session_id, src_ip)
                 enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
                 flags = service.get_session_flags(result)
-                
+
                 # Track enrichment statistics for this session
                 track_enrichment_stats(enrichment, enrichment_stats)
-                
+
                 update_session(engine, session_id, enrichment, flags)
                 if session_count % args.commit_interval == 0:
                     stats_summary = (
@@ -1364,19 +1368,20 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                         f"(elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]"
                     )
                     last_commit = time.time()
-                
+
                 # Update status every 10 items or every 30 seconds
-                if (session_count % 10 == 0 or 
-                    time.time() - last_status_update > 30):
-                    status_emitter.record_metrics({
-                        "sessions_processed": session_count,
-                        "files_processed": file_count,
-                        "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                        "files_total": file_limit if file_limit > 0 else "unlimited",
-                        "enrichment_stats": enrichment_stats.copy(),
-                    })
+                if session_count % 10 == 0 or time.time() - last_status_update > 30:
+                    status_emitter.record_metrics(
+                        {
+                            "sessions_processed": session_count,
+                            "files_processed": file_count,
+                            "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                            "files_total": file_limit if file_limit > 0 else "unlimited",
+                            "enrichment_stats": enrichment_stats.copy(),
+                        }
+                    )
                     last_status_update = time.time()
-                
+
                 if session_limit > 0 and session_count >= session_limit:
                     break
 
@@ -1389,10 +1394,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                     file_count += 1
                     result = service.enrich_file(file_hash, filename or file_hash)
                     enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
-                    
+
                     # Track VirusTotal statistics for this file
                     track_enrichment_stats(enrichment, enrichment_stats)
-                    
+
                     update_file(engine, file_hash, enrichment)
                     if file_count % args.commit_interval == 0:
                         vt_stats = f"vt={enrichment_stats['virustotal_calls']}"
@@ -1401,19 +1406,20 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                             f"(elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]"
                         )
                         last_commit = time.time()
-                    
+
                     # Update status every 10 items or every 30 seconds
-                    if (file_count % 10 == 0 or 
-                        time.time() - last_status_update > 30):
-                        status_emitter.record_metrics({
-                            "sessions_processed": session_count,
-                            "files_processed": file_count,
-                            "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                            "files_total": file_limit if file_limit > 0 else "unlimited",
-                            "enrichment_stats": enrichment_stats.copy(),
-                        })
+                    if file_count % 10 == 0 or time.time() - last_status_update > 30:
+                        status_emitter.record_metrics(
+                            {
+                                "sessions_processed": session_count,
+                                "files_processed": file_count,
+                                "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                                "files_total": file_limit if file_limit > 0 else "unlimited",
+                                "enrichment_stats": enrichment_stats.copy(),
+                            }
+                        )
                         last_status_update = time.time()
-                    
+
                     if file_limit > 0 and file_count >= file_limit:
                         break
                 if file_count % args.commit_interval:
@@ -1422,18 +1428,20 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                 logger.info("No VirusTotal API key available; skipping file enrichment refresh")
 
             # Record final status
-            status_emitter.record_metrics({
-                "sessions_processed": session_count,
-                "files_processed": file_count,
-                "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                "files_total": file_limit if file_limit > 0 else "unlimited",
-                "enrichment_stats": enrichment_stats,
-                "cache_snapshot": cache_manager.snapshot(),
-            })
+            status_emitter.record_metrics(
+                {
+                    "sessions_processed": session_count,
+                    "files_processed": file_count,
+                    "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                    "files_total": file_limit if file_limit > 0 else "unlimited",
+                    "enrichment_stats": enrichment_stats,
+                    "cache_snapshot": cache_manager.snapshot(),
+                }
+            )
 
             logger.info(f"Enrichment refresh completed: {session_count} sessions, {file_count} files updated")
             return 0
-            
+
     except Exception as e:
         logger.error(f"Enrichment refresh failed: {e}", exc_info=True)
         return 1
@@ -1586,9 +1594,7 @@ Examples:
     )
 
     # Database options
-    refresh_parser.add_argument(
-        '--database', type=str, help='Path to SQLite database or PostgreSQL connection string'
-    )
+    refresh_parser.add_argument('--database', type=str, help='Path to SQLite database or PostgreSQL connection string')
     refresh_parser.add_argument(
         '--db-type', type=str, choices=['sqlite', 'postgresql'], help='Database type (auto-detected if not specified)'
     )

@@ -148,10 +148,7 @@ def run_deployment_validation(db_url: str) -> dict[str, any]:
     results["validation_results"]["migration_dry_run"] = run_database_migration(db_url, dry_run=True)
 
     # Summary
-    successful_validations = sum(
-        1 for test in results["validation_results"].values()
-        if test.get("success", False)
-    )
+    successful_validations = sum(1 for test in results["validation_results"].values() if test.get("success", False))
     total_validations = len(results["validation_results"])
 
     results["deployment_readiness"] = {
@@ -171,23 +168,10 @@ def run_deployment_validation(db_url: str) -> dict[str, any]:
 
 def main() -> int:
     """Main deployment function."""
-    parser = argparse.ArgumentParser(
-        description="Deploy longtail analysis to production database"
-    )
-    parser.add_argument(
-        "--db-url",
-        required=True,
-        help="Database URL for deployment"
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run validation without applying changes"
-    )
-    parser.add_argument(
-        "--output",
-        help="Output file for deployment report (default: stdout)"
-    )
+    parser = argparse.ArgumentParser(description="Deploy longtail analysis to production database")
+    parser.add_argument("--db-url", required=True, help="Database URL for deployment")
+    parser.add_argument("--dry-run", action="store_true", help="Run validation without applying changes")
+    parser.add_argument("--output", help="Output file for deployment report (default: stdout)")
 
     args = parser.parse_args()
 

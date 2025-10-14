@@ -385,9 +385,7 @@ class PasswordStatistics(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        Index("ix_password_statistics_created", "created_at"),
-    )
+    __table_args__ = (Index("ix_password_statistics_created", "created_at"),)
 
 
 class PasswordTracking(Base):

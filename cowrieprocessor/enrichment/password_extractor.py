@@ -10,7 +10,7 @@ from ..db.models import RawEvent
 
 class PasswordExtractor:
     """Extract password attempts from Cowrie events.
-    
+
     Identifies login events (success and failed) and extracts password details
     for breach checking and credential stuffing detection.
     """
@@ -22,10 +22,10 @@ class PasswordExtractor:
 
     def extract_from_events(self, events: List[RawEvent]) -> List[Dict[str, Any]]:
         """Extract password attempts from raw events.
-        
+
         Args:
             events: List of RawEvent objects to process
-            
+
         Returns:
             List of dictionaries containing password attempt details:
                 - password: The actual password (for HIBP checking)
@@ -36,38 +36,40 @@ class PasswordExtractor:
                 - event_type: Original event type
         """
         passwords = []
-        
+
         for event in events:
             if event.event_type not in self.LOGIN_EVENT_TYPES:
                 continue
-            
+
             if not event.payload:
                 continue
-                
+
             password = event.payload.get('password')
             if not password or not isinstance(password, str):
                 continue
-            
+
             # Generate SHA-256 hash for tracking (never log the actual password)
             password_sha256 = hashlib.sha256(password.encode('utf-8')).hexdigest()
-            
-            passwords.append({
-                'password': password,
-                'password_sha256': password_sha256,
-                'username': event.payload.get('username', ''),
-                'timestamp': event.event_timestamp or '',
-                'success': 'success' in event.event_type,
-                'event_type': event.event_type,
-            })
-        
+
+            passwords.append(
+                {
+                    'password': password,
+                    'password_sha256': password_sha256,
+                    'username': event.payload.get('username', ''),
+                    'timestamp': event.event_timestamp or '',
+                    'success': 'success' in event.event_type,
+                    'event_type': event.event_type,
+                }
+            )
+
         return passwords
 
     def extract_unique_passwords(self, events: List[RawEvent]) -> List[str]:
         """Extract unique passwords from events (for bulk checking).
-        
+
         Args:
             events: List of RawEvent objects to process
-            
+
         Returns:
             List of unique passwords
         """
@@ -77,4 +79,3 @@ class PasswordExtractor:
 
 
 __all__ = ['PasswordExtractor']
-

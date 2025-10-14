@@ -20,7 +20,7 @@ except ImportError:
 
     class ValidationError(Exception):
         """Fallback ValidationError class when jsonschema is not available."""
-        
+
         def __init__(self, message):
             """Initialize ValidationError with message."""
             self.message = message

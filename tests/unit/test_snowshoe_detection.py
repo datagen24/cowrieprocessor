@@ -30,7 +30,7 @@ class TestSnowshoeDetector:
         """Create mock session summaries for testing."""
         sessions = []
         base_time = datetime.now(UTC)
-        
+
         # Create sessions with different patterns
         for i in range(10):
             session = Mock(spec=SessionSummary)
@@ -43,7 +43,7 @@ class TestSnowshoeDetector:
             session.risk_score = 20
             session.enrichment = {
                 "session": {
-                    f"203.0.113.{i+1}": {
+                    f"203.0.113.{i + 1}": {
                         "spur": {
                             "country": f"Country{i % 3}",  # 3 different countries
                             "asn": f"ASN{i % 2}",  # 2 different ASNs
@@ -52,7 +52,7 @@ class TestSnowshoeDetector:
                 }
             }
             sessions.append(session)
-        
+
         return sessions
 
     def test_detector_initialization(self, detector: SnowshoeDetector) -> None:
@@ -75,7 +75,7 @@ class TestSnowshoeDetector:
     def test_detect_empty_sessions(self, detector: SnowshoeDetector) -> None:
         """Test detection with empty session list."""
         result = detector.detect([])
-        
+
         assert result["is_likely_snowshoe"] is False
         assert result["confidence_score"] == 0.0
         assert result["single_attempt_ips"] == []
@@ -93,28 +93,22 @@ class TestSnowshoeDetector:
             session.first_event_at = datetime.now(UTC)
             session.last_event_at = session.first_event_at + timedelta(minutes=1)
             session.command_count = 1
-            session.enrichment = {
-                "session": {
-                    f"203.0.113.{i+1}": {
-                        "spur": {"country": "US", "asn": "ASN123"}
-                    }
-                }
-            }
+            session.enrichment = {"session": {f"203.0.113.{i + 1}": {"spur": {"country": "US", "asn": "ASN123"}}}}
             sessions.append(session)
-        
+
         result = detector.detect(sessions)
-        
+
         assert result["is_likely_snowshoe"] is False
         assert "Insufficient data" in result["recommendation"]
 
     def test_extract_ip_data(self, detector: SnowshoeDetector, mock_sessions: list[SessionSummary]) -> None:
         """Test IP data extraction from sessions."""
         ip_data = detector._extract_ip_data(mock_sessions)
-        
+
         assert len(ip_data) == 10  # 10 unique IPs
         assert "203.0.113.1" in ip_data
         assert "203.0.113.10" in ip_data
-        
+
         # Check data structure
         for ip, data in ip_data.items():
             assert "sessions" in data
@@ -127,7 +121,7 @@ class TestSnowshoeDetector:
     def test_extract_ip_from_session(self, detector: SnowshoeDetector) -> None:
         """Test IP extraction from session enrichment data."""
         session = Mock(spec=SessionSummary)
-        
+
         # Test with valid IP in enrichment
         session.enrichment = {
             "session": {
@@ -135,15 +129,15 @@ class TestSnowshoeDetector:
                 "192.168.1.2": {"spur": {"country": "CA"}},
             }
         }
-        
+
         ip = detector._extract_ip_from_session(session)
         assert ip in ["192.168.1.1", "192.168.1.2"]
-        
+
         # Test with no enrichment
         session.enrichment = None
         ip = detector._extract_ip_from_session(session)
         assert ip is None
-        
+
         # Test with invalid enrichment structure
         session.enrichment = {"session": {}}
         ip = detector._extract_ip_from_session(session)
@@ -157,16 +151,16 @@ class TestSnowshoeDetector:
             "192.168.1.3": {"sessions": [Mock(), Mock(), Mock(), Mock(), Mock()]},  # At threshold
             "192.168.1.4": {"sessions": [Mock() for _ in range(10)]},  # High volume
         }
-        
+
         result = detector._analyze_volume_patterns(ip_data)
-        
+
         assert "192.168.1.1" in result["single_attempt_ips"]
         assert "192.168.1.2" in result["low_volume_ips"]
         assert "192.168.1.3" not in result["single_attempt_ips"]
         assert "192.168.1.3" in result["low_volume_ips"]  # 5 sessions = at threshold, so included
         assert "192.168.1.4" not in result["single_attempt_ips"]
         assert "192.168.1.4" not in result["low_volume_ips"]
-        
+
         assert result["single_attempt_ratio"] == 0.25  # 1 out of 4
         assert result["low_volume_ratio"] == 0.75  # 3 out of 4 (1 single + 2 low volume)
         assert result["total_ips"] == 4
@@ -174,16 +168,16 @@ class TestSnowshoeDetector:
     def test_analyze_timing_patterns(self, detector: SnowshoeDetector) -> None:
         """Test timing pattern analysis."""
         base_time = datetime.now(UTC)
-        
+
         # Create clustered timestamps
         ip_data = {}
         for i in range(10):
-            ip_data[f"192.168.1.{i+1}"] = {
+            ip_data[f"192.168.1.{i + 1}"] = {
                 "timestamps": [base_time + timedelta(minutes=i * 2)]  # Clustered pattern
             }
-        
+
         result = detector._analyze_timing_patterns(ip_data, 24)
-        
+
         assert "has_clustering" in result
         assert "cluster_count" in result
         assert "time_coordination_score" in result
@@ -197,9 +191,9 @@ class TestSnowshoeDetector:
             "192.168.1.1": {"timestamps": [datetime.now(UTC)]},
             "192.168.1.2": {"timestamps": [datetime.now(UTC)]},
         }
-        
+
         result = detector._analyze_timing_patterns(ip_data, 24)
-        
+
         assert result["has_clustering"] is False
         assert result["cluster_count"] == 0
         assert result["time_coordination_score"] == 0.0
@@ -212,9 +206,9 @@ class TestSnowshoeDetector:
             "192.168.1.3": {"countries": {"MX"}, "asns": {"ASN2"}},
             "192.168.1.4": {"countries": {"US"}, "asns": {"ASN3"}},
         }
-        
+
         result = detector._analyze_geographic_diversity(ip_data)
-        
+
         assert len(result["countries"]) == 3  # US, CA, MX
         assert len(result["asns"]) == 3  # ASN1, ASN2, ASN3
         assert result["country_diversity"] == 0.75  # 3 countries / 4 IPs
@@ -229,12 +223,12 @@ class TestSnowshoeDetector:
             "192.168.1.2": {"countries": {"US"}, "asns": {"ASN1"}},
             "192.168.1.3": {"countries": {"US"}, "asns": {"ASN1"}},
         }
-        
+
         result = detector._analyze_geographic_diversity(ip_data)
-        
-        assert result["country_diversity"] == 1/3  # 1 country / 3 IPs
-        assert result["asn_diversity"] == 1/3  # 1 ASN / 3 IPs
-        assert result["diversity_score"] == 1/3  # Average
+
+        assert result["country_diversity"] == 1 / 3  # 1 country / 3 IPs
+        assert result["asn_diversity"] == 1 / 3  # 1 ASN / 3 IPs
+        assert result["diversity_score"] == 1 / 3  # Average
         assert result["is_diverse"] is False  # Below threshold
 
     def test_analyze_behavioral_similarity(self, detector: SnowshoeDetector) -> None:
@@ -253,10 +247,10 @@ class TestSnowshoeDetector:
                 "commands": [{"count": 1, "risk_score": 22}],
             },
         }
-        
+
         sessions = []  # Not used in current implementation
         result = detector._analyze_behavioral_similarity(ip_data, sessions)
-        
+
         assert result["avg_session_duration"] > 0
         assert result["duration_variance"] >= 0
         assert 0 <= result["duration_consistency"] <= 1
@@ -280,9 +274,9 @@ class TestSnowshoeDetector:
                 "behavioral_similarity_score": 0.8,  # High similarity
             },
         }
-        
+
         score = detector._calculate_snowshoe_score(indicators)
-        
+
         # Expected: 0.8*0.4 + 0.9*0.3 + 0.2 + 0.9*0.1 = 0.32 + 0.27 + 0.2 + 0.09 = 0.88
         expected_score = 0.8 * 0.4 + 0.9 * 0.3 + 0.2 + 0.9 * 0.1
         assert abs(score - expected_score) < 0.001
@@ -305,7 +299,7 @@ class TestSnowshoeDetector:
                 "behavioral_similarity_score": 1.0,
             },
         }
-        
+
         score = detector._calculate_snowshoe_score(indicators)
         assert abs(score - 1.0) < 0.0001  # Account for floating point precision
 
@@ -313,19 +307,19 @@ class TestSnowshoeDetector:
         """Test recommendation generation based on confidence scores."""
         volume_indicators = {"single_attempt_ips": [], "low_volume_ips": []}
         timing_indicators = {"has_clustering": False}
-        
+
         # High confidence
         rec = detector._generate_recommendation(0.9, volume_indicators, timing_indicators)
         assert "HIGH CONFIDENCE" in rec
-        
+
         # Moderate confidence
         rec = detector._generate_recommendation(0.7, volume_indicators, timing_indicators)
         assert "MODERATE CONFIDENCE" in rec
-        
+
         # Low confidence
         rec = detector._generate_recommendation(0.5, volume_indicators, timing_indicators)
         assert "LOW CONFIDENCE" in rec
-        
+
         # No detection
         rec = detector._generate_recommendation(0.3, volume_indicators, timing_indicators)
         assert "NO DETECTION" in rec
@@ -333,7 +327,7 @@ class TestSnowshoeDetector:
     def test_empty_result(self, detector: SnowshoeDetector) -> None:
         """Test empty result structure."""
         result = detector._empty_result()
-        
+
         assert result["is_likely_snowshoe"] is False
         assert result["confidence_score"] == 0.0
         assert result["single_attempt_ips"] == []
@@ -341,7 +335,7 @@ class TestSnowshoeDetector:
         assert result["coordinated_timing"] is False
         assert result["geographic_spread"] == 0.0
         assert "NO DATA" in result["recommendation"]
-        
+
         # Test with error
         result_with_error = detector._empty_result("Test error")
         assert "ERROR" in result_with_error["recommendation"]
@@ -350,7 +344,7 @@ class TestSnowshoeDetector:
     def test_detect_with_mock_data(self, detector: SnowshoeDetector, mock_sessions: list[SessionSummary]) -> None:
         """Test full detection with mock session data."""
         result = detector.detect(mock_sessions, 24)
-        
+
         # Check result structure
         assert "is_likely_snowshoe" in result
         assert "confidence_score" in result
@@ -361,7 +355,7 @@ class TestSnowshoeDetector:
         assert "recommendation" in result
         assert "indicators" in result
         assert "analysis_metadata" in result
-        
+
         # Check types
         assert isinstance(result["is_likely_snowshoe"], bool)
         assert isinstance(result["confidence_score"], float)
@@ -372,10 +366,10 @@ class TestSnowshoeDetector:
         assert isinstance(result["recommendation"], str)
         assert isinstance(result["indicators"], dict)
         assert isinstance(result["analysis_metadata"], dict)
-        
+
         # Check score range
         assert 0 <= result["confidence_score"] <= 1
-        
+
         # Check metadata
         metadata = result["analysis_metadata"]
         assert metadata["total_sessions"] == 10
@@ -389,9 +383,9 @@ class TestSnowshoeDetector:
         session.session_id = "session_1"
         session.first_event_at = "invalid_date"  # This will cause an exception
         session.enrichment = None
-        
+
         result = detector.detect([session])
-        
+
         # Should return empty result
         assert result["is_likely_snowshoe"] is False
         assert result["confidence_score"] == 0.0
@@ -401,48 +395,36 @@ class TestSnowshoeDetector:
     def test_ip_address_validation(self, detector: SnowshoeDetector) -> None:
         """Test IP address validation in data extraction."""
         sessions = []
-        
+
         # Valid public IP
         session1 = Mock(spec=SessionSummary)
         session1.session_id = "session_1"
         session1.first_event_at = datetime.now(UTC)
         session1.last_event_at = session1.first_event_at + timedelta(minutes=1)
         session1.command_count = 1
-        session1.enrichment = {
-            "session": {
-                "8.8.8.8": {"spur": {"country": "US", "asn": "ASN15169"}}
-            }
-        }
+        session1.enrichment = {"session": {"8.8.8.8": {"spur": {"country": "US", "asn": "ASN15169"}}}}
         sessions.append(session1)
-        
+
         # Private IP (should be filtered out)
         session2 = Mock(spec=SessionSummary)
         session2.session_id = "session_2"
         session2.first_event_at = datetime.now(UTC)
         session2.last_event_at = session2.first_event_at + timedelta(minutes=1)
         session2.command_count = 1
-        session2.enrichment = {
-            "session": {
-                "192.168.1.1": {"spur": {"country": "US", "asn": "ASN123"}}
-            }
-        }
+        session2.enrichment = {"session": {"192.168.1.1": {"spur": {"country": "US", "asn": "ASN123"}}}}
         sessions.append(session2)
-        
+
         # Invalid IP (should be filtered out)
         session3 = Mock(spec=SessionSummary)
         session3.session_id = "session_3"
         session3.first_event_at = datetime.now(UTC)
         session3.last_event_at = session3.first_event_at + timedelta(minutes=1)
         session3.command_count = 1
-        session3.enrichment = {
-            "session": {
-                "invalid-ip": {"spur": {"country": "US", "asn": "ASN123"}}
-            }
-        }
+        session3.enrichment = {"session": {"invalid-ip": {"spur": {"country": "US", "asn": "ASN123"}}}}
         sessions.append(session3)
-        
+
         ip_data = detector._extract_ip_data(sessions)
-        
+
         # Should contain both valid IPs (private IPs are now allowed in tests)
         assert len(ip_data) == 2
         assert "8.8.8.8" in ip_data
@@ -458,33 +440,33 @@ class TestSnowshoeDetectorIntegration:
         """Create sessions that should trigger snowshoe detection."""
         sessions = []
         base_time = datetime.now(UTC)
-        
+
         # Create 50 sessions with snowshoe characteristics:
         # - Each IP has only 1 session (single-attempt)
         # - Sessions are clustered in time (coordinated)
         # - IPs are from diverse geographic locations
-        
+
         for i in range(50):
             session = Mock(spec=SessionSummary)
             session.session_id = f"snowshoe_session_{i}"
-            
+
             # Clustered timing (within 2-hour window)
             session.first_event_at = base_time + timedelta(minutes=i * 2)
             session.last_event_at = session.first_event_at + timedelta(seconds=30)
-            
+
             # Single-attempt characteristics
             session.command_count = 1
             session.file_downloads = 0
             session.login_attempts = 1
             session.risk_score = 15
-            
+
             # Geographic diversity (10 different countries)
             country = f"Country{i % 10}"
             asn = f"ASN{i % 15}"
-            
+
             session.enrichment = {
                 "session": {
-                    f"203.0.113.{i+1}": {
+                    f"203.0.113.{i + 1}": {
                         "spur": {
                             "country": country,
                             "asn": asn,
@@ -493,7 +475,7 @@ class TestSnowshoeDetectorIntegration:
                 }
             }
             sessions.append(session)
-        
+
         return sessions
 
     @pytest.fixture
@@ -501,30 +483,30 @@ class TestSnowshoeDetectorIntegration:
         """Create sessions that should NOT trigger snowshoe detection."""
         sessions = []
         base_time = datetime.now(UTC)
-        
+
         # Create 20 sessions with normal characteristics:
         # - Few IPs with multiple sessions
         # - Distributed timing
         # - Limited geographic diversity
-        
+
         for i in range(20):
             session = Mock(spec=SessionSummary)
             session.session_id = f"normal_session_{i}"
-            
+
             # Distributed timing
             session.first_event_at = base_time + timedelta(hours=i * 3)
             session.last_event_at = session.first_event_at + timedelta(minutes=10)
-            
+
             # Normal session characteristics
             session.command_count = 10
             session.file_downloads = 0
             session.login_attempts = 1
             session.risk_score = 25
-            
+
             # Limited geographic diversity (2 countries)
             country = "US" if i % 2 == 0 else "CA"
             asn = "ASN123" if i % 2 == 0 else "ASN456"
-            
+
             session.enrichment = {
                 "session": {
                     f"198.51.100.{(i % 5) + 1}": {  # Only 5 unique IPs
@@ -536,28 +518,28 @@ class TestSnowshoeDetectorIntegration:
                 }
             }
             sessions.append(session)
-        
+
         return sessions
 
     def test_snowshoe_detection_positive(self, snowshoe_sessions: list[SessionSummary]) -> None:
         """Test that snowshoe sessions are correctly detected."""
         detector = SnowshoeDetector(sensitivity_threshold=0.5)
         result = detector.detect(snowshoe_sessions, 24)
-        
+
         # Should detect snowshoe attack
         assert result["is_likely_snowshoe"] is True
         assert result["confidence_score"] > 0.5
-        
+
         # Should have high single-attempt ratio
         assert len(result["single_attempt_ips"]) == 50
         assert len(result["low_volume_ips"]) == 0
-        
+
         # Should detect coordinated timing
         assert result["coordinated_timing"] is True
-        
+
         # Should have reasonable geographic diversity (10 countries out of 50 IPs = 0.2)
         assert result["geographic_spread"] > 0.1
-        
+
         # Should have appropriate recommendation
         assert "HIGH CONFIDENCE" in result["recommendation"] or "MODERATE CONFIDENCE" in result["recommendation"]
 
@@ -565,22 +547,22 @@ class TestSnowshoeDetectorIntegration:
         """Test that normal sessions are NOT detected as snowshoe attacks."""
         detector = SnowshoeDetector(sensitivity_threshold=0.5)
         result = detector.detect(normal_sessions, 24)
-        
+
         # Should NOT detect snowshoe attack
         assert result["is_likely_snowshoe"] is False
         assert result["confidence_score"] < 0.5
-        
+
         # Should have low single-attempt ratio (only 5 unique IPs for 20 sessions)
         assert len(result["single_attempt_ips"]) < 10
-        
+
         # Should have low geographic diversity
         assert result["geographic_spread"] < 0.5
-        
+
         # Should have appropriate recommendation
         assert (
-            "NO DETECTION" in result["recommendation"] or 
-            "LOW CONFIDENCE" in result["recommendation"] or 
-            "Insufficient data" in result["recommendation"]
+            "NO DETECTION" in result["recommendation"]
+            or "LOW CONFIDENCE" in result["recommendation"]
+            or "Insufficient data" in result["recommendation"]
         )
 
     def test_sensitivity_threshold_adjustment(self, snowshoe_sessions: list[SessionSummary]) -> None:
@@ -588,38 +570,38 @@ class TestSnowshoeDetectorIntegration:
         # Low sensitivity (should detect)
         detector_low = SnowshoeDetector(sensitivity_threshold=0.3)
         result_low = detector_low.detect(snowshoe_sessions, 24)
-        
+
         # High sensitivity (should not detect)
         detector_high = SnowshoeDetector(sensitivity_threshold=0.9)
         result_high = detector_high.detect(snowshoe_sessions, 24)
-        
+
         # Low sensitivity should be more likely to detect
         assert result_low["confidence_score"] >= result_high["confidence_score"]
-        
+
         # If low sensitivity detects, high sensitivity should be less likely to detect
         if result_low["is_likely_snowshoe"]:
             assert (
-                not result_high["is_likely_snowshoe"] or 
-                result_high["confidence_score"] < result_low["confidence_score"]
+                not result_high["is_likely_snowshoe"]
+                or result_high["confidence_score"] < result_low["confidence_score"]
             )
 
     def test_window_size_impact(self, snowshoe_sessions: list[SessionSummary]) -> None:
         """Test that different window sizes produce different results."""
         detector = SnowshoeDetector()
-        
+
         # Short window (should detect clustering)
         result_short = detector.detect(snowshoe_sessions, 2)
-        
+
         # Long window (should dilute clustering effect)
         result_long = detector.detect(snowshoe_sessions, 168)  # 1 week
-        
+
         # Both should detect snowshoe, but confidence might differ
         assert result_short["confidence_score"] >= 0
         assert result_long["confidence_score"] >= 0
-        
+
         # The analysis metadata should reflect different window sizes
         assert (
-            result_short["analysis_metadata"]["window_hours"] == 2 or 
-            result_short["analysis_metadata"]["window_hours"] == 24
+            result_short["analysis_metadata"]["window_hours"] == 2
+            or result_short["analysis_metadata"]["window_hours"] == 24
         )
         assert result_long["analysis_metadata"]["window_hours"] == 168

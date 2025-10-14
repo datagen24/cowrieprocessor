@@ -30,7 +30,7 @@ class TestRateLimiter:
     def test_rate_limiter_acquire_immediate(self) -> None:
         """Test that tokens can be acquired immediately when available."""
         limiter = RateLimiter(rate=10.0, burst=5)
-        
+
         # Should be able to acquire tokens immediately
         time.time()
         # Note: This is a simplified test since we can't easily test async behavior
@@ -40,19 +40,19 @@ class TestRateLimiter:
     def test_rate_limiter_token_refill(self) -> None:
         """Test that tokens are refilled over time."""
         limiter = RateLimiter(rate=2.0, burst=5)
-        
+
         # Consume all tokens
         limiter.tokens = 0
         limiter.last_update = time.time()
-        
+
         # Wait for token refill
         time.sleep(0.6)  # Should refill 1.2 tokens (0.6 * 2.0)
-        
+
         # Update tokens manually to simulate the refill logic
         now = time.time()
         elapsed = now - limiter.last_update
         limiter.tokens = min(limiter.burst, limiter.tokens + elapsed * limiter.rate)
-        
+
         assert limiter.tokens >= 1
 
 
@@ -72,10 +72,10 @@ class TestRateLimitedSession:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_get.return_value = mock_response
-        
+
         session = RateLimitedSession(rate_limit=10.0, burst=5)
         response = session.get("https://example.com")
-        
+
         mock_get.assert_called_once_with("https://example.com")
         assert response == mock_response
 
@@ -85,10 +85,10 @@ class TestRateLimitedSession:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
-        
+
         session = RateLimitedSession(rate_limit=10.0, burst=5)
         response = session.post("https://example.com", json={"test": "data"})
-        
+
         mock_post.assert_called_once_with("https://example.com", json={"test": "data"})
         assert response == mock_response
 
@@ -104,13 +104,13 @@ class TestRetryDecorator:
     def test_retry_success_on_first_attempt(self) -> None:
         """Test that successful calls don't retry."""
         call_count = 0
-        
+
         @with_retries(max_retries=3)
         def successful_function() -> str:
             nonlocal call_count
             call_count += 1
             return "success"
-        
+
         result = successful_function()
         assert result == "success"
         assert call_count == 1
@@ -118,7 +118,7 @@ class TestRetryDecorator:
     def test_retry_success_after_failures(self) -> None:
         """Test that retries work and eventually succeed."""
         call_count = 0
-        
+
         @with_retries(max_retries=3, backoff_base=0.01)  # Fast backoff for testing
         def flaky_function() -> str:
             nonlocal call_count
@@ -126,7 +126,7 @@ class TestRetryDecorator:
             if call_count < 3:
                 raise requests.RequestException("Temporary failure")
             return "success"
-        
+
         result = flaky_function()
         assert result == "success"
         assert call_count == 3
@@ -134,22 +134,22 @@ class TestRetryDecorator:
     def test_retry_exhausted_max_retries(self) -> None:
         """Test that exceptions are raised after max retries."""
         call_count = 0
-        
+
         @with_retries(max_retries=2, backoff_base=0.01)
         def always_failing_function() -> str:
             nonlocal call_count
             call_count += 1
             raise requests.RequestException("Always fails")
-        
+
         with pytest.raises(requests.RequestException, match="Always fails"):
             always_failing_function()
-        
+
         assert call_count == 3  # Initial call + 2 retries
 
     def test_retry_with_jitter(self) -> None:
         """Test that jitter is applied to backoff."""
         call_count = 0
-        
+
         @with_retries(max_retries=2, backoff_base=0.1, jitter=True)
         def flaky_function() -> str:
             nonlocal call_count
@@ -158,7 +158,7 @@ class TestRetryDecorator:
                 time.time()
                 raise requests.RequestException("Temporary failure")
             return "success"
-        
+
         # This test is more about ensuring jitter doesn't break the retry logic
         # The actual timing verification would be complex in a unit test
         result = flaky_function()
@@ -168,16 +168,16 @@ class TestRetryDecorator:
     def test_retry_only_catches_specific_exceptions(self) -> None:
         """Test that retry only catches specific exception types."""
         call_count = 0
-        
+
         @with_retries(max_retries=2, backoff_base=0.01)
         def function_with_wrong_exception() -> str:
             nonlocal call_count
             call_count += 1
             raise ValueError("Wrong exception type")
-        
+
         with pytest.raises(ValueError, match="Wrong exception type"):
             function_with_wrong_exception()
-        
+
         assert call_count == 1  # Should not retry for non-matching exceptions
 
 
@@ -194,7 +194,7 @@ class TestServiceRateLimits:
         rate, burst = get_service_rate_limit("virustotal")
         assert rate == 4.0
         assert burst == 5
-        
+
         rate, burst = get_service_rate_limit("dshield")
         assert rate == 1.0
         assert burst == 2
@@ -203,7 +203,7 @@ class TestServiceRateLimits:
         """Test getting rate limits for unknown service."""
         rate, burst = get_service_rate_limit("unknown_service")
         assert rate == 1.0  # Default rate
-        assert burst == 2    # Default burst
+        assert burst == 2  # Default burst
 
     def test_rate_limit_configurations_are_reasonable(self) -> None:
         """Test that rate limit configurations are reasonable."""
@@ -224,10 +224,10 @@ class TestRateLimitingIntegration:
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         # Test with rate limiting enabled
         service = EnrichmentService(
             cache_dir=cache_dir,
@@ -238,7 +238,7 @@ class TestRateLimitingIntegration:
             cache_manager=cache_manager,
             enable_rate_limiting=True,
         )
-        
+
         assert service.enable_rate_limiting is True
         assert service._session_factory == service._create_rate_limited_session_factory
 
@@ -249,10 +249,10 @@ class TestRateLimitingIntegration:
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         # Test with rate limiting disabled
         service = EnrichmentService(
             cache_dir=cache_dir,
@@ -263,6 +263,6 @@ class TestRateLimitingIntegration:
             cache_manager=cache_manager,
             enable_rate_limiting=False,
         )
-        
+
         assert service.enable_rate_limiting is False
         assert service._session_factory == requests.session
