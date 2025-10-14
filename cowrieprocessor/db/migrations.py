@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +185,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v9(connection)
             _set_schema_version(connection, 9)
             version = 9
+
+        if version < 10:
+            _upgrade_to_v10(connection)
+            _set_schema_version(connection, 10)
+            version = 10
 
     return version
 
@@ -643,12 +648,12 @@ def _upgrade_to_v7(connection: Connection) -> None:
 
 def _upgrade_to_v8(connection: Connection) -> None:
     """Upgrade to schema version 8: Add snowshoe_detections table.
-    
+
     Args:
         connection: Database connection
     """
     logger.info("Starting snowshoe detection schema migration (v8)")
-    
+
     # Create snowshoe_detections table
     _safe_execute_sql(
         connection,
@@ -672,7 +677,7 @@ def _upgrade_to_v8(connection: Connection) -> None:
         """,
         "Create snowshoe_detections table",
     )
-    
+
     # Create indexes for snowshoe_detections table
     indexes = [
         ("ix_snowshoe_detections_detection_time", "detection_time"),
@@ -681,20 +686,19 @@ def _upgrade_to_v8(connection: Connection) -> None:
         ("ix_snowshoe_detections_likely", "is_likely_snowshoe"),
         ("ix_snowshoe_detections_created", "created_at"),
     ]
-    
+
     for index_name, columns in indexes:
         _safe_execute_sql(
             connection,
             f"CREATE INDEX IF NOT EXISTS {index_name} ON snowshoe_detections ({columns})",
             f"Create {index_name} index",
         )
-    
+
     logger.info("Snowshoe detection schema migration (v8) completed successfully")
 
 
 def _upgrade_to_v9(connection: Connection) -> None:
     """Upgrade to schema version 9: Add longtail analysis tables with proper data types."""
-
     logger.info("Starting longtail analysis schema migration (v9)...")
 
     dialect_name = connection.dialect.name
@@ -738,7 +742,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
                 )
                 """,
-                "Create longtail_analysis table"
+                "Create longtail_analysis table",
             ):
                 raise Exception("Failed to create longtail_analysis table")
         else:
@@ -778,7 +782,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """,
-                "Create longtail_analysis table"
+                "Create longtail_analysis table",
             ):
                 raise Exception("Failed to create longtail_analysis table")
     else:
@@ -792,12 +796,10 @@ def _upgrade_to_v9(connection: Connection) -> None:
             ("ix_longtail_analysis_confidence", "longtail_analysis(confidence_score)"),
             ("ix_longtail_analysis_created", "longtail_analysis(created_at)"),
         ]
-        
+
         for index_name, index_def in indexes_to_create:
             if not _safe_execute_sql(
-                connection,
-                f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}",
-                f"Create {index_name} index"
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
             ):
                 logger.warning(f"Failed to create index {index_name}, continuing...")
 
@@ -826,7 +828,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
                 )
                 """,
-                "Create longtail_detections table"
+                "Create longtail_detections table",
             ):
                 raise Exception("Failed to create longtail_detections table")
         else:
@@ -852,7 +854,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
                 """,
-                "Create longtail_detections table"
+                "Create longtail_detections table",
             ):
                 raise Exception("Failed to create longtail_detections table")
     else:
@@ -867,12 +869,10 @@ def _upgrade_to_v9(connection: Connection) -> None:
             ("ix_longtail_detections_timestamp", "longtail_detections(timestamp)"),
             ("ix_longtail_detections_created", "longtail_detections(created_at)"),
         ]
-        
+
         for index_name, index_def in indexes_to_create:
             if not _safe_execute_sql(
-                connection,
-                f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}",
-                f"Create {index_name} index"
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
             ):
                 logger.warning(f"Failed to create index {index_name}, continuing...")
 
@@ -899,7 +899,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                         source_ip INET NOT NULL
                     )
                     """,
-                    "Create command_sequence_vectors table"
+                    "Create command_sequence_vectors table",
                 )
 
                 # Create HNSW index for fast similarity search
@@ -908,7 +908,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     """
                     CREATE INDEX ON command_sequence_vectors USING hnsw (sequence_vector vector_cosine_ops);
                     """,
-                    "Create HNSW index for command sequence vectors"
+                    "Create HNSW index for command sequence vectors",
                 )
 
                 # Create behavioral pattern vectors table
@@ -923,7 +923,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                         timestamp TIMESTAMP WITH TIME ZONE NOT NULL
                     )
                     """,
-                    "Create behavioral_vectors table"
+                    "Create behavioral_vectors table",
                 )
 
                 # Create IVFFlat index for behavioral clustering
@@ -933,7 +933,7 @@ def _upgrade_to_v9(connection: Connection) -> None:
                     CREATE INDEX ON behavioral_vectors
                     USING ivfflat (behavioral_vector vector_l2_ops) WITH (lists = 100);
                     """,
-                    "Create IVFFlat index for behavioral vectors"
+                    "Create IVFFlat index for behavioral vectors",
                 )
 
                 logger.info("pgvector tables created successfully")
@@ -945,6 +945,250 @@ def _upgrade_to_v9(connection: Connection) -> None:
     logger.info("Longtail analysis schema migration (v9) completed successfully")
 
 
+def _upgrade_to_v10(connection: Connection) -> None:
+    """Upgrade to schema version 10: Add password_statistics table for HIBP enrichment."""
+    logger.info("Starting password statistics schema migration (v10)...")
+
+    dialect_name = connection.dialect.name
+
+    # Create password_statistics table if it doesn't exist
+    if not _table_exists(connection, 'password_statistics'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_statistics (
+                    id SERIAL PRIMARY KEY,
+                    date DATE NOT NULL UNIQUE,
+                    total_attempts INTEGER NOT NULL DEFAULT 0,
+                    unique_passwords INTEGER NOT NULL DEFAULT 0,
+                    breached_count INTEGER NOT NULL DEFAULT 0,
+                    novel_count INTEGER NOT NULL DEFAULT 0,
+                    max_prevalence INTEGER,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create password_statistics table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create password_statistics table")
+
+            # Create index for created_at (date has unique constraint)
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_statistics_created ON password_statistics(created_at)",
+                "Create created_at index on password_statistics",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date DATE NOT NULL UNIQUE,
+                    total_attempts INTEGER NOT NULL DEFAULT 0,
+                    unique_passwords INTEGER NOT NULL DEFAULT 0,
+                    breached_count INTEGER NOT NULL DEFAULT 0,
+                    novel_count INTEGER NOT NULL DEFAULT 0,
+                    max_prevalence INTEGER,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create password_statistics table (SQLite)",
+            ):
+                raise Exception("Failed to create password_statistics table")
+
+            # Create index for created_at (date has unique constraint)
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_statistics_created ON password_statistics(created_at)",
+                "Create created_at index on password_statistics",
+            )
+
+        logger.info("password_statistics table created successfully")
+    else:
+        logger.info("password_statistics table already exists, skipping creation")
+
+    # Create password_tracking table if it doesn't exist
+    if not _table_exists(connection, 'password_tracking'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_tracking (
+                    id SERIAL PRIMARY KEY,
+                    password_hash VARCHAR(64) NOT NULL UNIQUE,
+                    password_text TEXT NOT NULL,
+                    breached BOOLEAN NOT NULL DEFAULT FALSE,
+                    breach_prevalence INTEGER,
+                    last_hibp_check TIMESTAMP WITH TIME ZONE,
+                    first_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    times_seen INTEGER NOT NULL DEFAULT 1,
+                    unique_sessions INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create password_tracking table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create password_tracking table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE UNIQUE INDEX ix_password_tracking_hash ON password_tracking(password_hash)",
+                "Create hash index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_last_seen ON password_tracking(last_seen)",
+                "Create last_seen index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_breached ON password_tracking(breached)",
+                "Create breached index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_times_seen ON password_tracking(times_seen)",
+                "Create times_seen index on password_tracking",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_tracking (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    password_hash VARCHAR(64) NOT NULL UNIQUE,
+                    password_text TEXT NOT NULL,
+                    breached BOOLEAN NOT NULL DEFAULT 0,
+                    breach_prevalence INTEGER,
+                    last_hibp_check TIMESTAMP,
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    times_seen INTEGER NOT NULL DEFAULT 1,
+                    unique_sessions INTEGER NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create password_tracking table (SQLite)",
+            ):
+                raise Exception("Failed to create password_tracking table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE UNIQUE INDEX ix_password_tracking_hash ON password_tracking(password_hash)",
+                "Create hash index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_last_seen ON password_tracking(last_seen)",
+                "Create last_seen index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_breached ON password_tracking(breached)",
+                "Create breached index on password_tracking",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_tracking_times_seen ON password_tracking(times_seen)",
+                "Create times_seen index on password_tracking",
+            )
+
+        logger.info("password_tracking table created successfully")
+    else:
+        logger.info("password_tracking table already exists, skipping creation")
+
+    # Create password_session_usage table if it doesn't exist
+    if not _table_exists(connection, 'password_session_usage'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_session_usage (
+                    id SERIAL PRIMARY KEY,
+                    password_id INTEGER NOT NULL REFERENCES password_tracking(id) ON DELETE CASCADE,
+                    session_id VARCHAR(64) NOT NULL REFERENCES session_summaries(session_id),
+                    username VARCHAR(256),
+                    success BOOLEAN NOT NULL DEFAULT FALSE,
+                    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
+                    UNIQUE(password_id, session_id)
+                )
+                """,
+                "Create password_session_usage table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create password_session_usage table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_password ON password_session_usage(password_id)",
+                "Create password_id index on password_session_usage",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_session ON password_session_usage(session_id)",
+                "Create session_id index on password_session_usage",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_timestamp ON password_session_usage(timestamp)",
+                "Create timestamp index on password_session_usage",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE password_session_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    password_id INTEGER NOT NULL REFERENCES password_tracking(id) ON DELETE CASCADE,
+                    session_id VARCHAR(64) NOT NULL REFERENCES session_summaries(session_id),
+                    username VARCHAR(256),
+                    success BOOLEAN NOT NULL DEFAULT 0,
+                    timestamp TIMESTAMP NOT NULL,
+                    UNIQUE(password_id, session_id)
+                )
+                """,
+                "Create password_session_usage table (SQLite)",
+            ):
+                raise Exception("Failed to create password_session_usage table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_password ON password_session_usage(password_id)",
+                "Create password_id index on password_session_usage",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_session ON password_session_usage(session_id)",
+                "Create session_id index on password_session_usage",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_password_session_timestamp ON password_session_usage(timestamp)",
+                "Create timestamp index on password_session_usage",
+            )
+
+        logger.info("password_session_usage table created successfully")
+    else:
+        logger.info("password_session_usage table already exists, skipping creation")
+
+    logger.info("Password statistics schema migration (v10) completed successfully")
+
+
 def _downgrade_from_v9(connection: Connection) -> None:
     """Rollback v9 migration if needed."""
     logger.info("Rolling back longtail analysis tables...")
@@ -952,36 +1196,28 @@ def _downgrade_from_v9(connection: Connection) -> None:
     try:
         # Drop tables in reverse order of dependencies
         _safe_execute_sql(
-            connection,
-            "DROP TABLE IF EXISTS longtail_detections CASCADE",
-            "Drop longtail_detections table"
+            connection, "DROP TABLE IF EXISTS longtail_detections CASCADE", "Drop longtail_detections table"
         )
 
-        _safe_execute_sql(
-            connection,
-            "DROP TABLE IF EXISTS longtail_analysis CASCADE",
-            "Drop longtail_analysis table"
-        )
+        _safe_execute_sql(connection, "DROP TABLE IF EXISTS longtail_analysis CASCADE", "Drop longtail_analysis table")
 
         # If using PostgreSQL with pgvector, drop vector tables
         if connection.dialect.name == 'postgresql':
             _safe_execute_sql(
                 connection,
                 "DROP TABLE IF EXISTS command_sequence_vectors CASCADE",
-                "Drop command_sequence_vectors table"
+                "Drop command_sequence_vectors table",
             )
 
             _safe_execute_sql(
-                connection,
-                "DROP TABLE IF EXISTS behavioral_vectors CASCADE",
-                "Drop behavioral_vectors table"
+                connection, "DROP TABLE IF EXISTS behavioral_vectors CASCADE", "Drop behavioral_vectors table"
             )
 
         # Update schema version
         _safe_execute_sql(
             connection,
             f"UPDATE schema_metadata SET value = '8' WHERE key = '{SCHEMA_VERSION_KEY}'",
-            "Update schema version to 8"
+            "Update schema version to 8",
         )
 
         logger.info("Rollback to v8 complete")

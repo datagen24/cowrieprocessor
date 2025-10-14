@@ -65,6 +65,8 @@ class DailyReportBuilder(BaseReportBuilder):
         payload["commands"] = _top_commands(commands)
         payload["files"] = _top_downloads(downloads)
         payload["enrichments"] = _enrichment_summary(enrichments)
+        # Optional: add password intelligence hints if the repository exposes them later
+        # payload["password_intelligence"] = self.repository.password_intelligence_hints(...)
         return payload
 
 

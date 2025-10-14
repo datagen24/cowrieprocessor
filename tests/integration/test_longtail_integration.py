@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 
 
@@ -20,8 +19,7 @@ class TestLongtailIntegration:
     def test_mock_session_creation(self) -> None:
         """Test that mock sessions can be created for testing."""
         mock_sessions = LongtailAnalyzer.create_mock_sessions_with_commands(
-            num_normal_sessions=2,
-            num_anomalous_sessions=1
+            num_normal_sessions=2, num_anomalous_sessions=1
         )
 
         assert len(mock_sessions) == 3
@@ -33,8 +31,9 @@ class TestLongtailIntegration:
 
     def test_vectorizer_vocabulary_management(self) -> None:
         """Test that vectorizer handles vocabulary correctly."""
-        from cowrieprocessor.threat_detection.longtail import CommandVectorizer
         from pathlib import Path
+
+        from cowrieprocessor.threat_detection.longtail import CommandVectorizer
 
         # Test with temporary vocabulary path
         vocab_path = Path("/tmp/test_vocab.pkl")
@@ -73,8 +72,7 @@ class TestLongtailIntegration:
 
         # Create small mock sessions for structure testing
         mock_sessions = LongtailAnalyzer.create_mock_sessions_with_commands(
-            num_normal_sessions=1,
-            num_anomalous_sessions=1
+            num_normal_sessions=1, num_anomalous_sessions=1
         )
 
         # Validate session structure
@@ -93,6 +91,7 @@ class TestLongtailIntegration:
 
         # Test that we can parse the commands back
         import json
+
         for session in mock_sessions:
             commands = json.loads(session.__dict__['commands'])
             assert isinstance(commands, list)

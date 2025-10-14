@@ -24,10 +24,9 @@ from ..reporting import (
     WeeklyReportBuilder,
 )
 from ..reporting.builders import BaseReportBuilder, ReportContext
-from ..settings import DatabaseSettings, load_database_settings
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
-from .db_config import resolve_database_settings, add_database_argument
+from .db_config import resolve_database_settings
 
 
 @dataclass(slots=True)
@@ -41,8 +40,6 @@ class ReportingMetrics:
     duration_seconds: float = 0.0
     published_reports: int = 0
     errors: int = 0
-
-
 
 
 def _builder_for_mode(mode: str, repository: ReportingRepository, top_n: int) -> BaseReportBuilder:

@@ -223,7 +223,7 @@ class TestSessionEnrichmentIntegration:
         # Create enrichment service
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         # Test with invalid credentials to trigger API failures
         service = EnrichmentService(
             cache_dir=cache_dir,
@@ -236,13 +236,13 @@ class TestSessionEnrichmentIntegration:
 
         # Test that enrichment handles failures gracefully
         result = service.enrich_session("test_session_failure", "192.168.1.200")
-        
+
         # Should return safe defaults even when APIs fail
         enrichment = result.get("enrichment", {})
         assert "dshield" in enrichment
         assert "spur" in enrichment
         assert "urlhaus" in enrichment
-        
+
         # Verify the structure is correct even with failures
         assert isinstance(enrichment["dshield"], dict)
         assert isinstance(enrichment["spur"], list)

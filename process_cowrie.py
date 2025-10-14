@@ -299,7 +299,10 @@ if __name__ == "__main__":
 else:
     # Create a minimal args object for import-time compatibility
     class MockArgs:
+        """Mock arguments object for import-time compatibility."""
+
         def __init__(self):
+            """Initialize mock arguments with default values."""
             # Only set attributes that are accessed directly without getattr defaults
             self.logpath = '/tmp/cowrie-logs'
             self.ttyfile = None
@@ -324,7 +327,7 @@ else:
             self.output_dir = None
             self.sensor = None
             self.db = '../cowrieprocessor.sqlite'
-        
+
     args = MockArgs()
 
 log_location = args.logpath
@@ -2404,6 +2407,7 @@ for filename in list_of_files:
                         continue
                     # Sanitize Unicode control characters before parsing JSON
                     from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
+
                     sanitized_line = UnicodeSanitizer.sanitize_json_string(each_line)
                     json_file = json.loads(sanitized_line)
                     if isinstance(json_file, dict):
@@ -2789,7 +2793,13 @@ else:
 print(summarystring)
 db_commit()
 
+
 # Run longtail analysis if requested
+def get_database_url():
+    """Get the database URL from the parsed arguments."""
+    return f"sqlite:///{args.db}"
+
+
 longtail_analysis_requested = os.getenv("RUN_LONGTAIL_ANALYSIS", "false").lower() == "true"
 if longtail_analysis_requested:
     try:
