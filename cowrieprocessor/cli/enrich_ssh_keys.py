@@ -70,7 +70,8 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
         logger.info(f"Backfilling SSH keys from {start_date or 'earliest record'} to {end_date}")
         
         # Resolve database settings from sensors.toml
-        db_settings = resolve_database_settings(args.sensor)
+        # If no sensor specified, use None to get default database settings
+        db_settings = resolve_database_settings(args.sensor if args.sensor else None)
         
         # Create engine and apply migrations
         engine = create_engine_from_settings(db_settings)
@@ -389,7 +390,8 @@ def export_ssh_keys(args: argparse.Namespace) -> int:
             end_date = None
             
         # Resolve database settings
-        db_settings = resolve_database_settings(args.sensor)
+        # If no sensor specified, use None to get default database settings
+        db_settings = resolve_database_settings(args.sensor if args.sensor else None)
         engine = create_engine_from_settings(db_settings)
         session_maker = create_session_maker(engine)
         
@@ -466,19 +468,22 @@ def main() -> int:
         epilog="""
 Examples:
   # Backfill SSH keys for last 30 days
-  cowrie-enrich-ssh-keys backfill --sensor prod-sensor-01 --days-back 30
+  cowrie-enrich-ssh-keys backfill --days-back 30
   
   # Backfill SSH keys for specific date range
-  cowrie-enrich-ssh-keys backfill --sensor prod-sensor-01 --start-date 2025-01-01 --end-date 2025-01-31
+  cowrie-enrich-ssh-keys backfill --start-date 2025-01-01 --end-date 2025-01-31
   
   # Backfill all SSH keys (from earliest record)
-  cowrie-enrich-ssh-keys backfill --sensor prod-sensor-01
+  cowrie-enrich-ssh-keys backfill
   
   # Export SSH keys to JSON file
-  cowrie-enrich-ssh-keys export --sensor prod-sensor-01 --format json --output ssh_keys.json
+  cowrie-enrich-ssh-keys export --format json --output ssh_keys.json
   
   # Export SSH keys from last 7 days to CSV
-  cowrie-enrich-ssh-keys export --sensor prod-sensor-01 --days-back 7 --format csv
+  cowrie-enrich-ssh-keys export --days-back 7 --format csv
+  
+  # Use specific sensor (optional, for debugging)
+  cowrie-enrich-ssh-keys backfill --sensor prod-sensor-01 --days-back 30
         """,
     )
     
@@ -488,8 +493,8 @@ Examples:
     # backfill subcommand
     backfill_parser = subparsers.add_parser('backfill', help='Backfill SSH key intelligence from existing events')
     
-    # Sensor configuration (required)
-    backfill_parser.add_argument('--sensor', type=str, required=True, help='Sensor name from sensors.toml')
+    # Sensor configuration (optional - for debugging)
+    backfill_parser.add_argument('--sensor', type=str, help='Sensor name from sensors.toml (optional, for debugging)')
     
     # Date range options
     date_group = backfill_parser.add_mutually_exclusive_group()
@@ -509,8 +514,8 @@ Examples:
     # export subcommand
     export_parser = subparsers.add_parser('export', help='Export SSH key intelligence data')
     
-    # Sensor configuration (required)
-    export_parser.add_argument('--sensor', type=str, required=True, help='Sensor name from sensors.toml')
+    # Sensor configuration (optional - for debugging)
+    export_parser.add_argument('--sensor', type=str, help='Sensor name from sensors.toml (optional, for debugging)')
     
     # Date range options
     export_parser.add_argument('--days-back', type=int, help='Export keys from last N days (default: all)')
