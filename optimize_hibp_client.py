@@ -3,18 +3,9 @@
 
 from __future__ import annotations
 
-import time
-from typing import Any, Dict
-
-import requests
-
-from cowrieprocessor.enrichment.cache import EnrichmentCacheManager
-from cowrieprocessor.enrichment.rate_limiting import RateLimitedSession
-
 
 def improve_hibp_client():
     """Add retry logic and better error handling to HIBP client."""
-    
     # Create a patch for the HIBP client's check_password method
     patch_code = '''
 def check_password_with_retry(self, password: str) -> Dict[str, Any]:
@@ -68,7 +59,10 @@ def check_password_with_retry(self, password: str) -> Dict[str, Any]:
                     # Exponential backoff with jitter
                     import random
                     delay = retry_delay * (2 ** attempt) + random.uniform(0, 1)
-                    logger.warning(f"HIBP API connection error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.1f}s...")
+                    logger.warning(
+        f"HIBP API connection error (attempt {attempt + 1}/{max_retries}): {e}. "
+        f"Retrying in {delay:.1f}s..."
+    )
                     time.sleep(delay)
                     continue
                 else:

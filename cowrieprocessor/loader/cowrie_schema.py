@@ -15,10 +15,14 @@ try:
 except ImportError:
     # Fallback for environments without jsonschema
     def validate(instance, schema):
+        """Fallback validate function when jsonschema is not available."""
         pass
 
     class ValidationError(Exception):
+        """Fallback ValidationError class when jsonschema is not available."""
+        
         def __init__(self, message):
+            """Initialize ValidationError with message."""
             self.message = message
             super().__init__(message)
 

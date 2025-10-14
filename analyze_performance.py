@@ -3,17 +3,16 @@
 
 def analyze_performance_bottlenecks():
     """Analyze what's causing the 41.7 hours of extra overhead."""
-    
     print("🔍 Password Enrichment Performance Analysis")
     print("=" * 60)
     print()
     
     print("📊 Your Results:")
-    print(f"• Total time: 54:49:45 (197,385 seconds)")
-    print(f"• Sessions processed: 153,068")
-    print(f"• HIBP API calls: 29,514")
-    print(f"• Expected API time: 29,514 × 1.6s = 47,222s (13.1 hours)")
-    print(f"• Actual overhead: 197,385 - 47,222 = 150,163s (41.7 hours)")
+    print("• Total time: 54:49:45 (197,385 seconds)")
+    print("• Sessions processed: 153,068")
+    print("• HIBP API calls: 29,514")
+    print("• Expected API time: 29,514 × 1.6s = 47,222s (13.1 hours)")
+    print("• Actual overhead: 197,385 - 47,222 = 150,163s (41.7 hours)")
     print()
     
     print("🐌 Performance Bottlenecks Identified:")

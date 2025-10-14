@@ -26,12 +26,7 @@ from ..loader import (
     DeltaLoaderConfig,
     StatusEmitter,
 )
-from ..settings import DatabaseSettings, load_database_settings
-from .db_config import resolve_database_settings, add_database_argument
-
-
-
-
+from .db_config import resolve_database_settings
 
 
 def _make_bulk_config(args: argparse.Namespace) -> BulkLoaderConfig:

@@ -8,7 +8,7 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from ..utils.file_type_detector import FileTypeDetector
 
@@ -20,8 +20,7 @@ def organize_files(
     dry_run: bool = True,
     move_files: bool = False
 ) -> Dict[str, List[Path]]:
-    """
-    Organize files by moving them to appropriate directories based on content type.
+    """Organize files by moving them to appropriate directories based on content type.
     
     Args:
         source_directory: Directory to scan for mislocated files

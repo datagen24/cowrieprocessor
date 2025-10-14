@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import sys
+
 from cowrieprocessor.db import apply_migrations, create_engine_from_settings
 from cowrieprocessor.settings import DatabaseSettings
 

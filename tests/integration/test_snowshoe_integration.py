@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock, patch
-from typing import Dict, List, Any
+from datetime import UTC, datetime, timedelta
+from typing import List
+from unittest.mock import Mock
 
-from cowrieprocessor.threat_detection import SnowshoeDetector, SnowshoeDetectionMetrics
+import pytest
+
 from cowrieprocessor.db.models import SessionSummary
+from cowrieprocessor.threat_detection import SnowshoeDetectionMetrics, SnowshoeDetector
 
 
 class TestSnowshoeIntegration:
@@ -102,7 +103,11 @@ class TestSnowshoeIntegration:
         return sessions
 
     @pytest.fixture
-    def mixed_traffic_sessions(self, realistic_snowshoe_sessions: List[SessionSummary], realistic_normal_sessions: List[SessionSummary]) -> List[SessionSummary]:
+    def mixed_traffic_sessions(
+        self, 
+        realistic_snowshoe_sessions: List[SessionSummary], 
+        realistic_normal_sessions: List[SessionSummary]
+    ) -> List[SessionSummary]:
         """Create mixed traffic with both snowshoe and normal patterns."""
         return realistic_snowshoe_sessions + realistic_normal_sessions
 

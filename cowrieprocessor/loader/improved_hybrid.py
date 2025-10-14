@@ -303,9 +303,11 @@ def main():
     print(f"Multiline parsed: {stats['multiline_parsed']}")
     print(f"Repaired parsed: {stats['repaired_parsed']}")
     print(f"DLQ sent: {stats['dlq_sent']}")
-    print(
-        f"Success rate: {((stats['single_line_parsed'] + stats['multiline_parsed'] + stats['repaired_parsed']) / max(stats['total_lines'], 1)) * 100:.1f}%"
+    success_rate = (
+        (stats['single_line_parsed'] + stats['multiline_parsed'] + stats['repaired_parsed']) / 
+        max(stats['total_lines'], 1) * 100
     )
+    print(f"Success rate: {success_rate:.1f}%")
 
 
 if __name__ == "__main__":

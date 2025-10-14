@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,7 @@ class FileTypeDetector:
     
     @classmethod
     def detect_file_type(cls, file_path: Path, sample_lines: int = 10) -> Tuple[str, str, List[str]]:
-        """
-        Detect the type of file by examining its content.
+        """Detect the type of file by examining its content.
         
         Args:
             file_path: Path to the file to examine
@@ -98,8 +97,7 @@ class FileTypeDetector:
     
     @classmethod
     def should_process_as_json(cls, file_path: Path, sample_lines: int = 10) -> Tuple[bool, str, str]:
-        """
-        Determine if a file should be processed as JSON.
+        """Determine if a file should be processed as JSON.
         
         Args:
             file_path: Path to the file to examine
@@ -132,8 +130,7 @@ class FileTypeDetector:
     
     @classmethod
     def suggest_correct_directory(cls, file_path: Path, file_type: str) -> Optional[Path]:
-        """
-        Suggest the correct directory for a mislocated file.
+        """Suggest the correct directory for a mislocated file.
         
         Args:
             file_path: Current path of the file

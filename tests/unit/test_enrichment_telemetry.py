@@ -6,8 +6,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import pytest
-
 from cowrieprocessor.enrichment.telemetry import EnrichmentMetrics, EnrichmentTelemetry
 
 
@@ -232,10 +230,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
     def test_enrichment_service_with_telemetry(self) -> None:
         """Test EnrichmentService with telemetry enabled."""
-        from enrichment_handlers import EnrichmentService
-        from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from pathlib import Path
         import tempfile
+
+        from cowrieprocessor.enrichment import EnrichmentCacheManager
+        from enrichment_handlers import EnrichmentService
         
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -258,10 +256,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
     def test_enrichment_service_without_telemetry(self) -> None:
         """Test EnrichmentService with telemetry disabled."""
-        from enrichment_handlers import EnrichmentService
-        from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from pathlib import Path
         import tempfile
+
+        from cowrieprocessor.enrichment import EnrichmentCacheManager
+        from enrichment_handlers import EnrichmentService
         
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -282,10 +280,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
     def test_cache_snapshot_method(self) -> None:
         """Test that cache_snapshot method works with telemetry."""
-        from enrichment_handlers import EnrichmentService
-        from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from pathlib import Path
         import tempfile
+
+        from cowrieprocessor.enrichment import EnrichmentCacheManager
+        from enrichment_handlers import EnrichmentService
         
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)

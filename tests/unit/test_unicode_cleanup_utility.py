@@ -1,10 +1,10 @@
 """Tests for Unicode cleanup utility in cowrie_db."""
 
-import json
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+
 from cowrieprocessor.cli.cowrie_db import CowrieDatabase
-from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
 
 
 class TestUnicodeCleanupUtility:
@@ -220,7 +220,7 @@ class TestUnicodeCleanupUtility:
         mock_records = [Mock(id=i, payload_text='{"eventid": "test", "message": "normal"}') for i in range(50)]
         self.mock_connection.execute.return_value.fetchall.return_value = mock_records
         
-        with patch('cowrieprocessor.cli.cowrie_db.logger') as mock_logger:
+        with patch('cowrieprocessor.cli.cowrie_db.logger'):
             result = self.db.sanitize_unicode_in_database(dry_run=True, batch_size=10, limit=50)
             
             # Verify the operation completed successfully
@@ -233,7 +233,10 @@ class TestUnicodeCleanupUtility:
         """Test with real-world Cowrie log data."""
         # Mock records with actual Cowrie log patterns
         mock_records = [
-            Mock(id=1, payload_text='{"eventid": "cowrie.session.connect", "message": "Remote SSH version: \x16\x03\x01\x00"}'),
+            Mock(id=1, payload_text=(
+                '{"eventid": "cowrie.session.connect", '
+                '"message": "Remote SSH version: \x16\x03\x01\x00"}'
+            )),
             Mock(id=2, payload_text='{"eventid": "cowrie.session.command", "input": "ls -la"}'),
             Mock(id=3, payload_text='{"eventid": "cowrie.session.file_download", "filename": "malware\x00.exe"}'),
         ]

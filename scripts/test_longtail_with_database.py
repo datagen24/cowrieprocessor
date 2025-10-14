@@ -19,8 +19,8 @@ from datetime import UTC, datetime, timedelta
 
 from cowrieprocessor.db import apply_migrations, create_engine_from_settings, create_session_maker
 from cowrieprocessor.db.models import SessionSummary
-from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 from cowrieprocessor.settings import DatabaseSettings
+from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

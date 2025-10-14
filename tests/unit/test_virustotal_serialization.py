@@ -15,10 +15,12 @@ class MockWhistleBlowerDict(dict):
     """Mock WhistleBlowerDict that isn't JSON serializable."""
 
     def __init__(self, data: dict):
+        """Initialize the mock WhistleBlowerDict."""
         super().__init__(data)
         self._special_attr = "not_serializable"
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Return string representation of the mock WhistleBlowerDict."""
         return f"WhistleBlowerDict({dict(self)})"
 
 
@@ -75,7 +77,7 @@ class TestVirusTotalSerialization:
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
 
-        handler = VirusTotalHandler("test-key", cache_dir)
+        VirusTotalHandler("test-key", cache_dir)
 
         # Test data with a non-serializable object
         test_data = {
@@ -112,7 +114,7 @@ class TestVirusTotalSerialization:
         # We need to extract it from the _fetch_file_info method
         import inspect
 
-        source = inspect.getsource(handler._fetch_file_info)
+        inspect.getsource(handler._fetch_file_info)
 
         # Create a test value with nested WhistleBlowerDict
         test_data = {

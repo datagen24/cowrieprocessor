@@ -282,7 +282,7 @@ class TestCLIPostgreSQLCompatibility:
     def test_postgresql_backup_command_generation(self):
         """Test PostgreSQL backup command generation."""
         db_url = "postgresql://user:password@host:5432/database"
-        db = CowrieDatabase(db_url)
+        CowrieDatabase(db_url)
 
         # Test URL parsing for backup
         url_parts = db_url.replace("postgresql://", "").replace("postgres://", "")

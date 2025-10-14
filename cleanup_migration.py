@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import sys
+
 from cowrieprocessor.db import create_engine_from_settings
 from cowrieprocessor.db.migrations import _safe_execute_sql, _table_exists
 from cowrieprocessor.settings import DatabaseSettings
@@ -83,7 +84,7 @@ def main() -> int:
     success = cleanup_partial_migration(db_url)
     if success:
         print("\n🎉 Cleanup completed! You can now run the migration again:")
-        print(f"uv run cowrie-db migrate")
+        print("uv run cowrie-db migrate")
     
     return 0 if success else 1
 

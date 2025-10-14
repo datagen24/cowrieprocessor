@@ -22,6 +22,7 @@ class PostgreSQLLoadingMonitor:
     """Monitor PostgreSQL loading statistics in real-time."""
 
     def __init__(self, engine: Engine):
+        """Initialize the PostgreSQL loading monitor."""
         self.engine = engine
         self.last_stats = {}
         self.start_time = datetime.now(timezone.utc)
@@ -270,7 +271,8 @@ class PostgreSQLLoadingMonitor:
                     for table, delta in perf['table_deltas'].items():
                         if delta['inserts_delta'] > 0:
                             print(
-                                f"   {table}: +{delta['inserts_delta']:,} inserts, {delta['current_live_tuples']:,} total"
+                                f"   {table}: +{delta['inserts_delta']:,} inserts, "
+                                f"{delta['current_live_tuples']:,} total"
                             )
 
                 # Database size
@@ -314,6 +316,7 @@ class PostgreSQLLoadingMonitor:
 
 
 def main():
+    """Main entry point for the PostgreSQL loading monitor."""
     parser = argparse.ArgumentParser(
         description='Monitor PostgreSQL loading statistics in real-time',
         formatter_class=argparse.RawDescriptionHelpFormatter,

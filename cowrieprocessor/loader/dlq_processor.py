@@ -248,6 +248,7 @@ class EventStitcher:
     """Stitches fragmented events into complete Cowrie events."""
 
     def __init__(self):
+        """Initialize the event stitcher."""
         self.validator = CowrieEventValidator()
         self.repair_strategies = JSONRepairStrategies()
 
@@ -295,8 +296,6 @@ class EventStitcher:
         Returns:
             Repaired event dictionary or None if repair failed
         """
-        analysis = self.analyze_dlq_content(malformed_content)
-
         # Try different repair strategies
         repair_attempts = [
             malformed_content,  # Try as-is first
@@ -646,6 +645,7 @@ class DLQProcessor:
     """Main processor for handling Dead Letter Queue events."""
 
     def __init__(self, db_path: Optional[str] = None):
+        """Initialize the DLQ processor."""
         self.db_path = db_path
         self.stitcher = EventStitcher()
         self.processed_count = 0
@@ -676,7 +676,7 @@ class DLQProcessor:
 
         with session_factory() as session:
             # Query DLQ events
-            query = session.query(DeadLetterEvent).filter(DeadLetterEvent.resolved == False)
+            query = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved)
 
             if reason_filter:
                 query = query.filter(DeadLetterEvent.reason == reason_filter)
@@ -762,7 +762,7 @@ class DLQProcessor:
                 },
             )
 
-            result = session.execute(stmt)
+            session.execute(stmt)
 
             # Always consider this a success since we either inserted or updated
             return True
@@ -832,7 +832,7 @@ class DLQProcessor:
         session_factory = create_session_maker(engine)
 
         with session_factory() as session:
-            dlq_events = session.query(DeadLetterEvent).filter(DeadLetterEvent.resolved == False).all()
+            dlq_events = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved).all()
 
             patterns["total_events"] = len(dlq_events)
 

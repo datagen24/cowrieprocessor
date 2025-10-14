@@ -742,7 +742,11 @@ def _load_memory_config_from_sensors() -> Dict[str, float]:
         }
         
         if memory_config["memory_limit_gb"]:
-            logger.info(f"Loaded memory configuration from sensors.toml: {memory_config['memory_limit_gb']}GB limit, {memory_config['memory_warning_threshold']*100:.0f}% warning threshold")
+            logger.info(
+                f"Loaded memory configuration from sensors.toml: "
+                f"{memory_config['memory_limit_gb']}GB limit, "
+                f"{memory_config['memory_warning_threshold']*100:.0f}% warning threshold"
+            )
         else:
             logger.info("No memory_limit_gb in sensors.toml, will use auto-detection")
             
@@ -767,14 +771,14 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     print("=" * 80)
     
     # Analysis summary
-    print(f"\n📊 ANALYSIS SUMMARY")
+    print("\n📊 ANALYSIS SUMMARY")
     print(f"   Sessions analyzed: {result.total_sessions_analyzed:,}")
     print(f"   Events analyzed: {result.total_events_analyzed:,}")
     print(f"   Analysis duration: {result.analysis_duration_seconds:.2f}s")
     print(f"   Memory usage: {result.memory_usage_mb:.1f} MB")
     
     # Detection counts
-    print(f"\n🎯 THREAT DETECTIONS")
+    print("\n🎯 THREAT DETECTIONS")
     print(f"   Rare commands: {result.rare_command_count}")
     print(f"   Anomalous sequences: {result.anomalous_sequence_count}")
     print(f"   Outlier sessions: {result.outlier_session_count}")
@@ -783,7 +787,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # Top rare commands (most suspicious)
     if result.rare_commands:
-        print(f"\n🚨 TOP RARE COMMANDS (Most Suspicious)")
+        print("\n🚨 TOP RARE COMMANDS (Most Suspicious)")
         # Sort by rarity score (lower = more rare)
         sorted_commands = sorted(result.rare_commands, key=lambda x: x['rarity_score'])[:10]
         
@@ -799,7 +803,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
             # Show session details for this command
             sessions = cmd.get('sessions', [])
             if sessions:
-                print(f"       Sessions:")
+                print("       Sessions:")
                 for j, session in enumerate(sessions[:3]):  # Show first 3 sessions
                     src_ip = session.get('src_ip', 'Unknown')
                     session_id = session.get('session_id', 'Unknown')
@@ -813,7 +817,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # Top frequent rare commands (most common among rare)
     if result.rare_commands:
-        print(f"\n📈 MOST FREQUENT RARE COMMANDS")
+        print("\n📈 MOST FREQUENT RARE COMMANDS")
         # Sort by frequency (higher = more frequent)
         sorted_by_freq = sorted(result.rare_commands, key=lambda x: x['frequency'], reverse=True)[:5]
         
@@ -825,7 +829,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # Anomalous sequences
     if result.anomalous_sequences:
-        print(f"\n🔍 ANOMALOUS COMMAND SEQUENCES")
+        print("\n🔍 ANOMALOUS COMMAND SEQUENCES")
         for i, seq in enumerate(result.anomalous_sequences[:5], 1):
             sequence = seq.get('sequence', 'Unknown')
             if len(sequence) > 80:
@@ -834,7 +838,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # Outlier sessions
     if result.outlier_sessions:
-        print(f"\n👤 OUTLIER SESSIONS")
+        print("\n👤 OUTLIER SESSIONS")
         for i, session in enumerate(result.outlier_sessions[:5], 1):
             session_id = session.get('session_id', 'Unknown')
             outlier_score = session.get('outlier_score', 0.0)
@@ -842,7 +846,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # Emerging patterns
     if result.emerging_patterns:
-        print(f"\n🌱 EMERGING PATTERNS")
+        print("\n🌱 EMERGING PATTERNS")
         for i, pattern in enumerate(result.emerging_patterns[:5], 1):
             pattern_text = pattern.get('pattern', 'Unknown')
             if len(pattern_text) > 80:
@@ -851,7 +855,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     
     # High entropy payloads
     if result.high_entropy_payloads:
-        print(f"\n🔐 HIGH ENTROPY PAYLOADS")
+        print("\n🔐 HIGH ENTROPY PAYLOADS")
         for i, payload in enumerate(result.high_entropy_payloads[:5], 1):
             payload_text = payload.get('payload', 'Unknown')
             entropy = payload.get('entropy', 0.0)
@@ -862,7 +866,7 @@ def _print_longtail_summary(result: LongtailAnalysisResult) -> None:
     # Statistical summary
     if result.statistical_summary:
         stats = result.statistical_summary
-        print(f"\n📈 STATISTICAL SUMMARY")
+        print("\n📈 STATISTICAL SUMMARY")
         
         if 'data_characteristics' in stats:
             data = stats['data_characteristics']

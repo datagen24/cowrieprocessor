@@ -22,7 +22,6 @@ def _session_factory():
 
 def test_track_password_de_dupes_usage_rows() -> None:
     """Ensure multiple attempts in a session do not violate the usage unique constraint."""
-
     session_maker = _session_factory()
 
     with session_maker() as db_session:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -139,8 +137,14 @@ class TestVirusTotalQuotaManager:
         # Mock successful response
         mock_client.get_json.side_effect = [
             {"data": {"id": "test-user-id"}},
-            {"data": {"attributes": {"api_requests_daily": 500, "api_requests_hourly": 200, "api_requests_monthly": 5000, "api_requests": 1000}}},
-            {"data": {"attributes": {"api_requests_daily": 100, "api_requests_hourly": 50, "api_requests_monthly": 1000, "api_requests": 250}}}
+            {"data": {"attributes": {
+                "api_requests_daily": 500, "api_requests_hourly": 200, 
+                "api_requests_monthly": 5000, "api_requests": 1000
+            }}},
+            {"data": {"attributes": {
+                "api_requests_daily": 100, "api_requests_hourly": 50, 
+                "api_requests_monthly": 1000, "api_requests": 250
+            }}}
         ]
         
         manager = VirusTotalQuotaManager("test-api-key", cache_ttl=3600)
@@ -165,12 +169,24 @@ class TestVirusTotalQuotaManager:
         # Mock successful response
         mock_client.get_json.side_effect = [
             {"data": {"id": "test-user-id"}},
-            {"data": {"attributes": {"api_requests_daily": 500, "api_requests_hourly": 200, "api_requests_monthly": 5000, "api_requests": 1000}}},
-            {"data": {"attributes": {"api_requests_daily": 100, "api_requests_hourly": 50, "api_requests_monthly": 1000, "api_requests": 250}}},
+            {"data": {"attributes": {
+                "api_requests_daily": 500, "api_requests_hourly": 200, 
+                "api_requests_monthly": 5000, "api_requests": 1000
+            }}},
+            {"data": {"attributes": {
+                "api_requests_daily": 100, "api_requests_hourly": 50, 
+                "api_requests_monthly": 1000, "api_requests": 250
+            }}},
             # Second round for force refresh
             {"data": {"id": "test-user-id"}},
-            {"data": {"attributes": {"api_requests_daily": 500, "api_requests_hourly": 200, "api_requests_monthly": 5000, "api_requests": 1000}}},
-            {"data": {"attributes": {"api_requests_daily": 150, "api_requests_hourly": 75, "api_requests_monthly": 1500, "api_requests": 350}}}
+            {"data": {"attributes": {
+                "api_requests_daily": 500, "api_requests_hourly": 200, 
+                "api_requests_monthly": 5000, "api_requests": 1000
+            }}},
+            {"data": {"attributes": {
+                "api_requests_daily": 150, "api_requests_hourly": 75, 
+                "api_requests_monthly": 1500, "api_requests": 350
+            }}}
         ]
         
         manager = VirusTotalQuotaManager("test-api-key", cache_ttl=3600)

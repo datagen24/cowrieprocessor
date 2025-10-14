@@ -237,7 +237,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Create procedures command
-    create_parser = subparsers.add_parser("create", help="Create enhanced stored procedures")
+    subparsers.add_parser("create", help="Create enhanced stored procedures")
 
     # Process command
     process_parser = subparsers.add_parser("process", help="Process DLQ events")
@@ -247,7 +247,7 @@ def main() -> None:
     process_parser.add_argument("--session-id", help="Processing session ID")
 
     # Health command
-    health_parser = subparsers.add_parser("health", help="Get DLQ health statistics")
+    subparsers.add_parser("health", help="Get DLQ health statistics")
 
     # Cleanup command
     cleanup_parser = subparsers.add_parser("cleanup", help="Cleanup resolved DLQ events")
@@ -258,10 +258,10 @@ def main() -> None:
     monitor_parser.add_argument("--duration", type=int, default=5, help="Monitoring duration in minutes")
 
     # Analyze command
-    analyze_parser = subparsers.add_parser("analyze", help="Analyze DLQ patterns")
+    subparsers.add_parser("analyze", help="Analyze DLQ patterns")
 
     # Test command
-    test_parser = subparsers.add_parser("test", help="Test enhanced procedures")
+    subparsers.add_parser("test", help="Test enhanced procedures")
 
     args = parser.parse_args()
 

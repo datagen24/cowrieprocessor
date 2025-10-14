@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Enhance existing status files with PostgreSQL statistics.
+
 This reads the current status files and adds database performance metrics.
 """
 
@@ -22,6 +23,7 @@ class StatusEnhancer:
     """Enhance existing status files with PostgreSQL statistics."""
 
     def __init__(self, engine: Engine):
+        """Initialize the status file enhancer."""
         self.engine = engine
         self.last_stats = {}
 
@@ -160,6 +162,7 @@ def monitor_status_files(engine: Engine, status_dir: Path = Path("."), interval:
 
 
 def main():
+    """Main entry point for the status file enhancer."""
     parser = argparse.ArgumentParser(
         description='Enhance existing status files with PostgreSQL statistics',
         formatter_class=argparse.RawDescriptionHelpFormatter,

@@ -8,12 +8,9 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import func
-
 from cowrieprocessor.cli.db_config import resolve_database_settings
 from cowrieprocessor.db import create_engine_from_settings, create_session_maker
 from cowrieprocessor.db.models import RawEvent, SessionSummary
-from cowrieprocessor.enrichment.cache import EnrichmentCacheManager
 
 
 def analyze_password_diversity(args: argparse.Namespace) -> None:
@@ -27,7 +24,7 @@ def analyze_password_diversity(args: argparse.Namespace) -> None:
         end_date = datetime.strptime(args.end_date, "%Y-%m-%d").replace(tzinfo=UTC)
 
     print(f"\n{'=' * 70}")
-    print(f"Password Enrichment Performance Analysis")
+    print("Password Enrichment Performance Analysis")
     print(f"Date Range: {start_date.date()} to {end_date.date()}")
     print(f"{'=' * 70}\n")
 

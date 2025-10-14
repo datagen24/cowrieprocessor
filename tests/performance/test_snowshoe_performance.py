@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
 import time
-import psutil
-from datetime import datetime, timedelta, UTC
-from unittest.mock import Mock
+from datetime import UTC, datetime, timedelta
 from typing import List
+from unittest.mock import Mock
 
-from cowrieprocessor.threat_detection import SnowshoeDetector, create_snowshoe_metrics_from_detection
+import psutil
+import pytest
+
 from cowrieprocessor.db.models import SessionSummary
+from cowrieprocessor.threat_detection import SnowshoeDetector, create_snowshoe_metrics_from_detection
 
 
 class TestSnowshoePerformance:
@@ -137,7 +138,7 @@ class TestSnowshoePerformance:
         # Monitor system resources
         process = psutil.Process()
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
-        initial_cpu = process.cpu_percent()
+        process.cpu_percent()
         
         # Perform analysis with timing
         print("Starting snowshoe detection analysis...")
@@ -219,7 +220,7 @@ class TestSnowshoePerformance:
         
         # Perform analysis
         start_time = time.perf_counter()
-        result = detector.detect(large_snowshoe_dataset, window_hours=24)
+        detector.detect(large_snowshoe_dataset, window_hours=24)
         end_time = time.perf_counter()
         
         # Sample memory after analysis
@@ -228,7 +229,7 @@ class TestSnowshoePerformance:
         memory_used = memory_samples[-1] - memory_samples[0]
         duration = end_time - start_time
         
-        print(f"Memory efficiency test:")
+        print("Memory efficiency test:")
         print(f"  Initial memory: {memory_samples[0]:.2f} MB")
         print(f"  Final memory: {memory_samples[-1]:.2f} MB")
         print(f"  Memory used: {memory_used:.2f} MB")
@@ -259,14 +260,14 @@ class TestSnowshoePerformance:
             cpu_samples.append(process.cpu_percent())
             time.sleep(0.5)
         
-        result = detector.detect(large_snowshoe_dataset, window_hours=24)
+        detector.detect(large_snowshoe_dataset, window_hours=24)
         end_time = time.perf_counter()
         
         duration = end_time - start_time
         avg_cpu = sum(cpu_samples) / len(cpu_samples) if cpu_samples else 0
         max_cpu = max(cpu_samples) if cpu_samples else 0
         
-        print(f"CPU efficiency test:")
+        print("CPU efficiency test:")
         print(f"  Average CPU: {avg_cpu:.1f}%")
         print(f"  Max CPU: {max_cpu:.1f}%")
         print(f"  Duration: {duration:.2f} seconds")
@@ -277,8 +278,8 @@ class TestSnowshoePerformance:
 
     def test_concurrent_analysis_performance(self) -> None:
         """Test performance with multiple concurrent analyses."""
-        import threading
         import queue
+        import threading
         
         # Create smaller datasets for concurrent testing
         datasets = []
@@ -338,7 +339,7 @@ class TestSnowshoePerformance:
         while not results_queue.empty():
             results.append(results_queue.get())
         
-        print(f"Concurrent analysis test:")
+        print("Concurrent analysis test:")
         print(f"  Total time: {total_time:.2f} seconds")
         print(f"  Number of analyses: {len(results)}")
         print(f"  Average time per analysis: {sum(r[1] for r in results) / len(results):.2f} seconds")
@@ -448,7 +449,7 @@ class TestSnowshoePerformance:
         
         total_time = detection_duration + metrics_duration + status_duration
         
-        print(f"Metrics performance test:")
+        print("Metrics performance test:")
         print(f"  Detection: {detection_duration:.3f}s")
         print(f"  Metrics creation: {metrics_duration:.3f}s")
         print(f"  Status dict conversion: {status_duration:.3f}s")

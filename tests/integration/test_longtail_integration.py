@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 
 
@@ -33,8 +32,9 @@ class TestLongtailIntegration:
 
     def test_vectorizer_vocabulary_management(self) -> None:
         """Test that vectorizer handles vocabulary correctly."""
-        from cowrieprocessor.threat_detection.longtail import CommandVectorizer
         from pathlib import Path
+
+        from cowrieprocessor.threat_detection.longtail import CommandVectorizer
 
         # Test with temporary vocabulary path
         vocab_path = Path("/tmp/test_vocab.pkl")

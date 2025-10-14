@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -72,8 +72,8 @@ def test_check_password_not_breached(hibp_enricher, mock_rate_limiter):
     # Generate a password that won't be in the response
     test_password = "ThisIsAVeryUniquePassword123!@#"
     sha1_hash = hashlib.sha1(test_password.encode('utf-8')).hexdigest().upper()
-    prefix = sha1_hash[:5]
-    suffix = sha1_hash[5:]
+    sha1_hash[:5]  # prefix
+    sha1_hash[5:]  # suffix
     
     # Mock API response without this hash
     mock_response = Mock()
@@ -94,7 +94,7 @@ def test_check_password_uses_cache(hibp_enricher, cache_manager, mock_rate_limit
     # First check - mock API response
     test_password = "password123"
     sha1_hash = hashlib.sha1(test_password.encode('utf-8')).hexdigest().upper()
-    prefix = sha1_hash[:5]
+    sha1_hash[:5]  # prefix
     
     mock_response = Mock()
     mock_response.text = "003D68EB55068C33ACE09247EE4C639306B:3"
@@ -246,13 +246,13 @@ def test_stats_increment_correctly(hibp_enricher, mock_rate_limiter):
     mock_rate_limiter.get = Mock(return_value=mock_response)
     
     # First check
-    result1 = hibp_enricher.check_password("breached")
+    hibp_enricher.check_password("breached")
     assert hibp_enricher.stats['checks'] == 1
     assert hibp_enricher.stats['api_calls'] == 1
     assert hibp_enricher.stats['cache_misses'] == 1
     
     # Second check (cached)
-    result2 = hibp_enricher.check_password("breached")
+    hibp_enricher.check_password("breached")
     assert hibp_enricher.stats['checks'] == 2
     assert hibp_enricher.stats['api_calls'] == 1  # Not incremented
     assert hibp_enricher.stats['cache_hits'] == 1

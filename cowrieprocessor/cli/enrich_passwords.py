@@ -1257,9 +1257,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
     # Initialize enrichment service
     try:
         # Import here to avoid circular imports
-        from ..enrichment import EnrichmentCacheManager
         import sys
         from pathlib import Path
+        
+        from ..enrichment import EnrichmentCacheManager
         # Add project root to path to import enrichment_handlers
         project_root = Path(__file__).resolve().parents[2]
         if str(project_root) not in sys.path:
@@ -1353,8 +1354,15 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                 
                 update_session(engine, session_id, enrichment, flags)
                 if session_count % args.commit_interval == 0:
-                    stats_summary = f"dshield={enrichment_stats['dshield_calls']}, urlhaus={enrichment_stats['urlhaus_calls']}, spur={enrichment_stats['spur_calls']}"
-                    logger.info(f"[sessions] committed {session_count} rows (elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]")
+                    stats_summary = (
+                        f"dshield={enrichment_stats['dshield_calls']}, "
+                        f"urlhaus={enrichment_stats['urlhaus_calls']}, "
+                        f"spur={enrichment_stats['spur_calls']}"
+                    )
+                    logger.info(
+                        f"[sessions] committed {session_count} rows "
+                        f"(elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]"
+                    )
                     last_commit = time.time()
                 
                 # Update status every 10 items or every 30 seconds
@@ -1388,7 +1396,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                     update_file(engine, file_hash, enrichment)
                     if file_count % args.commit_interval == 0:
                         vt_stats = f"vt={enrichment_stats['virustotal_calls']}"
-                        logger.info(f"[files] committed {file_count} rows (elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]")
+                        logger.info(
+                            f"[files] committed {file_count} rows "
+                            f"(elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]"
+                        )
                         last_commit = time.time()
                     
                     # Update status every 10 items or every 30 seconds

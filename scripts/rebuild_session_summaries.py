@@ -585,7 +585,7 @@ class SessionSummaryRebuilder:
                                     )
                                 )
 
-                                result = session.execute(stmt)
+                                session.execute(stmt)
                                 stats['commands_aggregated'] += len(cmd_stats_to_insert)
 
                             except Exception as e:
@@ -596,7 +596,10 @@ class SessionSummaryRebuilder:
                                         session.merge(cmd)
                                         stats['commands_aggregated'] += 1
                                     except Exception as merge_error:
-                                        logger.error(f"Failed to merge command stat {cmd.session_id}/{cmd.command_normalized}: {merge_error}")
+                                        logger.error(
+                                            f"Failed to merge command stat {cmd.session_id}/"
+                                            f"{cmd.command_normalized}: {merge_error}"
+                                        )
 
                         # Update session count
                         unique_sessions = len(set(agg['session_id'] for agg in command_aggregates.values()))

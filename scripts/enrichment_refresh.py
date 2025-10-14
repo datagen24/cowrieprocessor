@@ -28,11 +28,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from sqlalchemy import text
-from sqlalchemy.engine import Engine
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.engine import Engine  # noqa: E402
 
-from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_engine  # noqa: E402
 from cowrieprocessor.db.engine import create_engine_from_settings  # noqa: E402
+from cowrieprocessor.db.json_utils import get_dialect_name_from_engine  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from cowrieprocessor.settings import DatabaseSettings, load_database_settings  # noqa: E402
 from cowrieprocessor.status_emitter import StatusEmitter  # noqa: E402
@@ -409,7 +409,10 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh enrichment data in-place")
     parser.add_argument(
         "--db-url",
-        help="Database URL override (sqlite:///path or postgresql://user:pass@host/db). If not provided, will use sensors.toml configuration.",
+        help=(
+            "Database URL override (sqlite:///path or postgresql://user:pass@host/db). "
+            "If not provided, will use sensors.toml configuration."
+        ),
     )
     parser.add_argument(
         "--cache-dir",
@@ -564,8 +567,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 
                 update_session(engine, session_id, enrichment, flags)
                 if session_count % args.commit_interval == 0:
-                    stats_summary = f"dshield={enrichment_stats['dshield_calls']}, urlhaus={enrichment_stats['urlhaus_calls']}, spur={enrichment_stats['spur_calls']}"
-                    print(f"[sessions] committed {session_count} rows (elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]")
+                    stats_summary = (
+            f"dshield={enrichment_stats['dshield_calls']}, "
+            f"urlhaus={enrichment_stats['urlhaus_calls']}, "
+            f"spur={enrichment_stats['spur_calls']}"
+        )
+                    print(
+                        f"[sessions] committed {session_count} rows "
+                        f"(elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]"
+                    )
                     last_commit = time.time()
                 
                 # Update status every 10 items or every 30 seconds
@@ -599,7 +609,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     update_file(engine, file_hash, enrichment)
                     if file_count % args.commit_interval == 0:
                         vt_stats = f"vt={enrichment_stats['virustotal_calls']}"
-                        print(f"[files] committed {file_count} rows (elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]")
+                        print(
+                            f"[files] committed {file_count} rows "
+                            f"(elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]"
+                        )
                         last_commit = time.time()
                     
                     # Update status every 10 items or every 30 seconds

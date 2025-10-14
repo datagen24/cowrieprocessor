@@ -7,7 +7,7 @@ import logging
 import signal
 import time
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Dict
+from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional
 
 import requests
 
@@ -18,8 +18,8 @@ from cowrieprocessor.enrichment.rate_limiting import (
     get_service_rate_limit,
     with_retries,
 )
-from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
 from cowrieprocessor.enrichment.telemetry import EnrichmentTelemetry
+from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -143,7 +143,7 @@ def vt_query(
             else:
                 # Re-raise other HTTP errors to let the decorator handle them
                 raise
-        except Exception as e:
+        except Exception:
             # Re-raise other exceptions to let the decorator handle them
             raise
     
@@ -708,7 +708,7 @@ class EnrichmentService:
         
         # Record telemetry
         if self.telemetry:
-            duration_ms = (time.time() - start_time) * 1000
+            (time.time() - start_time) * 1000  # duration_ms
             self.telemetry.record_session_enrichment(True)
             self.telemetry.record_cache_stats(self.cache_manager.snapshot())
         
@@ -748,7 +748,7 @@ class EnrichmentService:
         
         # Record telemetry
         if self.telemetry:
-            duration_ms = (time.time() - start_time) * 1000
+            (time.time() - start_time) * 1000  # duration_ms
             self.telemetry.record_file_enrichment(payload is not None)
             self.telemetry.record_cache_stats(self.cache_manager.snapshot())
         

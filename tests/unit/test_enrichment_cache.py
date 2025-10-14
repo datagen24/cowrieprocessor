@@ -65,7 +65,6 @@ def test_cleanup_expired_removes_stale_entries(tmp_path: Path) -> None:
 
 def test_hibp_cache_path_structure(tmp_path: Path) -> None:
     """HIBP cache entries should be organized by SHA-1 prefix buckets."""
-
     manager = EnrichmentCacheManager(tmp_path)
     path = manager.get_path('hibp', 'ABCDE')
 
@@ -77,7 +76,6 @@ def test_hibp_cache_path_structure(tmp_path: Path) -> None:
 
 def test_dshield_cache_path_structure(tmp_path: Path) -> None:
     """DShield cache entries should shard IPv4 addresses by octet."""
-
     manager = EnrichmentCacheManager(tmp_path)
     path = manager.get_path('dshield', '203.0.113.5')
 
@@ -89,7 +87,6 @@ def test_dshield_cache_path_structure(tmp_path: Path) -> None:
 
 def test_legacy_cache_migrates_to_new_layout(tmp_path: Path) -> None:
     """Existing legacy cache files should migrate to the new layout on access."""
-
     manager = EnrichmentCacheManager(tmp_path)
     cache_key = 'ABCDE'
     digest = hashlib.sha256(cache_key.encode('utf-8')).hexdigest()

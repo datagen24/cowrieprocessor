@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """PostgreSQL stats collector that integrates with the existing status emitter system.
+
 This collects database performance metrics and writes them to the same status files.
 """
 
@@ -22,6 +23,7 @@ class PostgreSQLStatsCollector:
     """Collect PostgreSQL statistics and integrate with status emitter."""
 
     def __init__(self, engine: Engine, status_file: Optional[Path] = None):
+        """Initialize the PostgreSQL stats collector."""
         self.engine = engine
         self.status_file = status_file or Path("postgresql_stats.json")
         self.last_stats = {}
@@ -224,6 +226,7 @@ def monitor_postgresql_stats(engine: Engine, interval: int = 5, status_file: Opt
 
 
 def main():
+    """Main entry point for the PostgreSQL stats collector."""
     parser = argparse.ArgumentParser(
         description='Collect PostgreSQL statistics and integrate with status emitter',
         formatter_class=argparse.RawDescriptionHelpFormatter,
