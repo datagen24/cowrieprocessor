@@ -132,9 +132,14 @@ def vt_query(
             if hasattr(e, 'response') and e.response.status_code == 401:
                 if attempt < max_retries:
                     # Longer backoff for 401 errors (rate limiting)
-                    backoff_time = 60.0 * (2 ** attempt)  # 60s, 120s, 240s
-                    LOGGER.warning("VT 401 error for %s, retrying in %.1f seconds (attempt %d/%d)", 
-                                 file_hash, backoff_time, attempt + 1, max_retries + 1)
+                    backoff_time = 60.0 * (2**attempt)  # 60s, 120s, 240s
+                    LOGGER.warning(
+                        "VT 401 error for %s, retrying in %.1f seconds (attempt %d/%d)",
+                        file_hash,
+                        backoff_time,
+                        attempt + 1,
+                        max_retries + 1,
+                    )
                     time.sleep(backoff_time)
                     continue
                 else:
@@ -146,7 +151,7 @@ def vt_query(
         except Exception:
             # Re-raise other exceptions to let the decorator handle them
             raise
-    
+
     return None
 
 
@@ -175,7 +180,7 @@ def _vt_query_single_attempt(
             f"https://www.virustotal.com/api/v3/files/{file_hash}",
             timeout=timeout,
         )
-        
+
         # Handle specific HTTP status codes
         status_code = getattr(response, "status_code", 0)
         if status_code == 429:
@@ -191,7 +196,7 @@ def _vt_query_single_attempt(
         elif status_code >= 400:
             LOGGER.warning("VT query HTTP error %d for %s", status_code, file_hash)
             response.raise_for_status()
-        
+
         # Success case
         _write_text(cache_dir / file_hash, getattr(response, "text", ""))
         json_loader = getattr(response, "json", None)
@@ -203,7 +208,7 @@ def _vt_query_single_attempt(
                 LOGGER.debug("Unable to parse VT JSON for %s", file_hash, exc_info=True)
                 return None
         return None
-        
+
     except requests.HTTPError as e:
         # Re-raise HTTP errors to let the retry logic handle them
         LOGGER.warning("VT HTTP error for %s: %s", file_hash, e)
@@ -582,7 +587,7 @@ class EnrichmentService:
         self.enable_telemetry = enable_telemetry
 
         self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
-        
+
         # Initialize VirusTotal handler with quota management
         self.vt_handler = VirusTotalHandler(
             api_key=self.vt_api,
@@ -591,20 +596,20 @@ class EnrichmentService:
             skip_enrich=skip_enrich,
             enable_quota_management=enable_vt_quota_management,
         )
-        
+
         # Initialize telemetry if enabled
         if enable_telemetry:
             self.telemetry = EnrichmentTelemetry(telemetry_phase)
         else:
             self.telemetry = None
-        
+
         # Use rate-limited sessions if enabled
         if enable_rate_limiting:
             self._session_factory = self._create_rate_limited_session_factory
         else:
             self._session_factory = session_factory
         self._timeout = timeout
-        
+
         # Track active sessions for cleanup
         self._active_sessions: list[RateLimitedSession | requests.Session] = []
 
@@ -622,7 +627,7 @@ class EnrichmentService:
     def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
         """Return enrichment payload for a session/IP pair."""
         start_time = time.time()
-        
+
         enrichment: dict[str, Any] = {}
         if self.skip_enrich:
             enrichment["dshield"] = _empty_dshield()
@@ -655,7 +660,7 @@ class EnrichmentService:
                         self.telemetry.record_api_call("dshield", False)
             else:
                 enrichment["dshield"] = _empty_dshield()
-            
+
             # URLHaus enrichment
             if self.urlhaus_api:
                 try:
@@ -680,7 +685,7 @@ class EnrichmentService:
                         self.telemetry.record_api_call("urlhaus", False)
             else:
                 enrichment["urlhaus"] = ""
-            
+
             # SPUR enrichment
             if self.spur_api:
                 try:
@@ -705,13 +710,13 @@ class EnrichmentService:
                         self.telemetry.record_api_call("spur", False)
             else:
                 enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
-        
+
         # Record telemetry
         if self.telemetry:
             (time.time() - start_time) * 1000  # duration_ms
             self.telemetry.record_session_enrichment(True)
             self.telemetry.record_cache_stats(self.cache_manager.snapshot())
-        
+
         return {
             "session_id": session_id,
             "src_ip": src_ip,
@@ -721,7 +726,7 @@ class EnrichmentService:
     def enrich_file(self, file_hash: str, filename: str) -> dict[str, Any]:
         """Return VirusTotal enrichment payload for a file hash."""
         start_time = time.time()
-        
+
         enrichment: dict[str, Any] = {"virustotal": None}
         if self.skip_enrich or not self.vt_api:
             if self.telemetry:
@@ -743,15 +748,15 @@ class EnrichmentService:
                 LOGGER.warning("VirusTotal enrichment failed for %s: %s", file_hash, e)
                 if self.telemetry:
                     self.telemetry.record_api_call("virustotal", False)
-        
+
         enrichment["virustotal"] = payload
-        
+
         # Record telemetry
         if self.telemetry:
             (time.time() - start_time) * 1000  # duration_ms
             self.telemetry.record_file_enrichment(payload is not None)
             self.telemetry.record_cache_stats(self.cache_manager.snapshot())
-        
+
         return {
             "file_hash": file_hash,
             "filename": filename,
@@ -792,7 +797,7 @@ class EnrichmentService:
         except (TypeError, AttributeError):
             # Handle Mock objects or other non-Path types
             return None
-            
+
         if payload is None:
             return None
         try:
@@ -879,14 +884,14 @@ class EnrichmentService:
 
     def get_vt_quota_status(self) -> Dict[str, Any]:
         """Get VirusTotal quota status.
-        
+
         Returns:
             Dictionary with quota status information
         """
         if hasattr(self, 'vt_handler'):
             return self.vt_handler.get_quota_status()
         return {"status": "disabled", "message": "VirusTotal handler not initialized"}
-    
+
     @staticmethod
     def _extract_vt_stats(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         """Extract the ``last_analysis_stats`` block from a VT payload."""
@@ -894,13 +899,13 @@ class EnrichmentService:
         attributes = data.get("attributes") if isinstance(data, Mapping) else None
         stats = attributes.get("last_analysis_stats") if isinstance(attributes, Mapping) else None
         return stats if isinstance(stats, Mapping) else {}
-    
+
     def close(self) -> None:
         """Close enrichment service and cleanup resources."""
         # Close VirusTotal handler
         if hasattr(self, 'vt_handler'):
             self.vt_handler.close()
-        
+
         # Close all active sessions
         for session in self._active_sessions:
             try:
@@ -910,11 +915,11 @@ class EnrichmentService:
                 # Ignore errors during cleanup
                 pass
         self._active_sessions.clear()
-    
+
     def __enter__(self) -> 'EnrichmentService':
         """Context manager entry."""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit with cleanup."""
         self.close()

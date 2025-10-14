@@ -33,10 +33,10 @@ class TestEnrichmentTelemetry:
         """Test recording cache statistics."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             cache_stats = {"hits": 10, "misses": 5, "stores": 8}
             telemetry.record_cache_stats(cache_stats)
-            
+
             assert telemetry.metrics.cache_hits == 10
             assert telemetry.metrics.cache_misses == 5
             assert telemetry.metrics.cache_stores == 8
@@ -45,7 +45,7 @@ class TestEnrichmentTelemetry:
         """Test recording API calls."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # Record successful API call
             telemetry.record_api_call("dshield", True, 150.0)
             assert telemetry.metrics.api_calls_total == 1
@@ -53,7 +53,7 @@ class TestEnrichmentTelemetry:
             assert telemetry.metrics.api_calls_failed == 0
             assert telemetry.metrics.dshield_calls == 1
             assert telemetry.metrics.enrichment_duration_ms == 150.0
-            
+
             # Record failed API call
             telemetry.record_api_call("virustotal", False, 200.0)
             assert telemetry.metrics.api_calls_total == 2
@@ -66,11 +66,11 @@ class TestEnrichmentTelemetry:
         """Test recording rate limit hits."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             telemetry.record_rate_limit_hit("dshield", 2.5)
             assert telemetry.metrics.rate_limit_hits == 1
             assert telemetry.metrics.rate_limit_delays == 2.5
-            
+
             telemetry.record_rate_limit_hit("urlhaus", 1.0)
             assert telemetry.metrics.rate_limit_hits == 2
             assert telemetry.metrics.rate_limit_delays == 3.5
@@ -79,13 +79,13 @@ class TestEnrichmentTelemetry:
         """Test recording session enrichment."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # Record successful enrichment
             telemetry.record_session_enrichment(True)
             assert telemetry.metrics.sessions_enriched == 1
             assert telemetry.metrics.enrichment_errors == 0
             assert telemetry.metrics.last_enrichment_time is not None
-            
+
             # Record failed enrichment
             telemetry.record_session_enrichment(False)
             assert telemetry.metrics.sessions_enriched == 1
@@ -95,12 +95,12 @@ class TestEnrichmentTelemetry:
         """Test recording file enrichment."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # Record successful enrichment
             telemetry.record_file_enrichment(True)
             assert telemetry.metrics.files_enriched == 1
             assert telemetry.metrics.enrichment_errors == 0
-            
+
             # Record failed enrichment
             telemetry.record_file_enrichment(False)
             assert telemetry.metrics.files_enriched == 1
@@ -110,10 +110,10 @@ class TestEnrichmentTelemetry:
         """Test recording cache errors."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             telemetry.record_cache_error()
             assert telemetry.metrics.cache_errors == 1
-            
+
             telemetry.record_cache_error()
             assert telemetry.metrics.cache_errors == 2
 
@@ -121,7 +121,7 @@ class TestEnrichmentTelemetry:
         """Test setting ingest ID."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             telemetry.set_ingest_id("test_ingest_123")
             assert telemetry.metrics.ingest_id == "test_ingest_123"
 
@@ -129,15 +129,15 @@ class TestEnrichmentTelemetry:
         """Test cache hit rate calculation."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # No requests yet
             assert telemetry.get_cache_hit_rate() == 0.0
-            
+
             # Record some cache stats
             telemetry.metrics.cache_hits = 8
             telemetry.metrics.cache_misses = 2
             assert telemetry.get_cache_hit_rate() == 80.0
-            
+
             # All misses
             telemetry.metrics.cache_hits = 0
             telemetry.metrics.cache_misses = 5
@@ -147,16 +147,16 @@ class TestEnrichmentTelemetry:
         """Test API success rate calculation."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # No API calls yet
             assert telemetry.get_api_success_rate() == 0.0
-            
+
             # Record some API calls
             telemetry.metrics.api_calls_successful = 9
             telemetry.metrics.api_calls_failed = 1
             telemetry.metrics.api_calls_total = 10
             assert telemetry.get_api_success_rate() == 90.0
-            
+
             # All failures
             telemetry.metrics.api_calls_successful = 0
             telemetry.metrics.api_calls_failed = 3
@@ -167,10 +167,10 @@ class TestEnrichmentTelemetry:
         """Test enrichment throughput calculation."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # No enrichments yet
             assert telemetry.get_enrichment_throughput() == 0.0
-            
+
             # Record some enrichments
             telemetry.metrics.sessions_enriched = 10
             # Simulate some time passing
@@ -182,7 +182,7 @@ class TestEnrichmentTelemetry:
         """Test getting telemetry summary."""
         with tempfile.TemporaryDirectory() as temp_dir:
             telemetry = EnrichmentTelemetry("test_phase", temp_dir)
-            
+
             # Set up some test data
             telemetry.metrics.cache_hits = 10
             telemetry.metrics.cache_misses = 5
@@ -191,9 +191,9 @@ class TestEnrichmentTelemetry:
             telemetry.metrics.sessions_enriched = 3
             telemetry.metrics.dshield_calls = 2
             telemetry.metrics.virustotal_calls = 1
-            
+
             summary = telemetry.get_summary()
-            
+
             assert "cache_stats" in summary
             assert "api_stats" in summary
             assert "service_stats" in summary
@@ -201,7 +201,7 @@ class TestEnrichmentTelemetry:
             assert "rate_limiting" in summary
             assert "errors" in summary
             assert "timestamps" in summary
-            
+
             assert summary["cache_stats"]["hits"] == 10
             assert summary["cache_stats"]["misses"] == 5
             assert summary["api_stats"]["total_calls"] == 8
@@ -213,13 +213,13 @@ class TestEnrichmentTelemetry:
         """Test integration with StatusEmitter."""
         mock_instance = Mock()
         mock_status_emitter.return_value = mock_instance
-        
+
         telemetry = EnrichmentTelemetry("test_phase")
-        
+
         # Record some metrics
         telemetry.record_cache_stats({"hits": 5, "misses": 2, "stores": 3})
         telemetry.record_api_call("dshield", True)
-        
+
         # Verify StatusEmitter was called
         assert mock_status_emitter.called
         assert mock_instance.record_metrics.called
@@ -234,10 +234,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         # Test with telemetry enabled
         service = EnrichmentService(
             cache_dir=cache_dir,
@@ -249,7 +249,7 @@ class TestEnrichmentServiceTelemetryIntegration:
             enable_telemetry=True,
             telemetry_phase="test_enrichment",
         )
-        
+
         assert service.enable_telemetry is True
         assert service.telemetry is not None
         assert service.telemetry.metrics.cache_hits == 0
@@ -260,10 +260,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         # Test with telemetry disabled
         service = EnrichmentService(
             cache_dir=cache_dir,
@@ -274,7 +274,7 @@ class TestEnrichmentServiceTelemetryIntegration:
             cache_manager=cache_manager,
             enable_telemetry=False,
         )
-        
+
         assert service.enable_telemetry is False
         assert service.telemetry is None
 
@@ -284,10 +284,10 @@ class TestEnrichmentServiceTelemetryIntegration:
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
         from enrichment_handlers import EnrichmentService
-        
+
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
-        
+
         service = EnrichmentService(
             cache_dir=cache_dir,
             vt_api="test-key",
@@ -297,7 +297,7 @@ class TestEnrichmentServiceTelemetryIntegration:
             cache_manager=cache_manager,
             enable_telemetry=True,
         )
-        
+
         # Test cache_snapshot method
         snapshot = service.cache_snapshot()
         assert isinstance(snapshot, dict)

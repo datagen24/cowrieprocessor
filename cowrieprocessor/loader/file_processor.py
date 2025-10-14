@@ -148,7 +148,7 @@ def sanitize_filename(filename: str) -> str:
         Sanitized filename safe for storage
     """
     from ..utils.unicode_sanitizer import UnicodeSanitizer
-    
+
     if not filename:
         return ""
 
@@ -168,7 +168,7 @@ def sanitize_url(url: str) -> str:
         Sanitized URL safe for storage
     """
     from ..utils.unicode_sanitizer import UnicodeSanitizer
-    
+
     if not url:
         return ""
 

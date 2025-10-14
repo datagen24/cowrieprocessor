@@ -151,10 +151,10 @@ def analyze_password_diversity(args: argparse.Namespace) -> None:
             total_time_seconds = remaining * estimated_seconds_per_session
             total_time_hours = total_time_seconds / 3600
 
-            print(f"\nEstimated Time Remaining: {total_time_hours:.1f} hours ({total_time_seconds/60:.0f} minutes)")
+            print(f"\nEstimated Time Remaining: {total_time_hours:.1f} hours ({total_time_seconds / 60:.0f} minutes)")
 
             if total_time_hours > 24:
-                print(f"                         = {total_time_hours/24:.1f} days")
+                print(f"                         = {total_time_hours / 24:.1f} days")
 
         print(f"\n{'=' * 70}")
         print("Recommendations:")
@@ -199,4 +199,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

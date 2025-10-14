@@ -758,23 +758,21 @@ class BulkLoader:
     def _iter_source(self, path: Path) -> Iterator[tuple[int, Any]]:
         # Check file type before processing
         from ..utils.file_type_detector import FileTypeDetector
-        
+
         should_process, file_type, reason = FileTypeDetector.should_process_as_json(path)
-        
+
         if not should_process:
             logger.warning(f"Skipping non-JSON file: {path} (type: {file_type}, reason: {reason})")
-            
+
             # Create a dead letter event for tracking
             dead_letter_event = self._make_dead_letter_event(
-                f"File type mismatch: {file_type} - {reason}",
-                source_file=str(path),
-                file_type=file_type
+                f"File type mismatch: {file_type} - {reason}", source_file=str(path), file_type=file_type
             )
             yield (0, dead_letter_event)
             return
-        
+
         logger.debug(f"Processing {file_type} file: {path}")
-        
+
         opener = self._resolve_opener(path)
         with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
             if self.config.hybrid_json:
@@ -840,10 +838,7 @@ class BulkLoader:
                 yield start_offset, self._make_dead_letter_event("\n".join(accumulated_lines))
 
     def _make_dead_letter_event(
-        self, 
-        malformed_content: str, 
-        source_file: Optional[str] = None, 
-        file_type: Optional[str] = None
+        self, malformed_content: str, source_file: Optional[str] = None, file_type: Optional[str] = None
     ) -> dict:
         """Create a dead letter event for malformed JSON content or file type mismatches."""
         event = {
@@ -852,13 +847,13 @@ class BulkLoader:
             "_malformed_content": malformed_content,
             "_timestamp": datetime.now(UTC).isoformat(),
         }
-        
+
         if source_file:
             event["_source_file"] = source_file
         if file_type:
             event["_file_type"] = file_type
             event["_reason"] = "file_type_mismatch"
-            
+
         return event
 
     def _make_dead_letter_record(
@@ -922,6 +917,7 @@ class BulkLoader:
             try:
                 # Sanitize Unicode control characters before parsing JSON
                 from ..utils.unicode_sanitizer import UnicodeSanitizer
+
                 sanitized_line = UnicodeSanitizer.sanitize_json_string(stripped)
                 payload = json.loads(sanitized_line)
             except (json.JSONDecodeError, ValueError) as e:
@@ -953,6 +949,7 @@ class BulkLoader:
                 combined_content = "\n".join(accumulated_lines)
                 # Sanitize Unicode control characters before parsing JSON
                 from ..utils.unicode_sanitizer import UnicodeSanitizer
+
                 sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
                 payload = json.loads(sanitized_content)
                 yield start_offset, payload
@@ -973,6 +970,7 @@ class BulkLoader:
                 combined_content = "\n".join(accumulated_lines)
                 # Sanitize Unicode control characters before parsing JSON
                 from ..utils.unicode_sanitizer import UnicodeSanitizer
+
                 sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
                 payload = json.loads(sanitized_content)
                 yield start_offset, payload

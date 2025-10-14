@@ -35,10 +35,7 @@ from cowrieprocessor.settings import DatabaseSettings
 from cowrieprocessor.threat_detection.longtail import LongtailAnalyzer
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +46,7 @@ def validate_database_setup(db_url: str) -> Dict[str, Any]:
     try:
         # Create database settings object
         db_settings = DatabaseSettings(url=db_url)
-        
+
         # Create engine and detect features
         engine = create_engine_from_settings(db_settings)
         features = detect_database_features(engine)
@@ -146,9 +143,9 @@ def test_longtail_analysis(db_url: str) -> Dict[str, Any]:
         with session_factory() as session:
             # Get sessions from last 7 days
             cutoff_date = datetime.now(UTC) - timedelta(days=7)
-            sessions = session.query(SessionSummary).filter(
-                SessionSummary.first_event_at >= cutoff_date
-            ).limit(10).all()
+            sessions = (
+                session.query(SessionSummary).filter(SessionSummary.first_event_at >= cutoff_date).limit(10).all()
+            )
 
             if not sessions:
                 return {
@@ -256,7 +253,7 @@ def validate_cli_integration() -> Dict[str, Any]:
             [sys.executable, "-m", "cowrieprocessor.cli.analyze", "longtail", "--help"],
             capture_output=True,
             text=True,
-            cwd=Path(__file__).parent.parent
+            cwd=Path(__file__).parent.parent,
         )
 
         if result.returncode == 0 and "longtail" in result.stdout:
@@ -299,6 +296,7 @@ def run_comprehensive_validation(db_url: str) -> Dict[str, Any]:
     # 3. Command extraction validation
     logger.info("3. Testing command extraction...")
     from cowrieprocessor.db import create_session_maker
+
     db_settings = DatabaseSettings(url=db_url)
     engine = create_engine_from_settings(db_settings)
     session_factory = create_session_maker(engine)
@@ -338,18 +336,13 @@ def run_comprehensive_validation(db_url: str) -> Dict[str, Any]:
 
 def main() -> int:
     """Main validation function."""
-    parser = argparse.ArgumentParser(
-        description="Validate longtail analysis implementation against real database"
-    )
+    parser = argparse.ArgumentParser(description="Validate longtail analysis implementation against real database")
     parser.add_argument(
         "--db-url",
         required=True,
-        help="Database URL (e.g., postgresql://user:pass@localhost/cowrie or sqlite:///path.db)"
+        help="Database URL (e.g., postgresql://user:pass@localhost/cowrie or sqlite:///path.db)",
     )
-    parser.add_argument(
-        "--output",
-        help="Output file for validation results (default: stdout)"
-    )
+    parser.add_argument("--output", help="Output file for validation results (default: stdout)")
 
     args = parser.parse_args()
 

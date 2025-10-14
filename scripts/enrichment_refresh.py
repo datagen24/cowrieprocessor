@@ -148,7 +148,7 @@ def update_session(
     flags: dict,
 ) -> None:
     """Persist refreshed enrichment JSON and derived flags for a session.
-    
+
     This function merges the new enrichment data with existing enrichment data
     to avoid overwriting data from other enrichment modules (e.g., password_stats).
     """
@@ -157,25 +157,25 @@ def update_session(
         SELECT enrichment FROM session_summaries 
         WHERE session_id = :session_id
     """
-    
+
     with engine.connect() as conn:
         # Get existing enrichment data
         result = conn.execute(text(get_sql), {"session_id": session_id}).fetchone()
         existing_enrichment = {}
-        
+
         if result and result[0]:
             try:
                 existing_enrichment = json.loads(result[0]) if isinstance(result[0], str) else result[0]
             except (json.JSONDecodeError, TypeError):
                 # If we can't parse the existing data, start fresh
                 existing_enrichment = {}
-        
+
         # Merge the new enrichment data with existing data
         # New data takes precedence over existing data for the same keys
         merged_enrichment = existing_enrichment.copy()
         if enrichment_payload:
             merged_enrichment.update(enrichment_payload)
-        
+
         # Update the session with merged enrichment data
         update_sql = """
             UPDATE session_summaries
@@ -185,7 +185,7 @@ def update_session(
                 updated_at = CURRENT_TIMESTAMP
             WHERE session_id = :session_id
         """
-        
+
         conn.execute(
             text(update_sql),
             {
@@ -202,24 +202,24 @@ def track_enrichment_stats(enrichment: dict, stats: dict) -> None:
     """Track enrichment service usage and failures."""
     if not isinstance(enrichment, dict):
         return
-    
+
     # Track DShield usage
     dshield_data = enrichment.get("dshield", {})
     if dshield_data and dshield_data.get("asn") is not None:
         stats["dshield_calls"] += 1
     elif dshield_data and dshield_data.get("error"):
         stats["dshield_failures"] += 1
-    
+
     # Track URLHaus usage
     urlhaus_data = enrichment.get("urlhaus", "")
     if urlhaus_data and urlhaus_data != "":
         stats["urlhaus_calls"] += 1
-    
+
     # Track SPUR usage
     spur_data = enrichment.get("spur", [])
     if spur_data and len(spur_data) > 0 and spur_data != ["", "", ""]:
         stats["spur_calls"] += 1
-    
+
     # Track VirusTotal usage
     vt_data = enrichment.get("virustotal")
     if vt_data and isinstance(vt_data, dict) and vt_data.get("data"):
@@ -463,7 +463,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     print("Use the cowrie-enrich CLI instead:")
     print("  cowrie-enrich refresh --sessions 1000 --files 500")
     print("This script will be removed in a future version.\n")
-    
+
     args = parse_args(argv)
 
     # Load database settings from configuration
@@ -501,10 +501,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         spur_api=resolved.get("spur_api"),
         cache_manager=cache_manager,
     )
-    
+
     # Initialize status emitter for progress monitoring
     status_emitter = StatusEmitter("enrichment_refresh")
-    
+
     # Log available enrichment services
     available_services = []
     if resolved.get("dshield_email"):
@@ -515,7 +515,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         available_services.append("SPUR (IP intelligence)")
     if resolved.get("vt_api"):
         available_services.append("VirusTotal (file analysis)")
-    
+
     if available_services:
         print(f"Available enrichment services: {', '.join(available_services)}")
     else:
@@ -534,7 +534,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             file_count = 0
             last_commit = time.time()
             last_status_update = time.time()
-            
+
             # Track enrichment statistics
             enrichment_stats = {
                 "dshield_calls": 0,
@@ -548,48 +548,51 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             }
 
             # Record initial status
-            status_emitter.record_metrics({
-                "sessions_processed": 0,
-                "files_processed": 0,
-                "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                "files_total": file_limit if file_limit > 0 else "unlimited",
-                "enrichment_stats": enrichment_stats,
-            })
+            status_emitter.record_metrics(
+                {
+                    "sessions_processed": 0,
+                    "files_processed": 0,
+                    "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                    "files_total": file_limit if file_limit > 0 else "unlimited",
+                    "enrichment_stats": enrichment_stats,
+                }
+            )
 
             for session_id, src_ip in iter_sessions(engine, session_limit):
                 session_count += 1
                 result = service.enrich_session(session_id, src_ip)
                 enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
                 flags = service.get_session_flags(result)
-                
+
                 # Track enrichment statistics for this session
                 track_enrichment_stats(enrichment, enrichment_stats)
-                
+
                 update_session(engine, session_id, enrichment, flags)
                 if session_count % args.commit_interval == 0:
                     stats_summary = (
-            f"dshield={enrichment_stats['dshield_calls']}, "
-            f"urlhaus={enrichment_stats['urlhaus_calls']}, "
-            f"spur={enrichment_stats['spur_calls']}"
-        )
+                        f"dshield={enrichment_stats['dshield_calls']}, "
+                        f"urlhaus={enrichment_stats['urlhaus_calls']}, "
+                        f"spur={enrichment_stats['spur_calls']}"
+                    )
                     print(
                         f"[sessions] committed {session_count} rows "
                         f"(elapsed {time.time() - last_commit:.1f}s) [{stats_summary}]"
                     )
                     last_commit = time.time()
-                
+
                 # Update status every 10 items or every 30 seconds
-                if (session_count % 10 == 0 or 
-                    time.time() - last_status_update > 30):
-                    status_emitter.record_metrics({
-                        "sessions_processed": session_count,
-                        "files_processed": file_count,
-                        "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                        "files_total": file_limit if file_limit > 0 else "unlimited",
-                        "enrichment_stats": enrichment_stats.copy(),
-                    })
+                if session_count % 10 == 0 or time.time() - last_status_update > 30:
+                    status_emitter.record_metrics(
+                        {
+                            "sessions_processed": session_count,
+                            "files_processed": file_count,
+                            "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                            "files_total": file_limit if file_limit > 0 else "unlimited",
+                            "enrichment_stats": enrichment_stats.copy(),
+                        }
+                    )
                     last_status_update = time.time()
-                
+
                 if session_limit > 0 and session_count >= session_limit:
                     break
 
@@ -602,10 +605,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     file_count += 1
                     result = service.enrich_file(file_hash, filename or file_hash)
                     enrichment = result.get("enrichment", {}) if isinstance(result, dict) else {}
-                    
+
                     # Track VirusTotal statistics for this file
                     track_enrichment_stats(enrichment, enrichment_stats)
-                    
+
                     update_file(engine, file_hash, enrichment)
                     if file_count % args.commit_interval == 0:
                         vt_stats = f"vt={enrichment_stats['virustotal_calls']}"
@@ -614,19 +617,20 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                             f"(elapsed {time.time() - last_commit:.1f}s) [{vt_stats}]"
                         )
                         last_commit = time.time()
-                    
+
                     # Update status every 10 items or every 30 seconds
-                    if (file_count % 10 == 0 or 
-                        time.time() - last_status_update > 30):
-                        status_emitter.record_metrics({
-                            "sessions_processed": session_count,
-                            "files_processed": file_count,
-                            "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                            "files_total": file_limit if file_limit > 0 else "unlimited",
-                            "enrichment_stats": enrichment_stats.copy(),
-                        })
+                    if file_count % 10 == 0 or time.time() - last_status_update > 30:
+                        status_emitter.record_metrics(
+                            {
+                                "sessions_processed": session_count,
+                                "files_processed": file_count,
+                                "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                                "files_total": file_limit if file_limit > 0 else "unlimited",
+                                "enrichment_stats": enrichment_stats.copy(),
+                            }
+                        )
                         last_status_update = time.time()
-                    
+
                     if file_limit > 0 and file_count >= file_limit:
                         break
                 if file_count % args.commit_interval:
@@ -635,14 +639,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 print("No VirusTotal API key available; skipping file enrichment refresh")
 
             # Record final status
-            status_emitter.record_metrics({
-                "sessions_processed": session_count,
-                "files_processed": file_count,
-                "sessions_total": session_limit if session_limit > 0 else "unlimited",
-                "files_total": file_limit if file_limit > 0 else "unlimited",
-                "enrichment_stats": enrichment_stats,
-                "cache_snapshot": cache_manager.snapshot(),
-            })
+            status_emitter.record_metrics(
+                {
+                    "sessions_processed": session_count,
+                    "files_processed": file_count,
+                    "sessions_total": session_limit if session_limit > 0 else "unlimited",
+                    "files_total": file_limit if file_limit > 0 else "unlimited",
+                    "enrichment_stats": enrichment_stats,
+                    "cache_snapshot": cache_manager.snapshot(),
+                }
+            )
 
             print(
                 json.dumps(

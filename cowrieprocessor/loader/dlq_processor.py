@@ -175,28 +175,28 @@ class JSONRepairStrategies:
     def fix_unescaped_quotes(content: str) -> str:
         """Fix unescaped quotes in string values."""
         import re
-        
+
         # Handle simple case: quote in middle of string value
         # Pattern: "key": "value"with"quote"
         # Replace with: "key": "value\"with\"quote"
-        
+
         # Look for string values with unescaped quotes
         # This regex finds: "key": "value"with"quote"
         pattern = r'("[\w_]+"\s*:\s*")([^"]*")([^"]*")([^"]*")'
-        
+
         def fix_quote_match(match):
             key_part = match.group(1)  # "key": "
             value_start = match.group(2)  # "value"
             middle_part = match.group(3)  # "with"
             value_end = match.group(4)  # "quote"
-            
+
             # Reconstruct with escaped quotes
             fixed_value = value_start[:-1] + '\\"' + middle_part[1:-1] + '\\"' + value_end[1:]
             return key_part + fixed_value
-        
+
         # Apply the fix
         content = re.sub(pattern, fix_quote_match, content)
-        
+
         # Fallback: simple line-by-line approach for other cases
         lines = content.split('\n')
         fixed_lines = []
@@ -211,9 +211,9 @@ class JSONRepairStrategies:
                     # Find the value part after the colon
                     colon_pos = line.find(': "')
                     if colon_pos != -1:
-                        key_part = line[:colon_pos + 3]  # Include ': "'
-                        value_part = line[colon_pos + 3:]
-                        
+                        key_part = line[: colon_pos + 3]  # Include ': "'
+                        value_part = line[colon_pos + 3 :]
+
                         # Escape quotes in the value part, but preserve the closing quote
                         if value_part.endswith('"'):
                             value_part = value_part[:-1]  # Remove closing quote
@@ -231,10 +231,10 @@ class JSONRepairStrategies:
     def repair_json(cls, content: str) -> str:
         """Apply all repair strategies to malformed JSON content."""
         from ..utils.unicode_sanitizer import UnicodeSanitizer
-        
+
         # First sanitize Unicode control characters
         content = UnicodeSanitizer.sanitize_unicode_string(content, strict=False)
-        
+
         # Apply repairs in order
         content = cls.fix_unescaped_quotes(content)
         content = cls.fix_trailing_commas(content)
@@ -309,8 +309,9 @@ class EventStitcher:
             try:
                 # Sanitize Unicode control characters before parsing
                 from ..utils.unicode_sanitizer import UnicodeSanitizer
+
                 sanitized_content = UnicodeSanitizer.sanitize_json_string(attempt_content)
-                
+
                 # Try to parse the repaired content
                 event = json.loads(sanitized_content)
 

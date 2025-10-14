@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 
 class HIBPPasswordEnricher:
     """Check passwords against Have I Been Pwned using k-anonymity API.
-    
+
     Uses k-anonymity to preserve privacy:
     - Hashes password with SHA-1
     - Sends only first 5 characters to HIBP API
     - Searches response locally for full hash
-    
+
     HIBP API details:
     - Endpoint: https://api.pwnedpasswords.com/range/{hash_prefix}
     - Rate limit: 1 request per 1.6 seconds (enforced by RateLimitedSession)
@@ -36,7 +36,7 @@ class HIBPPasswordEnricher:
         rate_limiter: RateLimitedSession,
     ):
         """Initialize HIBP password enricher.
-        
+
         Args:
             cache_manager: Cache manager for storing HIBP responses
             rate_limiter: Rate-limited HTTP session
@@ -54,10 +54,10 @@ class HIBPPasswordEnricher:
 
     def check_password(self, password: str) -> Dict[str, Any]:
         """Check if password appears in HIBP database using k-anonymity.
-        
+
         Args:
             password: The password to check
-            
+
         Returns:
             Dictionary containing:
                 - breached: Whether password appears in breaches (bool)
@@ -112,7 +112,7 @@ class HIBPPasswordEnricher:
             result = self._extract_result(hash_data, suffix, cached=False)
             if result['breached']:
                 self.stats['breached_found'] += 1
-            
+
             return result
 
         except Exception as e:
@@ -127,31 +127,31 @@ class HIBPPasswordEnricher:
 
     def _parse_response(self, response_text: str) -> Dict[str, int]:
         """Parse HIBP API response format.
-        
+
         HIBP returns lines like:
             SUFFIX:COUNT
             00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2
             011053FD0102E94D6AE2F8B83D76FAF94F6:1
-            
+
         Args:
             response_text: Raw text from HIBP API
-            
+
         Returns:
             Dictionary mapping hash suffixes to breach counts
         """
         hash_data = {}
-        
+
         for line in response_text.strip().split('\n'):
             if not line or ':' not in line:
                 continue
-            
+
             try:
                 suffix, count_str = line.split(':', 1)
                 hash_data[suffix.strip()] = int(count_str.strip())
             except (ValueError, AttributeError) as e:
                 logger.warning(f"Failed to parse HIBP line: {line} - {e}")
                 continue
-        
+
         return hash_data
 
     def _extract_result(
@@ -161,12 +161,12 @@ class HIBPPasswordEnricher:
         cached: bool,
     ) -> Dict[str, Any]:
         """Extract result for a specific password hash suffix.
-        
+
         Args:
             hash_data: Dictionary of hash suffixes to breach counts
             suffix: The hash suffix to look up
             cached: Whether this data came from cache
-            
+
         Returns:
             Dictionary with breach information
         """
@@ -177,7 +177,7 @@ class HIBPPasswordEnricher:
                 'cached': cached,
                 'error': None,
             }
-        
+
         return {
             'breached': False,
             'prevalence': 0,
@@ -187,7 +187,7 @@ class HIBPPasswordEnricher:
 
     def get_stats(self) -> Dict[str, int]:
         """Get statistics about HIBP checks.
-        
+
         Returns:
             Dictionary with check statistics
         """
@@ -200,4 +200,3 @@ class HIBPPasswordEnricher:
 
 
 __all__ = ['HIBPPasswordEnricher']
-
