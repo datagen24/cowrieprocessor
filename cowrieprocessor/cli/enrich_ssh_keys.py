@@ -139,23 +139,33 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                 
                 for event in batch_events:
                     try:
+                        # Skip non-Cowrie events (like iptables logs) that don't have expected structure
+                        if not event.payload or not isinstance(event.payload, dict):
+                            continue
+                            
+                        # Skip events that don't have session_id (likely not Cowrie events)
+                        if not event.session_id:
+                            continue
+                            
                         # Extract SSH keys from command
-                        if event.payload and isinstance(event.payload, dict):
-                            input_data = event.payload.get("input", "")
-                            if input_data and "authorized_keys" in input_data:
-                                extracted_keys = ssh_extractor.extract_keys_from_command(input_data)
+                        input_data = event.payload.get("input", "")
+                        if input_data and "authorized_keys" in input_data:
+                            extracted_keys = ssh_extractor.extract_keys_from_command(input_data)
+                            
+                            if extracted_keys:
+                                batch_keys_extracted += len(extracted_keys)
                                 
-                                if extracted_keys:
-                                    batch_keys_extracted += len(extracted_keys)
+                                # Extract src_ip from payload
+                                src_ip = event.payload.get("src_ip")
+                                
+                                # Store SSH key intelligence
+                                for key in extracted_keys:
+                                    _store_ssh_key_intelligence(
+                                        session, key, event.session_id, src_ip, input_data
+                                    )
                                     
-                                    # Store SSH key intelligence
-                                    for key in extracted_keys:
-                                        _store_ssh_key_intelligence(
-                                            session, key, event.session_id, event.src_ip, input_data
-                                        )
-                                        
-                                    if event.session_id:
-                                        batch_sessions_updated.add(event.session_id)
+                                if event.session_id:
+                                    batch_sessions_updated.add(event.session_id)
                                         
                     except Exception as e:
                         logger.warning(f"Failed to process event {event.id}: {e}")
