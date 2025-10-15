@@ -160,15 +160,23 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                                 
                                 # Store SSH key intelligence
                                 for key in extracted_keys:
-                                    _store_ssh_key_intelligence(
-                                        session, key, event.session_id, src_ip, input_data
-                                    )
+                                    try:
+                                        _store_ssh_key_intelligence(
+                                            session, key, event.session_id, src_ip, input_data
+                                        )
+                                    except Exception as store_error:
+                                        logger.error(
+                                            f"Failed to store key for event {event.id}: {store_error}"
+                                        )
+                                        session.rollback()
+                                        continue
                                     
                                 if event.session_id:
                                     batch_sessions_updated.add(event.session_id)
                                         
                     except Exception as e:
                         logger.warning(f"Failed to process event {event.id}: {e}")
+                        session.rollback()
                         
                     total_processed += 1
                     if progress_bar:
@@ -229,6 +237,14 @@ def _store_ssh_key_intelligence(
         src_ip: Source IP address
         command_text: Original command text
     """
+    # Validate required fields before attempting insert
+    if not getattr(key, 'key_full', None):
+        logger.error(f"Missing key_full for key {getattr(key, 'key_hash', 'unknown')}: {vars(key)}")
+        return
+    if not getattr(key, 'extraction_method', None):
+        logger.error(f"Missing extraction_method for key {getattr(key, 'key_hash', 'unknown')}")
+        return
+
     # Get or create SSH key intelligence record
     key_record = session.query(SSHKeyIntelligence).filter(
         SSHKeyIntelligence.key_hash == key.key_hash
@@ -245,22 +261,17 @@ def _store_ssh_key_intelligence(
             key_full=key.key_full,
             pattern_type=key.extraction_method,
             target_path=key.target_path,
-            first_seen=datetime.now(UTC),
-            last_seen=datetime.now(UTC),
-            total_attempts=1,
-            unique_sources=1,
-            unique_sessions=1,
+            first_seen=None,  # Will be set from actual event timestamps
+            last_seen=None,   # Will be set from actual event timestamps
+            total_attempts=0,
+            unique_sources=0,
+            unique_sessions=0,
         )
         session.add(key_record)
         session.flush()  # Get the ID
     else:
-        # Update existing record
-        key_record.last_seen = datetime.now(UTC)
-        key_record.total_attempts += 1
-        if src_ip and src_ip not in key_record.unique_sources:
-            key_record.unique_sources += 1
-        if session_id and session_id not in key_record.unique_sessions:
-            key_record.unique_sessions += 1
+        # Update existing record - temporal data will be recomputed below
+        pass
             
     # Create session-key link
     if session_id:
@@ -273,9 +284,33 @@ def _store_ssh_key_intelligence(
             timestamp=datetime.now(UTC),
         )
         session.add(session_key_link)
+        session.flush()
         
     # Track key associations (co-occurrence)
     _track_key_associations(session, key_record.id, session_id, src_ip)
+
+    # Recompute aggregates and temporal data from actual events
+    try:
+        stats = session.query(
+            func.count(SessionSSHKeys.id),
+            func.count(func.distinct(SessionSSHKeys.source_ip)),
+            func.count(func.distinct(SessionSSHKeys.session_id)),
+            func.min(SessionSSHKeys.timestamp),
+            func.max(SessionSSHKeys.timestamp),
+        ).filter(SessionSSHKeys.ssh_key_id == key_record.id).one()
+
+        key_record.total_attempts = int(stats[0] or 0)
+        key_record.unique_sources = int(stats[1] or 0)
+        key_record.unique_sessions = int(stats[2] or 0)
+        
+        # Update temporal data from actual event timestamps
+        if stats[3]:  # min timestamp
+            key_record.first_seen = stats[3]
+        if stats[4]:  # max timestamp
+            key_record.last_seen = stats[4]
+            
+    except Exception as agg_err:
+        logger.error(f"Failed to recompute aggregates for key_id={key_record.id}: {agg_err}")
 
 
 def _detect_injection_method(command_text: str) -> str:

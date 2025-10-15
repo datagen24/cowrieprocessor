@@ -6,6 +6,7 @@ import base64
 import hashlib
 import re
 from dataclasses import dataclass
+import logging
 from typing import List, Optional, Set
 
 from ..db.models import RawEvent
@@ -61,6 +62,8 @@ class SSHKeyExtractor:
 
     def __init__(self) -> None:
         """Initialize the SSH key extractor."""
+        # Local logger for detailed debug during extraction flows
+        self._logger = logging.getLogger(__name__)
         self.compiled_patterns = {
             key_type: re.compile(pattern, re.IGNORECASE | re.DOTALL)
             for key_type, pattern in self.SSH_KEY_TYPES.items()
@@ -82,7 +85,9 @@ class SSHKeyExtractor:
         seen_hashes: Set[str] = set()
 
         # Try heredoc patterns first (they are more specific)
+        self._logger.debug("SSHKeyExtractor: starting extraction for command (trunc): %s", command[:200])
         heredoc_keys = self._extract_heredoc_keys(command)
+        self._logger.debug("SSHKeyExtractor: heredoc keys found: %d", len(heredoc_keys))
         for key in heredoc_keys:
             if key.key_hash not in seen_hashes:
                 keys.append(key)
@@ -90,6 +95,7 @@ class SSHKeyExtractor:
 
         # Try direct extraction patterns
         direct_keys = self._extract_direct_keys(command)
+        self._logger.debug("SSHKeyExtractor: direct keys found: %d", len(direct_keys))
         for key in direct_keys:
             if key.key_hash not in seen_hashes:
                 keys.append(key)
@@ -97,6 +103,7 @@ class SSHKeyExtractor:
 
         # Try base64 encoded keys
         base64_keys = self._extract_base64_keys(command)
+        self._logger.debug("SSHKeyExtractor: base64-encoded keys found: %d", len(base64_keys))
         for key in base64_keys:
             if key.key_hash not in seen_hashes:
                 keys.append(key)
@@ -114,14 +121,18 @@ class SSHKeyExtractor:
             List of extracted SSH keys
         """
         keys = []
+        self._logger.debug("SSHKeyExtractor._extract_direct_keys: scanning (trunc): %s", command[:200])
         target_path = self._extract_target_path(command)
 
         for key_type, pattern in self.compiled_patterns.items():
-            for match in pattern.finditer(command):
+            matches = list(pattern.finditer(command))
+            self._logger.debug("Pattern %s matched %d candidates", key_type, len(matches))
+            for match in matches:
                 key_data = match.group(1).strip()
 
                 # Validate key data (should be valid base64)
                 if not self._is_valid_base64(key_data):
+                    self._logger.debug("Rejected %s due to invalid base64 (trunc): %s", key_type, key_data[:60])
                     continue
 
                 # Extract the full key line (including potential comment after the key)
@@ -180,6 +191,7 @@ class SSHKeyExtractor:
             encoded = match.group(1)
             try:
                 decoded = base64.b64decode(encoded).decode('utf-8', errors='ignore')
+                self._logger.debug("Decoded base64 segment (trunc): %s", decoded[:200])
                 # Recursively extract from decoded content
                 decoded_keys = self._extract_direct_keys(decoded)
                 for key in decoded_keys:
@@ -188,6 +200,7 @@ class SSHKeyExtractor:
                 keys.extend(decoded_keys)
             except Exception:
                 # Invalid base64 or decoding error, skip
+                self._logger.debug("Failed to decode base64 segment; skipping")
                 continue
 
         return keys
@@ -212,6 +225,7 @@ class SSHKeyExtractor:
             delimiter = match.group(1)
             target_path = match.group(2)
             content = match.group(3)
+            self._logger.debug("Heredoc detected: delimiter=%s target=%s", delimiter, target_path)
 
             # Extract keys from heredoc content
             heredoc_keys = self._extract_direct_keys(content)
