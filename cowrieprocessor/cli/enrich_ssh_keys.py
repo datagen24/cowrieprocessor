@@ -238,10 +238,10 @@ def _store_ssh_key_intelligence(
         key_record = SSHKeyIntelligence(
             key_type=key.key_type,
             key_data=key.key_data,
-            key_fingerprint=key.fingerprint,
+            key_fingerprint=key.key_fingerprint,
             key_hash=key.key_hash,
-            key_comment=key.comment,
-            key_size_bits=key.estimated_bits,
+            key_comment=key.key_comment,
+            key_bits=key.key_bits,
             first_seen=datetime.now(UTC),
             last_seen=datetime.now(UTC),
             total_attempts=1,
