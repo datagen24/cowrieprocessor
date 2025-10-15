@@ -1569,52 +1569,92 @@ def _upgrade_to_v12(connection: Connection) -> None:
             # PostgreSQL: Convert VARCHAR to TIMESTAMP WITH TIME ZONE
             logger.info("Converting event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE (PostgreSQL)")
             
-            # First, add a temporary column with the correct type
-            _safe_execute_sql(
-                connection,
-                "ALTER TABLE raw_events ADD COLUMN event_timestamp_new TIMESTAMP WITH TIME ZONE",
-                "Add temporary event_timestamp_new column"
-            )
-            
-            # Populate the new column by converting the string values
-            _safe_execute_sql(
-                connection,
-                """
-                UPDATE raw_events 
-                SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE 
-                WHERE event_timestamp IS NOT NULL 
-                AND event_timestamp != ''
-                """,
-                "Convert string timestamps to datetime"
-            )
-            
-            # Drop the old column and rename the new one
-            _safe_execute_sql(
-                connection,
-                "ALTER TABLE raw_events DROP COLUMN event_timestamp",
-                "Drop old event_timestamp column"
-            )
-            
-            _safe_execute_sql(
-                connection,
-                "ALTER TABLE raw_events RENAME COLUMN event_timestamp_new TO event_timestamp",
-                "Rename new column to event_timestamp"
-            )
-            
-            # Recreate the index
-            _safe_execute_sql(
-                connection,
-                "DROP INDEX IF EXISTS ix_raw_events_event_timestamp",
-                "Drop old event_timestamp index"
-            )
-            
-            _safe_execute_sql(
-                connection,
-                "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
-                "Create new event_timestamp index"
-            )
-            
-            logger.info("PostgreSQL event_timestamp conversion completed")
+            try:
+                # First, add a temporary column with the correct type
+                if not _safe_execute_sql(
+                    connection,
+                    "ALTER TABLE raw_events ADD COLUMN event_timestamp_new TIMESTAMP WITH TIME ZONE",
+                    "Add temporary event_timestamp_new column"
+                ):
+                    raise Exception("Failed to add temporary event_timestamp_new column")
+                
+                # Populate the new column by converting the string values
+                # Handle empty strings and invalid formats gracefully
+                if not _safe_execute_sql(
+                    connection,
+                    """
+                    UPDATE raw_events 
+                    SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE 
+                    WHERE event_timestamp IS NOT NULL 
+                    AND event_timestamp != ''
+                    AND event_timestamp != 'null'
+                    AND length(trim(event_timestamp)) > 0
+                    AND event_timestamp ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+                    """,
+                    "Convert string timestamps to datetime"
+                ):
+                    raise Exception("Failed to convert valid timestamps")
+                
+                # Set NULL for invalid/empty timestamps
+                if not _safe_execute_sql(
+                    connection,
+                    """
+                    UPDATE raw_events 
+                    SET event_timestamp_new = NULL 
+                    WHERE event_timestamp IS NULL 
+                    OR event_timestamp = ''
+                    OR event_timestamp = 'null'
+                    OR length(trim(event_timestamp)) = 0
+                    OR event_timestamp !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+                    """,
+                    "Set NULL for invalid timestamps"
+                ):
+                    raise Exception("Failed to set NULL for invalid timestamps")
+                
+                # Drop the old column and rename the new one
+                if not _safe_execute_sql(
+                    connection,
+                    "ALTER TABLE raw_events DROP COLUMN event_timestamp",
+                    "Drop old event_timestamp column"
+                ):
+                    raise Exception("Failed to drop old event_timestamp column")
+                
+                if not _safe_execute_sql(
+                    connection,
+                    "ALTER TABLE raw_events RENAME COLUMN event_timestamp_new TO event_timestamp",
+                    "Rename new column to event_timestamp"
+                ):
+                    raise Exception("Failed to rename new column to event_timestamp")
+                
+                # Recreate the index
+                if not _safe_execute_sql(
+                    connection,
+                    "DROP INDEX IF EXISTS ix_raw_events_event_timestamp",
+                    "Drop old event_timestamp index"
+                ):
+                    logger.warning("Failed to drop old event_timestamp index - continuing")
+                
+                if not _safe_execute_sql(
+                    connection,
+                    "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
+                    "Create new event_timestamp index"
+                ):
+                    raise Exception("Failed to create new event_timestamp index")
+                
+                logger.info("PostgreSQL event_timestamp conversion completed successfully")
+                
+            except Exception as e:
+                logger.error(f"PostgreSQL event_timestamp conversion failed: {e}")
+                # Try to clean up the temporary column if it exists
+                try:
+                    _safe_execute_sql(
+                        connection,
+                        "ALTER TABLE raw_events DROP COLUMN IF EXISTS event_timestamp_new",
+                        "Clean up temporary column"
+                    )
+                except Exception:
+                    pass  # Ignore cleanup errors
+                raise
             
         else:
             # SQLite: Keep as string for compatibility
