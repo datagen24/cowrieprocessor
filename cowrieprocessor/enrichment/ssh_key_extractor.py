@@ -65,8 +65,7 @@ class SSHKeyExtractor:
         # Local logger for detailed debug during extraction flows
         self._logger = logging.getLogger(__name__)
         self.compiled_patterns = {
-            key_type: re.compile(pattern, re.IGNORECASE | re.DOTALL)
-            for key_type, pattern in self.SSH_KEY_TYPES.items()
+            key_type: re.compile(pattern, re.IGNORECASE | re.DOTALL) for key_type, pattern in self.SSH_KEY_TYPES.items()
         }
         self.injection_patterns = [
             re.compile(pattern, re.IGNORECASE | re.DOTALL) for pattern in self.INJECTION_PATTERNS
@@ -138,12 +137,11 @@ class SSHKeyExtractor:
                 # Extract the full key line (including potential comment after the key)
                 # Look for text after the key data in the command
                 key_full = match.group(0)
-                
+
                 # Try to find comment by looking for text after the key data
                 # Pattern: key_type key_data [comment]
                 full_key_pattern = re.compile(
-                    rf'{re.escape(key_type)}\s+{re.escape(key_data)}\s+([^\s"\']+(?:\s+[^\s"\']+)*)',
-                    re.IGNORECASE
+                    rf'{re.escape(key_type)}\s+{re.escape(key_data)}\s+([^\s"\']+(?:\s+[^\s"\']+)*)', re.IGNORECASE
                 )
                 full_match = full_key_pattern.search(command)
                 if full_match:
@@ -397,4 +395,3 @@ class SSHKeyExtractor:
 
 
 __all__ = ['SSHKeyExtractor', 'ExtractedSSHKey']
-

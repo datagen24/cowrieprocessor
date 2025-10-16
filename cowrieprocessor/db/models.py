@@ -130,25 +130,21 @@ class RawEvent(Base):
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
         from sqlalchemy.dialects import postgresql
-        
+
         # For PostgreSQL, we need to cast the JSON string to timestamp
         # For SQLite, we'll use the string as-is for backward compatibility
         dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
-        
+
         if dialect_name == "postgresql":
             # PostgreSQL: cast JSON string to TIMESTAMP WITH TIME ZONE
             json_timestamp = func.cast(
-                func.json_extract(cls.payload, "$.timestamp"),
-                postgresql.TIMESTAMP(timezone=True)
+                func.json_extract(cls.payload, "$.timestamp"), postgresql.TIMESTAMP(timezone=True)
             )
         else:
             # SQLite: keep as string for backward compatibility
             json_timestamp = func.json_extract(cls.payload, "$.timestamp")
-            
-        return case(
-            (cls.event_timestamp.isnot(None), cls.event_timestamp), 
-            else_=json_timestamp
-        )
+
+        return case((cls.event_timestamp.isnot(None), cls.event_timestamp), else_=json_timestamp)
 
     __table_args__ = (
         UniqueConstraint(
@@ -472,22 +468,22 @@ class SSHKeyIntelligence(Base):
     key_fingerprint = Column(String(64), nullable=False)  # SSH key fingerprint (SHA256)
     key_hash = Column(String(64), nullable=False, unique=True)  # SHA-256 hash for deduplication
     key_comment = Column(Text, nullable=True)  # Optional comment from key (often username@host)
-    
+
     # Temporal tracking
     first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     total_attempts = Column(Integer, nullable=False, server_default="1")
-    
+
     # Aggregated metrics
     unique_sources = Column(Integer, nullable=False, server_default="1")  # Unique IPs injecting this key
     unique_sessions = Column(Integer, nullable=False, server_default="1")  # Unique sessions using this key
-    
+
     # Key metadata
     key_bits = Column(Integer, nullable=True)  # Key size (2048, 4096, etc.)
     key_full = Column(Text, nullable=False)  # Complete key line as extracted
     pattern_type = Column(String(32), nullable=False)  # 'direct_echo', 'heredoc', 'base64_encoded', 'script'
     target_path = Column(Text, nullable=True)  # Target file path (usually ~/.ssh/authorized_keys)
-    
+
     # Metadata
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
@@ -510,12 +506,12 @@ class SessionSSHKeys(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(64), nullable=False)
     ssh_key_id = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
-    
+
     # Command context
     command_text = Column(Text, nullable=True)  # Original command that injected the key
     command_hash = Column(String(64), nullable=True)  # Hash of neutralized command
     injection_method = Column(String(32), nullable=False)  # 'echo_append', 'echo_overwrite', 'heredoc', 'script'
-    
+
     # Temporal and source info
     timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     source_ip = Column(String(45), nullable=True)
@@ -537,7 +533,7 @@ class SSHKeyAssociations(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     key_id_1 = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
     key_id_2 = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
-    
+
     # Co-occurrence metrics
     co_occurrence_count = Column(Integer, nullable=False, server_default="1")
     first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

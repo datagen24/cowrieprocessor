@@ -27,4 +27,3 @@ def test_extractor_on_sample_commands() -> None:
         for key in keys:
             assert key.key_full
             assert key.extraction_method
-

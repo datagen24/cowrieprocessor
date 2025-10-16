@@ -25,13 +25,13 @@ from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
 def test_db():
     """Create a test database with SSH key intelligence schema."""
     engine = create_engine("sqlite:///:memory:", echo=False)
-    
+
     # Apply migrations to create all tables including SSH key intelligence
     apply_migrations(engine)
-    
+
     Session = sessionmaker(bind=engine)
     session = Session()
-    
+
     try:
         yield session
     finally:
@@ -49,12 +49,11 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
             "session": "test-session-1",
             "src_ip": "192.168.1.100",
             "input": (
-                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... "
-                "user@example.com' >> ~/.ssh/authorized_keys"
+                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... user@example.com' >> ~/.ssh/authorized_keys"
             ),
         },
         {
-            "eventid": "cowrie.command.input", 
+            "eventid": "cowrie.command.input",
             "timestamp": "2025-01-15T10:31:00.000000Z",
             "session": "test-session-1",
             "src_ip": "192.168.1.100",
@@ -62,18 +61,17 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
         },
         {
             "eventid": "cowrie.command.input",
-            "timestamp": "2025-01-15T10:32:00.000000Z", 
+            "timestamp": "2025-01-15T10:32:00.000000Z",
             "session": "test-session-2",
             "src_ip": "192.168.1.101",
             "input": (
-                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... "
-                "user@example.com' >> ~/.ssh/authorized_keys"
+                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... user@example.com' >> ~/.ssh/authorized_keys"
             ),
         },
         {
             "eventid": "cowrie.command.input",
             "timestamp": "2025-01-15T10:33:00.000000Z",
-            "session": "test-session-2", 
+            "session": "test-session-2",
             "src_ip": "192.168.1.101",
             "input": (
                 "cat << EOF >> ~/.ssh/authorized_keys\n"
@@ -85,7 +83,7 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
             "eventid": "cowrie.command.input",
             "timestamp": "2025-01-15T10:34:00.000000Z",
             "session": "test-session-3",
-            "src_ip": "192.168.1.102", 
+            "src_ip": "192.168.1.102",
             "input": "echo 'dGVzdC1kYXRh' | base64 -d >> ~/.ssh/authorized_keys",
         },
     ]
@@ -112,18 +110,18 @@ def sample_raw_events(test_db, sample_cowrie_events):
         )
         test_db.add(event)
         events.append(event)
-    
+
     test_db.commit()
     return events
 
 
 class TestSSHKeyExtractionIntegration:
     """Test SSH key extraction and storage integration."""
-    
+
     def test_extract_and_store_ssh_keys(self, test_db, sample_raw_events):
         """Test extracting SSH keys from raw events and storing them."""
         extractor = SSHKeyExtractor()
-        
+
         # Extract keys from events
         all_extracted_keys = []
         for event in sample_raw_events:
@@ -132,18 +130,16 @@ class TestSSHKeyExtractionIntegration:
                 if "authorized_keys" in input_data:
                     extracted_keys = extractor.extract_keys_from_command(input_data)
                     all_extracted_keys.extend(extracted_keys)
-        
+
         # Should extract some keys (exact count depends on key format validity)
         assert len(all_extracted_keys) > 0
-        
+
         # Store keys in database
         key_records = []
         for key in all_extracted_keys:
             # Check if key already exists
-            existing_key = test_db.query(SSHKeyIntelligence).filter(
-                SSHKeyIntelligence.key_hash == key.key_hash
-            ).first()
-            
+            existing_key = test_db.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.key_hash == key.key_hash).first()
+
             if not existing_key:
                 key_record = SSHKeyIntelligence(
                     key_type=key.key_type,
@@ -165,24 +161,24 @@ class TestSSHKeyExtractionIntegration:
                 existing_key.last_seen = datetime.now(timezone.utc)
                 existing_key.total_attempts += 1
                 key_records.append(existing_key)
-        
+
         test_db.commit()
-        
+
         # Verify keys were stored
         stored_keys = test_db.query(SSHKeyIntelligence).all()
         assert len(stored_keys) > 0
-        
+
         # Verify key data integrity
         for key_record in stored_keys:
             assert key_record.key_type is not None
             assert key_record.key_fingerprint is not None
             assert key_record.key_hash is not None
             assert key_record.total_attempts > 0
-    
+
     def test_session_key_linking(self, test_db, sample_raw_events):
         """Test linking SSH keys to sessions."""
         extractor = SSHKeyExtractor()
-        
+
         # Process events and create session-key links
         session_key_links = []
         for event in sample_raw_events:
@@ -190,13 +186,15 @@ class TestSSHKeyExtractionIntegration:
                 input_data = event.payload["input"]
                 if "authorized_keys" in input_data:
                     extracted_keys = extractor.extract_keys_from_command(input_data)
-                    
+
                     for key in extracted_keys:
                         # Get or create key record
-                        key_record = test_db.query(SSHKeyIntelligence).filter(
-                            SSHKeyIntelligence.key_hash == key.key_hash
-                        ).first()
-                        
+                        key_record = (
+                            test_db.query(SSHKeyIntelligence)
+                            .filter(SSHKeyIntelligence.key_hash == key.key_hash)
+                            .first()
+                        )
+
                         if not key_record:
                             key_record = SSHKeyIntelligence(
                                 key_type=key.key_type,
@@ -213,7 +211,7 @@ class TestSSHKeyExtractionIntegration:
                             )
                             test_db.add(key_record)
                             test_db.flush()
-                        
+
                         # Create session-key link
                         link = SessionSSHKeys(
                             session_id=event.session_id,
@@ -225,13 +223,13 @@ class TestSSHKeyExtractionIntegration:
                         )
                         test_db.add(link)
                         session_key_links.append(link)
-        
+
         test_db.commit()
-        
+
         # Verify session-key links were created
         stored_links = test_db.query(SessionSSHKeys).all()
         assert len(stored_links) > 0
-        
+
         # Verify link data integrity
         for link in stored_links:
             assert link.session_id is not None
@@ -242,7 +240,7 @@ class TestSSHKeyExtractionIntegration:
 
 class TestSSHKeyAnalyticsIntegration:
     """Test SSH key analytics functionality."""
-    
+
     def test_campaign_detection(self, test_db):
         """Test SSH key campaign detection."""
         # Create sample key records that should form a campaign
@@ -259,11 +257,11 @@ class TestSSHKeyAnalyticsIntegration:
             unique_sources=3,
             unique_sessions=5,
         )
-        
+
         key2 = SSHKeyIntelligence(
             key_type="ssh-ed25519",
             key_data="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
-            key_fingerprint="SHA256:def456", 
+            key_fingerprint="SHA256:def456",
             key_hash="hash2",
             key_comment="attacker@evil.com",
             key_size_bits=256,
@@ -273,11 +271,11 @@ class TestSSHKeyAnalyticsIntegration:
             unique_sources=2,
             unique_sessions=4,
         )
-        
+
         test_db.add(key1)
         test_db.add(key2)
         test_db.flush()
-        
+
         # Create association between keys
         association = SSHKeyAssociations(
             key_id_1=key1.id,
@@ -288,7 +286,7 @@ class TestSSHKeyAnalyticsIntegration:
         )
         test_db.add(association)
         test_db.commit()
-        
+
         # Test campaign detection
         analytics = SSHKeyAnalytics(test_db)
         campaigns = analytics.identify_campaigns(
@@ -298,15 +296,15 @@ class TestSSHKeyAnalyticsIntegration:
             days_back=30,
             confidence_threshold=0.5,
         )
-        
+
         # Should detect at least one campaign
         assert len(campaigns) >= 1
-        
+
         campaign = campaigns[0]
         assert len(campaign.key_fingerprints) >= 2
         assert campaign.total_sessions >= 3
         assert campaign.confidence_score > 0.0
-    
+
     def test_key_timeline_analysis(self, test_db):
         """Test SSH key timeline analysis."""
         # Create a key record
@@ -325,7 +323,7 @@ class TestSSHKeyAnalyticsIntegration:
         )
         test_db.add(key)
         test_db.flush()
-        
+
         # Create session-key links
         for i in range(3):
             link = SessionSSHKeys(
@@ -337,20 +335,20 @@ class TestSSHKeyAnalyticsIntegration:
                 timestamp=datetime.now(timezone.utc),
             )
             test_db.add(link)
-        
+
         test_db.commit()
-        
+
         # Test timeline analysis
         analytics = SSHKeyAnalytics(test_db)
         timeline = analytics.get_key_timeline("SHA256:test123")
-        
+
         assert timeline is not None
         assert timeline.key_fingerprint == "SHA256:test123"
         assert timeline.key_type == "ssh-rsa"
         assert timeline.total_attempts == 3
         assert timeline.unique_sessions == 3
         assert len(timeline.sessions) == 3
-    
+
     def test_related_keys_analysis(self, test_db):
         """Test related keys analysis."""
         # Create two related keys
@@ -367,12 +365,12 @@ class TestSSHKeyAnalyticsIntegration:
             unique_sources=2,
             unique_sessions=5,
         )
-        
+
         key2 = SSHKeyIntelligence(
             key_type="ssh-ed25519",
             key_data="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5...",
             key_fingerprint="SHA256:key2",
-            key_hash="hash2", 
+            key_hash="hash2",
             key_comment="user2@example.com",
             key_size_bits=256,
             first_seen=datetime.now(timezone.utc),
@@ -381,11 +379,11 @@ class TestSSHKeyAnalyticsIntegration:
             unique_sources=2,
             unique_sessions=4,
         )
-        
+
         test_db.add(key1)
         test_db.add(key2)
         test_db.flush()
-        
+
         # Create association
         association = SSHKeyAssociations(
             key_id_1=key1.id,
@@ -396,7 +394,7 @@ class TestSSHKeyAnalyticsIntegration:
         )
         test_db.add(association)
         test_db.commit()
-        
+
         # Test related keys analysis
         analytics = SSHKeyAnalytics(test_db)
         related_keys = analytics.find_related_keys(
@@ -404,13 +402,13 @@ class TestSSHKeyAnalyticsIntegration:
             min_association_strength=0.1,
             max_results=10,
         )
-        
+
         assert len(related_keys) >= 1
         related = related_keys[0]
         assert related.key2_fingerprint == "SHA256:key2"
         assert related.co_occurrence_count == 3
         assert related.association_strength > 0.0
-    
+
     def test_geographic_spread_analysis(self, test_db):
         """Test geographic spread analysis."""
         # Create a key record
@@ -429,7 +427,7 @@ class TestSSHKeyAnalyticsIntegration:
         )
         test_db.add(key)
         test_db.flush()
-        
+
         # Create session-key links with different IPs
         ips = ["192.168.1.100", "192.168.1.101", "10.0.0.50", "172.16.0.10", "203.0.113.5"]
         for i, ip in enumerate(ips):
@@ -442,13 +440,13 @@ class TestSSHKeyAnalyticsIntegration:
                 timestamp=datetime.now(timezone.utc),
             )
             test_db.add(link)
-        
+
         test_db.commit()
-        
+
         # Test geographic spread analysis
         analytics = SSHKeyAnalytics(test_db)
         geo_spread = analytics.calculate_geographic_spread("SHA256:geo123")
-        
+
         assert geo_spread["unique_ips"] == 5
         assert geo_spread["unique_subnets"] == 4  # Different /24 subnets
         assert geo_spread["spread_diversity"] > 0.0
@@ -457,7 +455,7 @@ class TestSSHKeyAnalyticsIntegration:
 
 class TestSessionSummaryIntegration:
     """Test session summary integration with SSH key counts."""
-    
+
     def test_session_summary_ssh_key_counts(self, test_db):
         """Test that session summaries include SSH key counts."""
         # Create a session summary
@@ -480,12 +478,10 @@ class TestSessionSummaryIntegration:
         )
         test_db.add(session_summary)
         test_db.commit()
-        
+
         # Verify the session summary was created with SSH key counts
-        stored_summary = test_db.query(SessionSummary).filter(
-            SessionSummary.session_id == "test-session"
-        ).first()
-        
+        stored_summary = test_db.query(SessionSummary).filter(SessionSummary.session_id == "test-session").first()
+
         assert stored_summary is not None
         assert stored_summary.ssh_key_injections == 2
         assert stored_summary.unique_ssh_keys == 1
@@ -493,11 +489,11 @@ class TestSessionSummaryIntegration:
 
 class TestEndToEndIntegration:
     """Test end-to-end SSH key enrichment pipeline."""
-    
+
     def test_full_enrichment_pipeline(self, test_db, sample_raw_events):
         """Test the complete SSH key enrichment pipeline."""
         extractor = SSHKeyExtractor()
-        
+
         # Step 1: Extract SSH keys from raw events
         all_keys = []
         for event in sample_raw_events:
@@ -506,23 +502,25 @@ class TestEndToEndIntegration:
                 if "authorized_keys" in input_data:
                     extracted_keys = extractor.extract_keys_from_command(input_data)
                     all_keys.extend(extracted_keys)
-        
+
         # Step 2: Store keys and create associations
         key_records = []
         session_links = []
-        
+
         for event in sample_raw_events:
             if event.payload and "input" in event.payload:
                 input_data = event.payload["input"]
                 if "authorized_keys" in input_data:
                     extracted_keys = extractor.extract_keys_from_command(input_data)
-                    
+
                     for key in extracted_keys:
                         # Store key intelligence
-                        key_record = test_db.query(SSHKeyIntelligence).filter(
-                            SSHKeyIntelligence.key_hash == key.key_hash
-                        ).first()
-                        
+                        key_record = (
+                            test_db.query(SSHKeyIntelligence)
+                            .filter(SSHKeyIntelligence.key_hash == key.key_hash)
+                            .first()
+                        )
+
                         if not key_record:
                             key_record = SSHKeyIntelligence(
                                 key_type=key.key_type,
@@ -541,7 +539,7 @@ class TestEndToEndIntegration:
                             key_records.append(key_record)
                         else:
                             key_record.total_attempts += 1
-                        
+
                         # Create session-key link
                         link = SessionSSHKeys(
                             session_id=event.session_id,
@@ -553,21 +551,22 @@ class TestEndToEndIntegration:
                         )
                         test_db.add(link)
                         session_links.append(link)
-        
+
         test_db.commit()
-        
+
         # Step 3: Create session summaries with SSH key counts
         session_ids = set(event.session_id for event in sample_raw_events)
         for session_id in session_ids:
             # Count SSH keys for this session
-            key_count = test_db.query(SessionSSHKeys).filter(
-                SessionSSHKeys.session_id == session_id
-            ).count()
-            
-            unique_key_count = test_db.query(SessionSSHKeys.ssh_key_id).filter(
-                SessionSSHKeys.session_id == session_id
-            ).distinct().count()
-            
+            key_count = test_db.query(SessionSSHKeys).filter(SessionSSHKeys.session_id == session_id).count()
+
+            unique_key_count = (
+                test_db.query(SessionSSHKeys.ssh_key_id)
+                .filter(SessionSSHKeys.session_id == session_id)
+                .distinct()
+                .count()
+            )
+
             session_summary = SessionSummary(
                 session_id=session_id,
                 event_count=5,
@@ -586,16 +585,16 @@ class TestEndToEndIntegration:
                 unique_ssh_keys=unique_key_count,
             )
             test_db.add(session_summary)
-        
+
         test_db.commit()
-        
+
         # Step 4: Test analytics
         analytics = SSHKeyAnalytics(test_db)
-        
+
         # Test top keys
         top_keys = analytics.get_top_keys_by_usage(days_back=30, limit=10)
         assert len(top_keys) >= 0
-        
+
         # Test campaign detection
         campaigns = analytics.identify_campaigns(
             min_attempts=1,
@@ -605,16 +604,16 @@ class TestEndToEndIntegration:
             confidence_threshold=0.1,
         )
         assert len(campaigns) >= 0
-        
+
         # Verify data integrity
         stored_keys = test_db.query(SSHKeyIntelligence).all()
         stored_links = test_db.query(SessionSSHKeys).all()
         stored_summaries = test_db.query(SessionSummary).all()
-        
+
         assert len(stored_keys) > 0
         assert len(stored_links) > 0
         assert len(stored_summaries) > 0
-        
+
         # Verify session summaries have SSH key counts
         for summary in stored_summaries:
             assert summary.ssh_key_injections >= 0
