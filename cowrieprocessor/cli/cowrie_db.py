@@ -245,18 +245,32 @@ class CowrieDatabase:
 
         try:
             with self._get_session() as session:
-                # Check session count
-                from ..db.models import SessionSummary
-
-                result['session_count'] = session.query(SessionSummary).count()
+                # Check session count - use raw SQL to avoid ORM column issues
+                try:
+                    session_count_result = session.execute(text("SELECT COUNT(*) FROM session_summaries")).scalar()
+                    result['session_count'] = session_count_result if session_count_result is not None else 0
+                except Exception as e:
+                    logger.warning(f"Could not get session count: {e}")
+                    result['session_count'] = 0
 
                 # Check command count
-                from ..db.models import CommandStat
+                try:
+                    from ..db.models import CommandStat
 
-                result['command_count'] = session.query(CommandStat).count()
+                    result['command_count'] = session.query(CommandStat).count()
+                except Exception as e:
+                    logger.warning(f"Could not get command count: {e}")
+                    result['command_count'] = 0
 
-                # Check file count (downloads)
-                result['file_count'] = session.query(SessionSummary).filter(SessionSummary.file_downloads > 0).count()
+                # Check file count (downloads) - use raw SQL to avoid ORM column issues
+                try:
+                    file_count_result = session.execute(
+                        text("SELECT COUNT(*) FROM session_summaries WHERE file_downloads > 0")
+                    ).scalar()
+                    result['file_count'] = file_count_result if file_count_result is not None else 0
+                except Exception as e:
+                    logger.warning(f"Could not get file count: {e}")
+                    result['file_count'] = 0
 
                 # Check files table count if it exists
                 try:
