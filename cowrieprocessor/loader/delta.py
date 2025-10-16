@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import DeadLetterEvent, IngestCursor, RawEvent
-from ..telemetry import start_span
 from ..enrichment.ssh_key_extractor import SSHKeyExtractor
+from ..telemetry import start_span
 from .bulk import (
     COMMAND_EVENT_HINTS,
     FILE_EVENT_HINTS,
@@ -166,7 +166,11 @@ class DeltaLoader:
                                 if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
                                     if processed.input and "authorized_keys" in processed.input:
                                         try:
-                                            extracted_keys = self._ssh_key_extractor.extract_keys_from_command(processed.input)
+                                            extracted_keys = (
+                                self._ssh_key_extractor.extract_keys_from_command(
+                                    processed.input
+                                )
+                            )
                                             if extracted_keys:
                                                 aggregate.ssh_key_injections += len(extracted_keys)
                                                 for key in extracted_keys:

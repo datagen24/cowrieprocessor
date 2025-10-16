@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict
 
 import pytest
@@ -15,10 +12,10 @@ from sqlalchemy.orm import sessionmaker
 from cowrieprocessor.db import apply_migrations
 from cowrieprocessor.db.models import (
     RawEvent,
-    SSHKeyIntelligence,
-    SSHKeyAssociations,
     SessionSSHKeys,
     SessionSummary,
+    SSHKeyAssociations,
+    SSHKeyIntelligence,
 )
 from cowrieprocessor.enrichment.ssh_key_analytics import SSHKeyAnalytics
 from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
@@ -51,7 +48,10 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
             "timestamp": "2025-01-15T10:30:00.000000Z",
             "session": "test-session-1",
             "src_ip": "192.168.1.100",
-            "input": "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... user@example.com' >> ~/.ssh/authorized_keys",
+            "input": (
+                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... "
+                "user@example.com' >> ~/.ssh/authorized_keys"
+            ),
         },
         {
             "eventid": "cowrie.command.input", 
@@ -65,14 +65,21 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
             "timestamp": "2025-01-15T10:32:00.000000Z", 
             "session": "test-session-2",
             "src_ip": "192.168.1.101",
-            "input": "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... user@example.com' >> ~/.ssh/authorized_keys",
+            "input": (
+                "echo 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDhA... "
+                "user@example.com' >> ~/.ssh/authorized_keys"
+            ),
         },
         {
             "eventid": "cowrie.command.input",
             "timestamp": "2025-01-15T10:33:00.000000Z",
             "session": "test-session-2", 
             "src_ip": "192.168.1.101",
-            "input": "cat << EOF >> ~/.ssh/authorized_keys\nssh-ecdsa AAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBF... bot@botnet.com\nEOF",
+            "input": (
+                "cat << EOF >> ~/.ssh/authorized_keys\n"
+                "ssh-ecdsa AAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBF... "
+                "bot@botnet.com\nEOF"
+            ),
         },
         {
             "eventid": "cowrie.command.input",
@@ -324,7 +331,7 @@ class TestSSHKeyAnalyticsIntegration:
             link = SessionSSHKeys(
                 session_id=f"session-{i}",
                 ssh_key_id=key.id,
-                command_text=f"echo 'key' >> authorized_keys",
+                command_text="echo 'key' >> authorized_keys",
                 injection_method="echo_append",
                 source_ip=f"192.168.1.{100 + i}",
                 timestamp=datetime.now(timezone.utc),
@@ -429,7 +436,7 @@ class TestSSHKeyAnalyticsIntegration:
             link = SessionSSHKeys(
                 session_id=f"session-{i}",
                 ssh_key_id=key.id,
-                command_text=f"echo 'key' >> authorized_keys",
+                command_text="echo 'key' >> authorized_keys",
                 injection_method="echo_append",
                 source_ip=ip,
                 timestamp=datetime.now(timezone.utc),

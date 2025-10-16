@@ -19,10 +19,10 @@ from .models import (
     RawEvent,
     SchemaMetadata,
     SchemaState,
-    SessionSummary,
-    SSHKeyIntelligence,
-    SSHKeyAssociations,
     SessionSSHKeys,
+    SessionSummary,
+    SSHKeyAssociations,
+    SSHKeyIntelligence,
 )
 
 __all__ = [

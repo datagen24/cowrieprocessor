@@ -130,7 +130,6 @@ class RawEvent(Base):
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
         from sqlalchemy.dialects import postgresql
-        from sqlalchemy.dialects import sqlite
         
         # For PostgreSQL, we need to cast the JSON string to timestamp
         # For SQLite, we'll use the string as-is for backward compatibility
@@ -138,7 +137,10 @@ class RawEvent(Base):
         
         if dialect_name == "postgresql":
             # PostgreSQL: cast JSON string to TIMESTAMP WITH TIME ZONE
-            json_timestamp = func.cast(func.json_extract(cls.payload, "$.timestamp"), postgresql.TIMESTAMP(timezone=True))
+            json_timestamp = func.cast(
+                func.json_extract(cls.payload, "$.timestamp"),
+                postgresql.TIMESTAMP(timezone=True)
+            )
         else:
             # SQLite: keep as string for backward compatibility
             json_timestamp = func.json_extract(cls.payload, "$.timestamp")

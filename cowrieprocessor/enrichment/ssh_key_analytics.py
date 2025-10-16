@@ -8,10 +8,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from ..db.models import SSHKeyIntelligence, SSHKeyAssociations, SessionSSHKeys, SessionSummary
+from ..db.models import SessionSSHKeys, SSHKeyAssociations, SSHKeyIntelligence
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,11 @@ class SSHKeyAnalytics:
                 "source_ip": session.source_ip,
                 "injection_method": session.injection_method,
                 "timestamp": session.timestamp,
-                "command_preview": session.command_text[:100] + "..." if len(session.command_text) > 100 else session.command_text,
+                "command_preview": (
+                    session.command_text[:100] + "..."
+                    if len(session.command_text) > 100
+                    else session.command_text
+                ),
             })
             
         return KeyTimeline(
