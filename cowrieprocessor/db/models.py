@@ -26,6 +26,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.sql.elements import Case
 
 from .base import Base
+from .json_utils import get_dialect_name_from_engine
 
 
 class SchemaState(Base):
@@ -74,7 +75,7 @@ class RawEvent(Base):
     # Real columns for extracted JSON fields (replacing computed columns)
     session_id = Column(String(64), nullable=True, index=True)
     event_type = Column(String(128), nullable=True, index=True)
-    event_timestamp = Column(String(64), nullable=True, index=True)
+    event_timestamp = Column(DateTime(timezone=True), nullable=True, index=True)
 
     @hybrid_property
     def session_id_computed(self) -> Any:
@@ -128,9 +129,22 @@ class RawEvent(Base):
         Returns:
             SQLAlchemy case expression that uses real column or extracts from JSON.
         """
-        return case(
-            (cls.event_timestamp.isnot(None), cls.event_timestamp), else_=func.json_extract(cls.payload, "$.timestamp")
-        )
+        from sqlalchemy.dialects import postgresql
+
+        # For PostgreSQL, we need to cast the JSON string to timestamp
+        # For SQLite, we'll use the string as-is for backward compatibility
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+
+        if dialect_name == "postgresql":
+            # PostgreSQL: cast JSON string to TIMESTAMP WITH TIME ZONE
+            json_timestamp = func.cast(
+                func.json_extract(cls.payload, "$.timestamp"), postgresql.TIMESTAMP(timezone=True)
+            )
+        else:
+            # SQLite: keep as string for backward compatibility
+            json_timestamp = func.json_extract(cls.payload, "$.timestamp")
+
+        return case((cls.event_timestamp.isnot(None), cls.event_timestamp), else_=json_timestamp)
 
     __table_args__ = (
         UniqueConstraint(
@@ -157,6 +171,8 @@ class SessionSummary(Base):
     command_count = Column(Integer, nullable=False, server_default="0")
     file_downloads = Column(Integer, nullable=False, server_default="0")
     login_attempts = Column(Integer, nullable=False, server_default="0")
+    ssh_key_injections = Column(Integer, nullable=False, server_default="0")
+    unique_ssh_keys = Column(Integer, nullable=False, server_default="0")
     vt_flagged = Column(Boolean, nullable=False, server_default=false())
     dshield_flagged = Column(Boolean, nullable=False, server_default=false())
     risk_score = Column(Integer, nullable=True)
@@ -170,6 +186,7 @@ class SessionSummary(Base):
         Index("ix_session_summaries_first_event", "first_event_at"),
         Index("ix_session_summaries_last_event", "last_event_at"),
         Index("ix_session_summaries_flags", "vt_flagged", "dshield_flagged"),
+        Index("ix_session_summaries_ssh_keys", "ssh_key_injections"),
     )
 
 
@@ -440,6 +457,98 @@ class PasswordSessionUsage(Base):
     )
 
 
+class SSHKeyIntelligence(Base):
+    """Track SSH public keys with intelligence metadata and temporal patterns."""
+
+    __tablename__ = "ssh_key_intelligence"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key_type = Column(String(32), nullable=False)  # 'ssh-rsa', 'ssh-ed25519', 'ecdsa-sha2-nistp256', etc.
+    key_data = Column(Text, nullable=False)  # Full public key (base64 portion)
+    key_fingerprint = Column(String(64), nullable=False)  # SSH key fingerprint (SHA256)
+    key_hash = Column(String(64), nullable=False, unique=True)  # SHA-256 hash for deduplication
+    key_comment = Column(Text, nullable=True)  # Optional comment from key (often username@host)
+
+    # Temporal tracking
+    first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    total_attempts = Column(Integer, nullable=False, server_default="1")
+
+    # Aggregated metrics
+    unique_sources = Column(Integer, nullable=False, server_default="1")  # Unique IPs injecting this key
+    unique_sessions = Column(Integer, nullable=False, server_default="1")  # Unique sessions using this key
+
+    # Key metadata
+    key_bits = Column(Integer, nullable=True)  # Key size (2048, 4096, etc.)
+    key_full = Column(Text, nullable=False)  # Complete key line as extracted
+    pattern_type = Column(String(32), nullable=False)  # 'direct_echo', 'heredoc', 'base64_encoded', 'script'
+    target_path = Column(Text, nullable=True)  # Target file path (usually ~/.ssh/authorized_keys)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_ssh_key_fingerprint", "key_fingerprint"),
+        Index("ix_ssh_key_type", "key_type"),
+        Index("ix_ssh_key_timeline", "first_seen", "last_seen"),
+        Index("ix_ssh_key_attempts", "total_attempts"),
+        Index("ix_ssh_key_sources", "unique_sources"),
+        Index("ix_ssh_key_sessions", "unique_sessions"),
+    )
+
+
+class SessionSSHKeys(Base):
+    """Link SSH keys to sessions with injection context and details."""
+
+    __tablename__ = "session_ssh_keys"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(64), nullable=False)
+    ssh_key_id = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
+
+    # Command context
+    command_text = Column(Text, nullable=True)  # Original command that injected the key
+    command_hash = Column(String(64), nullable=True)  # Hash of neutralized command
+    injection_method = Column(String(32), nullable=False)  # 'echo_append', 'echo_overwrite', 'heredoc', 'script'
+
+    # Temporal and source info
+    timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    source_ip = Column(String(45), nullable=True)
+    successful_injection = Column(Boolean, nullable=False, server_default=false())  # Did the injection succeed?
+
+    __table_args__ = (
+        Index("ix_session_ssh_keys_session", "session_id"),
+        Index("ix_session_ssh_keys_timestamp", "timestamp"),
+        Index("ix_session_ssh_keys_ssh_key", "ssh_key_id"),
+        Index("ix_session_ssh_keys_source_ip", "source_ip"),
+    )
+
+
+class SSHKeyAssociations(Base):
+    """Track keys used together (campaign correlation and co-occurrence patterns)."""
+
+    __tablename__ = "ssh_key_associations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key_id_1 = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
+    key_id_2 = Column(Integer, ForeignKey("ssh_key_intelligence.id"), nullable=False)
+
+    # Co-occurrence metrics
+    co_occurrence_count = Column(Integer, nullable=False, server_default="1")
+    first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    same_session_count = Column(Integer, nullable=False, server_default="0")  # Times seen in same session
+    same_ip_count = Column(Integer, nullable=False, server_default="0")  # Times seen from same IP
+
+    __table_args__ = (
+        UniqueConstraint("key_id_1", "key_id_2", name="uq_ssh_key_associations_keys"),
+        Index("ix_ssh_key_associations_keys", "key_id_1", "key_id_2"),
+        Index("ix_ssh_key_associations_co_occurrence", "co_occurrence_count"),
+        Index("ix_ssh_key_associations_timeline", "first_seen", "last_seen"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "SchemaMetadata",
@@ -455,4 +564,7 @@ __all__ = [
     "PasswordStatistics",
     "PasswordTracking",
     "PasswordSessionUsage",
+    "SSHKeyIntelligence",
+    "SessionSSHKeys",
+    "SSHKeyAssociations",
 ]

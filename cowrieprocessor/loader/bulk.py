@@ -92,6 +92,9 @@ class SessionAggregate:
     urlhaus_flagged: bool = False
     spur_flagged: bool = False
     enrichment_payload: Dict[str, Any] = field(default_factory=dict)
+    # SSH key intelligence tracking
+    ssh_key_injections: int = 0
+    unique_ssh_keys: Set[str] = field(default_factory=set)
 
     def update_timestamp(self, ts: Optional[datetime]) -> None:
         if ts is None:
@@ -586,6 +589,8 @@ class BulkLoader:
                     "vt_flagged": agg.vt_flagged,  # Keep as boolean, not int
                     "dshield_flagged": agg.dshield_flagged,  # Keep as boolean, not int
                     "enrichment": agg.enrichment_payload or None,
+                    "ssh_key_injections": agg.ssh_key_injections,
+                    "unique_ssh_keys": len(agg.unique_ssh_keys),
                 }
             )
 
@@ -607,6 +612,8 @@ class BulkLoader:
                     "vt_flagged": excluded.vt_flagged,  # Use excluded value directly (boolean)
                     "dshield_flagged": excluded.dshield_flagged,  # Use excluded value directly (boolean)
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
+                    "ssh_key_injections": SessionSummary.ssh_key_injections + excluded.ssh_key_injections,
+                    "unique_ssh_keys": excluded.unique_ssh_keys,  # Use the new count
                     "updated_at": func.now(),
                 },
             )
@@ -631,6 +638,8 @@ class BulkLoader:
                     "vt_flagged": excluded.vt_flagged,  # Use excluded value directly (boolean)
                     "dshield_flagged": excluded.dshield_flagged,  # Use excluded value directly (boolean)
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
+                    "ssh_key_injections": SessionSummary.ssh_key_injections + excluded.ssh_key_injections,
+                    "unique_ssh_keys": excluded.unique_ssh_keys,  # Use the new count
                     "updated_at": func.now(),
                 },
             )

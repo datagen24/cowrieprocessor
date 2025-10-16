@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 12
 
 logger = logging.getLogger(__name__)
 
@@ -190,6 +190,16 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v10(connection)
             _set_schema_version(connection, 10)
             version = 10
+
+        if version < 11:
+            _upgrade_to_v11(connection)
+            _set_schema_version(connection, 11)
+            version = 11
+
+        if version < 12:
+            _upgrade_to_v12(connection)
+            _set_schema_version(connection, 12)
+            version = 12
 
     return version
 
@@ -1187,6 +1197,473 @@ def _upgrade_to_v10(connection: Connection) -> None:
         logger.info("password_session_usage table already exists, skipping creation")
 
     logger.info("Password statistics schema migration (v10) completed successfully")
+
+
+def _upgrade_to_v11(connection: Connection) -> None:
+    """Upgrade to schema version 11: Add SSH key intelligence tracking tables."""
+    logger.info("Starting SSH key intelligence schema migration (v11)...")
+
+    dialect_name = connection.dialect.name
+
+    # Create ssh_key_intelligence table if it doesn't exist
+    if not _table_exists(connection, 'ssh_key_intelligence'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE ssh_key_intelligence (
+                    id SERIAL PRIMARY KEY,
+                    key_type VARCHAR(32) NOT NULL,
+                    key_data TEXT NOT NULL,
+                    key_fingerprint VARCHAR(64) NOT NULL,
+                    key_hash VARCHAR(64) NOT NULL UNIQUE,
+                    key_comment TEXT,
+                    first_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    total_attempts INTEGER NOT NULL DEFAULT 1,
+                    unique_sources INTEGER NOT NULL DEFAULT 1,
+                    unique_sessions INTEGER NOT NULL DEFAULT 1,
+                    key_bits INTEGER,
+                    key_full TEXT NOT NULL,
+                    pattern_type VARCHAR(32) NOT NULL,
+                    target_path TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create ssh_key_intelligence table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create ssh_key_intelligence table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_fingerprint ON ssh_key_intelligence(key_fingerprint)",
+                "Create fingerprint index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_type ON ssh_key_intelligence(key_type)",
+                "Create type index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_timeline ON ssh_key_intelligence(first_seen, last_seen)",
+                "Create timeline index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_attempts ON ssh_key_intelligence(total_attempts)",
+                "Create attempts index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_sources ON ssh_key_intelligence(unique_sources)",
+                "Create sources index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_sessions ON ssh_key_intelligence(unique_sessions)",
+                "Create sessions index on ssh_key_intelligence",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE ssh_key_intelligence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key_type VARCHAR(32) NOT NULL,
+                    key_data TEXT NOT NULL,
+                    key_fingerprint VARCHAR(64) NOT NULL,
+                    key_hash VARCHAR(64) NOT NULL UNIQUE,
+                    key_comment TEXT,
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    total_attempts INTEGER NOT NULL DEFAULT 1,
+                    unique_sources INTEGER NOT NULL DEFAULT 1,
+                    unique_sessions INTEGER NOT NULL DEFAULT 1,
+                    key_bits INTEGER,
+                    key_full TEXT NOT NULL,
+                    pattern_type VARCHAR(32) NOT NULL,
+                    target_path TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create ssh_key_intelligence table (SQLite)",
+            ):
+                raise Exception("Failed to create ssh_key_intelligence table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_fingerprint ON ssh_key_intelligence(key_fingerprint)",
+                "Create fingerprint index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_type ON ssh_key_intelligence(key_type)",
+                "Create type index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_timeline ON ssh_key_intelligence(first_seen, last_seen)",
+                "Create timeline index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_attempts ON ssh_key_intelligence(total_attempts)",
+                "Create attempts index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_sources ON ssh_key_intelligence(unique_sources)",
+                "Create sources index on ssh_key_intelligence",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_sessions ON ssh_key_intelligence(unique_sessions)",
+                "Create sessions index on ssh_key_intelligence",
+            )
+
+        logger.info("ssh_key_intelligence table created successfully")
+    else:
+        logger.info("ssh_key_intelligence table already exists, skipping creation")
+
+    # Create session_ssh_keys table if it doesn't exist
+    if not _table_exists(connection, 'session_ssh_keys'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE session_ssh_keys (
+                    id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(64) NOT NULL,
+                    ssh_key_id INTEGER NOT NULL REFERENCES ssh_key_intelligence(id),
+                    command_text TEXT,
+                    command_hash VARCHAR(64),
+                    injection_method VARCHAR(32) NOT NULL,
+                    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    source_ip VARCHAR(45),
+                    successful_injection BOOLEAN NOT NULL DEFAULT FALSE
+                )
+                """,
+                "Create session_ssh_keys table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create session_ssh_keys table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_session ON session_ssh_keys(session_id)",
+                "Create session index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_timestamp ON session_ssh_keys(timestamp)",
+                "Create timestamp index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_ssh_key ON session_ssh_keys(ssh_key_id)",
+                "Create ssh_key index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_source_ip ON session_ssh_keys(source_ip)",
+                "Create source_ip index on session_ssh_keys",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE session_ssh_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id VARCHAR(64) NOT NULL,
+                    ssh_key_id INTEGER NOT NULL,
+                    command_text TEXT,
+                    command_hash VARCHAR(64),
+                    injection_method VARCHAR(32) NOT NULL,
+                    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    source_ip VARCHAR(45),
+                    successful_injection BOOLEAN NOT NULL DEFAULT 0,
+                    FOREIGN KEY (ssh_key_id) REFERENCES ssh_key_intelligence(id)
+                )
+                """,
+                "Create session_ssh_keys table (SQLite)",
+            ):
+                raise Exception("Failed to create session_ssh_keys table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_session ON session_ssh_keys(session_id)",
+                "Create session index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_timestamp ON session_ssh_keys(timestamp)",
+                "Create timestamp index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_ssh_key ON session_ssh_keys(ssh_key_id)",
+                "Create ssh_key index on session_ssh_keys",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_session_ssh_keys_source_ip ON session_ssh_keys(source_ip)",
+                "Create source_ip index on session_ssh_keys",
+            )
+
+        logger.info("session_ssh_keys table created successfully")
+    else:
+        logger.info("session_ssh_keys table already exists, skipping creation")
+
+    # Create ssh_key_associations table if it doesn't exist
+    if not _table_exists(connection, 'ssh_key_associations'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE ssh_key_associations (
+                    id SERIAL PRIMARY KEY,
+                    key_id_1 INTEGER NOT NULL REFERENCES ssh_key_intelligence(id),
+                    key_id_2 INTEGER NOT NULL REFERENCES ssh_key_intelligence(id),
+                    co_occurrence_count INTEGER NOT NULL DEFAULT 1,
+                    first_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    last_seen TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    same_session_count INTEGER NOT NULL DEFAULT 0,
+                    same_ip_count INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(key_id_1, key_id_2)
+                )
+                """,
+                "Create ssh_key_associations table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create ssh_key_associations table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_keys ON ssh_key_associations(key_id_1, key_id_2)",
+                "Create keys index on ssh_key_associations",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_co_occurrence ON ssh_key_associations(co_occurrence_count)",
+                "Create co_occurrence index on ssh_key_associations",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_timeline ON ssh_key_associations(first_seen, last_seen)",
+                "Create timeline index on ssh_key_associations",
+            )
+        else:
+            # SQLite syntax
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE ssh_key_associations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key_id_1 INTEGER NOT NULL,
+                    key_id_2 INTEGER NOT NULL,
+                    co_occurrence_count INTEGER NOT NULL DEFAULT 1,
+                    first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    same_session_count INTEGER NOT NULL DEFAULT 0,
+                    same_ip_count INTEGER NOT NULL DEFAULT 0,
+                    UNIQUE(key_id_1, key_id_2),
+                    FOREIGN KEY (key_id_1) REFERENCES ssh_key_intelligence(id),
+                    FOREIGN KEY (key_id_2) REFERENCES ssh_key_intelligence(id)
+                )
+                """,
+                "Create ssh_key_associations table (SQLite)",
+            ):
+                raise Exception("Failed to create ssh_key_associations table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_keys ON ssh_key_associations(key_id_1, key_id_2)",
+                "Create keys index on ssh_key_associations",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_co_occurrence ON ssh_key_associations(co_occurrence_count)",
+                "Create co_occurrence index on ssh_key_associations",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_ssh_key_associations_timeline ON ssh_key_associations(first_seen, last_seen)",
+                "Create timeline index on ssh_key_associations",
+            )
+
+        logger.info("ssh_key_associations table created successfully")
+    else:
+        logger.info("ssh_key_associations table already exists, skipping creation")
+
+    # Add SSH key columns to session_summaries if they don't exist
+    if not _column_exists(connection, 'session_summaries', 'ssh_key_injections'):
+        if dialect_name == 'postgresql':
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE session_summaries ADD COLUMN ssh_key_injections INTEGER NOT NULL DEFAULT 0",
+                "Add ssh_key_injections column to session_summaries",
+            )
+        else:
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE session_summaries ADD COLUMN ssh_key_injections INTEGER NOT NULL DEFAULT 0",
+                "Add ssh_key_injections column to session_summaries",
+            )
+        logger.info("Added ssh_key_injections column to session_summaries")
+    else:
+        logger.info("ssh_key_injections column already exists in session_summaries")
+
+    if not _column_exists(connection, 'session_summaries', 'unique_ssh_keys'):
+        if dialect_name == 'postgresql':
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE session_summaries ADD COLUMN unique_ssh_keys INTEGER NOT NULL DEFAULT 0",
+                "Add unique_ssh_keys column to session_summaries",
+            )
+        else:
+            _safe_execute_sql(
+                connection,
+                "ALTER TABLE session_summaries ADD COLUMN unique_ssh_keys INTEGER NOT NULL DEFAULT 0",
+                "Add unique_ssh_keys column to session_summaries",
+            )
+        logger.info("Added unique_ssh_keys column to session_summaries")
+    else:
+        logger.info("unique_ssh_keys column already exists in session_summaries")
+
+    # Create index on ssh_key_injections column
+    if not _column_exists(connection, 'session_summaries', 'ssh_key_injections'):
+        # Index will be created only if column was just added
+        pass
+    else:
+        # Check if index exists and create if needed
+        _safe_execute_sql(
+            connection,
+            "CREATE INDEX IF NOT EXISTS ix_session_summaries_ssh_keys ON session_summaries(ssh_key_injections)",
+            "Create ssh_keys index on session_summaries",
+        )
+
+    logger.info("SSH key intelligence schema migration (v11) completed successfully")
+
+
+def _upgrade_to_v12(connection: Connection) -> None:
+    """Upgrade to schema version 12: Convert event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE."""
+    logger.info("Starting event_timestamp type conversion migration (v12)...")
+
+    dialect_name = connection.dialect.name
+
+    # Check if event_timestamp column exists and is currently VARCHAR
+    if _column_exists(connection, "raw_events", "event_timestamp"):
+        if dialect_name == "postgresql":
+            # PostgreSQL: Convert VARCHAR to TIMESTAMP WITH TIME ZONE
+            logger.info("Converting event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE (PostgreSQL)")
+
+            try:
+                # First, add a temporary column with the correct type
+                if not _safe_execute_sql(
+                    connection,
+                    "ALTER TABLE raw_events ADD COLUMN event_timestamp_new TIMESTAMP WITH TIME ZONE",
+                    "Add temporary event_timestamp_new column",
+                ):
+                    raise Exception("Failed to add temporary event_timestamp_new column")
+
+                # Populate the new column by converting the string values
+                # Handle empty strings and invalid formats gracefully
+                if not _safe_execute_sql(
+                    connection,
+                    """
+                    UPDATE raw_events 
+                    SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE 
+                    WHERE event_timestamp IS NOT NULL 
+                    AND event_timestamp != ''
+                    AND event_timestamp != 'null'
+                    AND length(trim(event_timestamp)) > 0
+                    AND event_timestamp ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+                    """,
+                    "Convert string timestamps to datetime",
+                ):
+                    raise Exception("Failed to convert valid timestamps")
+
+                # Set NULL for invalid/empty timestamps
+                if not _safe_execute_sql(
+                    connection,
+                    """
+                    UPDATE raw_events 
+                    SET event_timestamp_new = NULL 
+                    WHERE event_timestamp IS NULL 
+                    OR event_timestamp = ''
+                    OR event_timestamp = 'null'
+                    OR length(trim(event_timestamp)) = 0
+                    OR event_timestamp !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
+                    """,
+                    "Set NULL for invalid timestamps",
+                ):
+                    raise Exception("Failed to set NULL for invalid timestamps")
+
+                # Drop the old column and rename the new one
+                if not _safe_execute_sql(
+                    connection, "ALTER TABLE raw_events DROP COLUMN event_timestamp", "Drop old event_timestamp column"
+                ):
+                    raise Exception("Failed to drop old event_timestamp column")
+
+                if not _safe_execute_sql(
+                    connection,
+                    "ALTER TABLE raw_events RENAME COLUMN event_timestamp_new TO event_timestamp",
+                    "Rename new column to event_timestamp",
+                ):
+                    raise Exception("Failed to rename new column to event_timestamp")
+
+                # Recreate the index
+                if not _safe_execute_sql(
+                    connection, "DROP INDEX IF EXISTS ix_raw_events_event_timestamp", "Drop old event_timestamp index"
+                ):
+                    logger.warning("Failed to drop old event_timestamp index - continuing")
+
+                if not _safe_execute_sql(
+                    connection,
+                    "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
+                    "Create new event_timestamp index",
+                ):
+                    raise Exception("Failed to create new event_timestamp index")
+
+                logger.info("PostgreSQL event_timestamp conversion completed successfully")
+
+            except Exception as e:
+                logger.error(f"PostgreSQL event_timestamp conversion failed: {e}")
+                # Try to clean up the temporary column if it exists
+                try:
+                    _safe_execute_sql(
+                        connection,
+                        "ALTER TABLE raw_events DROP COLUMN IF EXISTS event_timestamp_new",
+                        "Clean up temporary column",
+                    )
+                except Exception:
+                    pass  # Ignore cleanup errors
+                raise
+
+        else:
+            # SQLite: Keep as string for compatibility
+            logger.info("SQLite detected - keeping event_timestamp as string for compatibility")
+
+            # SQLite doesn't support changing column types easily, so we'll keep it as string
+            # but we can add a computed column for datetime operations if needed
+            logger.info("SQLite event_timestamp remains as VARCHAR for compatibility")
+
+    else:
+        logger.warning("event_timestamp column not found - skipping conversion")
+
+    logger.info("Event timestamp type conversion migration (v12) completed successfully")
 
 
 def _downgrade_from_v9(connection: Connection) -> None:

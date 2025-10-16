@@ -19,7 +19,10 @@ from .models import (
     RawEvent,
     SchemaMetadata,
     SchemaState,
+    SessionSSHKeys,
     SessionSummary,
+    SSHKeyAssociations,
+    SSHKeyIntelligence,
 )
 
 __all__ = [
@@ -41,4 +44,7 @@ __all__ = [
     "DeadLetterEvent",
     "LongtailAnalysis",
     "LongtailDetection",
+    "SSHKeyIntelligence",
+    "SSHKeyAssociations",
+    "SessionSSHKeys",
 ]
