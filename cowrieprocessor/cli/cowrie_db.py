@@ -256,6 +256,7 @@ class CowrieDatabase:
                 # Check command count
                 try:
                     from ..db.models import CommandStat
+
                     result['command_count'] = session.query(CommandStat).count()
                 except Exception as e:
                     logger.warning(f"Could not get command count: {e}")
@@ -264,8 +265,8 @@ class CowrieDatabase:
                 # Check file count (downloads) - use raw SQL to avoid ORM column issues
                 try:
                     file_count_result = session.execute(
-            text("SELECT COUNT(*) FROM session_summaries WHERE file_downloads > 0")
-        ).scalar()
+                        text("SELECT COUNT(*) FROM session_summaries WHERE file_downloads > 0")
+                    ).scalar()
                     result['file_count'] = file_count_result if file_count_result is not None else 0
                 except Exception as e:
                     logger.warning(f"Could not get file count: {e}")

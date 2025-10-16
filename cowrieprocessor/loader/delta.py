@@ -161,16 +161,14 @@ class DeltaLoader:
                                     aggregate.update_timestamp(processed.event_timestamp)
                                 aggregate.highest_risk = max(aggregate.highest_risk, processed.risk_score)
                                 aggregate.source_files.add(str(path))
-                                
+
                                 # Extract SSH keys from command events
                                 if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
                                     if processed.input and "authorized_keys" in processed.input:
                                         try:
-                                            extracted_keys = (
-                                self._ssh_key_extractor.extract_keys_from_command(
-                                    processed.input
-                                )
-                            )
+                                            extracted_keys = self._ssh_key_extractor.extract_keys_from_command(
+                                                processed.input
+                                            )
                                             if extracted_keys:
                                                 aggregate.ssh_key_injections += len(extracted_keys)
                                                 for key in extracted_keys:

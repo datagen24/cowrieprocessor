@@ -1560,24 +1560,24 @@ def _upgrade_to_v11(connection: Connection) -> None:
 def _upgrade_to_v12(connection: Connection) -> None:
     """Upgrade to schema version 12: Convert event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE."""
     logger.info("Starting event_timestamp type conversion migration (v12)...")
-    
+
     dialect_name = connection.dialect.name
-    
+
     # Check if event_timestamp column exists and is currently VARCHAR
     if _column_exists(connection, "raw_events", "event_timestamp"):
         if dialect_name == "postgresql":
             # PostgreSQL: Convert VARCHAR to TIMESTAMP WITH TIME ZONE
             logger.info("Converting event_timestamp from VARCHAR to TIMESTAMP WITH TIME ZONE (PostgreSQL)")
-            
+
             try:
                 # First, add a temporary column with the correct type
                 if not _safe_execute_sql(
                     connection,
                     "ALTER TABLE raw_events ADD COLUMN event_timestamp_new TIMESTAMP WITH TIME ZONE",
-                    "Add temporary event_timestamp_new column"
+                    "Add temporary event_timestamp_new column",
                 ):
                     raise Exception("Failed to add temporary event_timestamp_new column")
-                
+
                 # Populate the new column by converting the string values
                 # Handle empty strings and invalid formats gracefully
                 if not _safe_execute_sql(
@@ -1591,10 +1591,10 @@ def _upgrade_to_v12(connection: Connection) -> None:
                     AND length(trim(event_timestamp)) > 0
                     AND event_timestamp ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
                     """,
-                    "Convert string timestamps to datetime"
+                    "Convert string timestamps to datetime",
                 ):
                     raise Exception("Failed to convert valid timestamps")
-                
+
                 # Set NULL for invalid/empty timestamps
                 if not _safe_execute_sql(
                     connection,
@@ -1607,42 +1607,38 @@ def _upgrade_to_v12(connection: Connection) -> None:
                     OR length(trim(event_timestamp)) = 0
                     OR event_timestamp !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}'
                     """,
-                    "Set NULL for invalid timestamps"
+                    "Set NULL for invalid timestamps",
                 ):
                     raise Exception("Failed to set NULL for invalid timestamps")
-                
+
                 # Drop the old column and rename the new one
                 if not _safe_execute_sql(
-                    connection,
-                    "ALTER TABLE raw_events DROP COLUMN event_timestamp",
-                    "Drop old event_timestamp column"
+                    connection, "ALTER TABLE raw_events DROP COLUMN event_timestamp", "Drop old event_timestamp column"
                 ):
                     raise Exception("Failed to drop old event_timestamp column")
-                
+
                 if not _safe_execute_sql(
                     connection,
                     "ALTER TABLE raw_events RENAME COLUMN event_timestamp_new TO event_timestamp",
-                    "Rename new column to event_timestamp"
+                    "Rename new column to event_timestamp",
                 ):
                     raise Exception("Failed to rename new column to event_timestamp")
-                
+
                 # Recreate the index
                 if not _safe_execute_sql(
-                    connection,
-                    "DROP INDEX IF EXISTS ix_raw_events_event_timestamp",
-                    "Drop old event_timestamp index"
+                    connection, "DROP INDEX IF EXISTS ix_raw_events_event_timestamp", "Drop old event_timestamp index"
                 ):
                     logger.warning("Failed to drop old event_timestamp index - continuing")
-                
+
                 if not _safe_execute_sql(
                     connection,
                     "CREATE INDEX ix_raw_events_event_timestamp ON raw_events(event_timestamp)",
-                    "Create new event_timestamp index"
+                    "Create new event_timestamp index",
                 ):
                     raise Exception("Failed to create new event_timestamp index")
-                
+
                 logger.info("PostgreSQL event_timestamp conversion completed successfully")
-                
+
             except Exception as e:
                 logger.error(f"PostgreSQL event_timestamp conversion failed: {e}")
                 # Try to clean up the temporary column if it exists
@@ -1650,23 +1646,23 @@ def _upgrade_to_v12(connection: Connection) -> None:
                     _safe_execute_sql(
                         connection,
                         "ALTER TABLE raw_events DROP COLUMN IF EXISTS event_timestamp_new",
-                        "Clean up temporary column"
+                        "Clean up temporary column",
                     )
                 except Exception:
                     pass  # Ignore cleanup errors
                 raise
-            
+
         else:
             # SQLite: Keep as string for compatibility
             logger.info("SQLite detected - keeping event_timestamp as string for compatibility")
-            
+
             # SQLite doesn't support changing column types easily, so we'll keep it as string
             # but we can add a computed column for datetime operations if needed
             logger.info("SQLite event_timestamp remains as VARCHAR for compatibility")
-    
+
     else:
         logger.warning("event_timestamp column not found - skipping conversion")
-    
+
     logger.info("Event timestamp type conversion migration (v12) completed successfully")
 
 

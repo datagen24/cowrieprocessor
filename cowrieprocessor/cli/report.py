@@ -62,11 +62,11 @@ def _date_range_for_mode(mode: str, start_date: datetime) -> datetime:
 
 def _normalize_date_input(mode: str, date_str: str) -> Tuple[datetime, str]:
     """Parse and normalize date input for different report modes.
-    
+
     Args:
         mode: Report mode (daily, weekly, monthly)
         date_str: Date string to parse
-        
+
     Returns:
         Tuple of (start_datetime, label)
     """
@@ -76,76 +76,76 @@ def _normalize_date_input(mode: str, date_str: str) -> Tuple[datetime, str]:
             return dt, date_str
         except ValueError:
             raise ValueError(f"Invalid daily date format '{date_str}'. Use YYYY-MM-DD.")
-            
+
     elif mode == "weekly":
         try:
             # Parse YYYY-Www format
             year_str, week_str = date_str.split("-W")
             year = int(year_str)
             week = int(week_str)
-            
+
             # Find the first day of the week (Monday)
             jan_1 = datetime(year, 1, 1).replace(tzinfo=UTC)
             jan_1_weekday = jan_1.weekday()  # 0 = Monday, 6 = Sunday
-            
+
             # Calculate days to first Monday of the year
             days_to_monday = (7 - jan_1_weekday) % 7
             first_monday = jan_1 + timedelta(days=days_to_monday)
-            
+
             # Calculate start of target week
             week_start = first_monday + timedelta(weeks=week - 1)
             return week_start, date_str
         except (ValueError, IndexError):
             raise ValueError(f"Invalid weekly date format '{date_str}'. Use YYYY-Www.")
-            
+
     elif mode == "monthly":
         try:
             # Parse YYYY-MM format
             year_str, month_str = date_str.split("-")
             year = int(year_str)
             month = int(month_str)
-            
+
             dt = datetime(year, month, 1).replace(tzinfo=UTC)
             return dt, date_str
         except (ValueError, IndexError):
             raise ValueError(f"Invalid monthly date format '{date_str}'. Use YYYY-MM.")
-            
+
     else:
         raise ValueError(f"Unknown report mode: {mode}")
 
 
 def _create_publisher(args: argparse.Namespace) -> Optional[ElasticsearchPublisher]:
     """Create Elasticsearch publisher if credentials are available.
-    
+
     Args:
         args: Parsed command line arguments
-        
+
     Returns:
         ElasticsearchPublisher instance or None
-        
+
     Raises:
         RuntimeError: If credentials are provided but incomplete
     """
     if not args.publish:
         return None
-        
+
     # Check if any Elasticsearch credentials are provided
     es_creds = [
         args.es_host,
         args.es_cloud_id,
         args.es_index_prefix,
     ]
-    
+
     if not any(es_creds):
         return None
-        
+
     # Validate required credentials
     if not args.es_index_prefix:
         raise RuntimeError("--es-index-prefix is required when publishing to Elasticsearch")
-        
+
     if not (args.es_host or args.es_cloud_id):
         raise RuntimeError("Either --es-host or --es-cloud-id is required when publishing to Elasticsearch")
-        
+
     return ElasticsearchPublisher(
         host=args.es_host,
         cloud_id=args.es_cloud_id,
@@ -159,13 +159,13 @@ def _target_sensors(
     repository: ReportingRepository, mode: str, sensor: Optional[str], all_sensors: bool
 ) -> List[Optional[str]]:
     """Determine target sensors for report generation.
-    
+
     Args:
         repository: Reporting repository
         mode: Report mode
         sensor: Specific sensor name
         all_sensors: Whether to generate reports for all sensors
-        
+
     Returns:
         List of sensor names (None for aggregate)
     """
@@ -181,10 +181,10 @@ def _target_sensors(
 
 def generate_ssh_key_report(args: argparse.Namespace) -> int:
     """Generate SSH key intelligence report.
-    
+
     Args:
         args: Parsed command line arguments
-        
+
     Returns:
         Exit code (0 for success)
     """
@@ -194,10 +194,10 @@ def generate_ssh_key_report(args: argparse.Namespace) -> int:
         engine = create_engine_from_settings(settings)
         apply_migrations(engine)
         session_factory = create_session_maker(engine)
-        
+
         with session_factory() as session:
             analytics = SSHKeyAnalytics(session)
-            
+
             if args.report_type == "summary":
                 return _generate_ssh_key_summary(analytics, args)
             elif args.report_type == "campaigns":
@@ -207,7 +207,7 @@ def generate_ssh_key_report(args: argparse.Namespace) -> int:
             else:
                 print(f"Unknown SSH key report type: {args.report_type}")
                 return 1
-                
+
     except Exception as e:
         print(f"SSH key report generation failed: {e}", file=sys.stderr)
         return 1
@@ -220,7 +220,7 @@ def _generate_ssh_key_summary(analytics: SSHKeyAnalytics, args: argparse.Namespa
     """Generate SSH key summary report."""
     days_back = args.days_back or 30
     top_keys = analytics.get_top_keys_by_usage(days_back=days_back, limit=args.limit)
-    
+
     report = {
         "report_type": "ssh_key_summary",
         "period_days": days_back,
@@ -228,13 +228,13 @@ def _generate_ssh_key_summary(analytics: SSHKeyAnalytics, args: argparse.Namespa
         "top_keys": top_keys,
         "generated_at": datetime.now(UTC).isoformat(),
     }
-    
+
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(report, f, indent=2, default=str)
     else:
         print(json.dumps(report, indent=2, default=str))
-        
+
     return 0
 
 
@@ -246,7 +246,7 @@ def _generate_ssh_key_campaigns(analytics: SSHKeyAnalytics, args: argparse.Names
         days_back=args.days_back,
         confidence_threshold=args.confidence_threshold,
     )
-    
+
     report = {
         "report_type": "ssh_key_campaigns",
         "period_days": args.days_back,
@@ -273,13 +273,13 @@ def _generate_ssh_key_campaigns(analytics: SSHKeyAnalytics, args: argparse.Names
         ],
         "generated_at": datetime.now(UTC).isoformat(),
     }
-    
+
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(report, f, indent=2, default=str)
     else:
         print(json.dumps(report, indent=2, default=str))
-        
+
     return 0
 
 
@@ -288,22 +288,22 @@ def _generate_ssh_key_detail(analytics: SSHKeyAnalytics, args: argparse.Namespac
     if not args.fingerprint:
         print("Error: --fingerprint is required for detail report", file=sys.stderr)
         return 1
-        
+
     timeline = analytics.get_key_timeline(args.fingerprint)
     if not timeline:
         print(f"Error: SSH key with fingerprint {args.fingerprint} not found", file=sys.stderr)
         return 1
-        
+
     # Get related keys
     related_keys = analytics.find_related_keys(
         args.fingerprint,
         min_association_strength=args.min_association_strength,
         max_results=args.max_related,
     )
-    
+
     # Get geographic spread
     geo_spread = analytics.calculate_geographic_spread(args.fingerprint)
-    
+
     report = {
         "report_type": "ssh_key_detail",
         "key_info": {
@@ -329,13 +329,13 @@ def _generate_ssh_key_detail(analytics: SSHKeyAnalytics, args: argparse.Namespac
         "geographic_spread": geo_spread,
         "generated_at": datetime.now(UTC).isoformat(),
     }
-    
+
     if args.output:
         with open(args.output, 'w') as f:
             json.dump(report, f, indent=2, default=str)
     else:
         print(json.dumps(report, indent=2, default=str))
-        
+
     return 0
 
 
@@ -356,9 +356,8 @@ def _generate_traditional_report(args: argparse.Namespace) -> int:
 
     if args.output and len(sensor_targets) > 1:
         print(
-            "Error: --output cannot be used with --all-sensors; "
-            "provide a single sensor or aggregate report",
-            file=sys.stderr
+            "Error: --output cannot be used with --all-sensors; provide a single sensor or aggregate report",
+            file=sys.stderr,
         )
         return 1
 
@@ -424,10 +423,10 @@ def _generate_traditional_report(args: argparse.Namespace) -> int:
 def main(argv: Iterable[str] | None = None) -> int:
     """Entry point for the reporting CLI."""
     parser = argparse.ArgumentParser(description="Generate Cowrie reports from ORM data")
-    
+
     # Add subcommands
     subparsers = parser.add_subparsers(dest='command', help='Report type')
-    
+
     # Traditional reports (daily, weekly, monthly)
     traditional_parser = subparsers.add_parser('traditional', help='Generate traditional reports')
     traditional_parser.add_argument("mode", choices=("daily", "weekly", "monthly"))
@@ -435,27 +434,24 @@ def main(argv: Iterable[str] | None = None) -> int:
     traditional_parser.add_argument("--db")
     traditional_parser.add_argument("--sensor")
     traditional_parser.add_argument(
-        "--all-sensors", action="store_true",
-        help="Emit individual reports for each sensor plus aggregate"
+        "--all-sensors", action="store_true", help="Emit individual reports for each sensor plus aggregate"
     )
     traditional_parser.add_argument("--top-n", type=int, default=10)
     traditional_parser.add_argument("--status-dir", default=None)
     traditional_parser.add_argument("--output", help="Write JSON report to file instead of stdout")
     traditional_parser.add_argument("--ingest-id", help="Status identifier", default=None)
     traditional_parser.add_argument(
-        "--publish", action="store_true",
-        help="Force Elasticsearch publishing when credentials provided"
+        "--publish", action="store_true", help="Force Elasticsearch publishing when credentials provided"
     )
     traditional_parser.add_argument("--es-host")
     traditional_parser.add_argument("--es-cloud-id")
     traditional_parser.add_argument("--es-index-prefix")
     traditional_parser.add_argument("--es-pipeline")
     traditional_parser.add_argument(
-        "--no-ssl-verify", action="store_true",
-        help="Disable Elasticsearch SSL verification"
+        "--no-ssl-verify", action="store_true", help="Disable Elasticsearch SSL verification"
     )
     traditional_parser.set_defaults(func=lambda args: _generate_traditional_report(args))
-    
+
     # SSH key intelligence reports
     ssh_parser = subparsers.add_parser('ssh-keys', help='Generate SSH key intelligence reports')
     ssh_parser.add_argument("report_type", choices=("summary", "campaigns", "detail"), help="Type of SSH key report")
@@ -463,31 +459,29 @@ def main(argv: Iterable[str] | None = None) -> int:
     ssh_parser.add_argument("--days-back", type=int, default=30, help="Number of days to look back (default: 30)")
     ssh_parser.add_argument("--output", help="Output file (default: stdout)")
     ssh_parser.add_argument("--limit", type=int, default=10, help="Limit number of results (default: 10)")
-    
+
     # Campaign-specific options
     ssh_parser.add_argument("--min-attempts", type=int, default=5, help="Minimum attempts for campaigns (default: 5)")
     ssh_parser.add_argument("--min-ips", type=int, default=3, help="Minimum IPs for campaigns (default: 3)")
     ssh_parser.add_argument(
-        "--confidence-threshold", type=float, default=0.6,
-        help="Minimum confidence for campaigns (default: 0.6)"
+        "--confidence-threshold", type=float, default=0.6, help="Minimum confidence for campaigns (default: 0.6)"
     )
-    
+
     # Detail-specific options
     ssh_parser.add_argument("--fingerprint", help="SSH key fingerprint for detail report")
     ssh_parser.add_argument(
-        "--min-association-strength", type=float, default=0.3,
-        help="Minimum association strength (default: 0.3)"
+        "--min-association-strength", type=float, default=0.3, help="Minimum association strength (default: 0.3)"
     )
     ssh_parser.add_argument("--max-related", type=int, default=10, help="Maximum related keys to show (default: 10)")
-    
+
     ssh_parser.set_defaults(func=generate_ssh_key_report)
-    
+
     args = parser.parse_args(list(argv) if argv is not None else None)
-    
+
     if not args.command:
         parser.print_help()
         return 1
-        
+
     return args.func(args)
 
 
