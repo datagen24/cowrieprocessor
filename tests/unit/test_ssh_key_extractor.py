@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict
 
 import pytest
 
 from cowrieprocessor.db.models import RawEvent
-from cowrieprocessor.enrichment.ssh_key_extractor import ExtractedSSHKey, SSHKeyExtractor
-
+from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
 
 # Sample SSH keys for testing (valid base64 format - random data for testing)
-SAMPLE_RSA_KEY = "RuLDinPc4KQAhfl8qtDqql2n6OfzvvLH0TncExH1DvFenNj2ks9vIqyK4s3cPDxIs02HrT915vIM28RXzBI8S7r2D3Gqf1bLZuVSNYSkpb4GhgE7XOvjIcxZNTV0nEOuNZmbAYftpQGEK/i3RdoKXmZlj3EiZX4sXQnfDCt3gIDr8tuamwVDYEeFjJJDD/d6TZniVw9Z6l0GJ+BAj5S5ecb19qoyoM4XvFp1LyyQxJr2Ew+gwRqYl9RWa2Ck/X8LEYvXAk1Njg0="
-SAMPLE_ED25519_KEY = "RarSX0dYSvElGT0cJi7CcnugS1aqRv/8tEj9HS5GiP1vTRCVBgxteUwd8ozUs82qxyP0"
-SAMPLE_ECDSA_KEY = "RGFtden1RYN3BT/389mQOeKqjN8o1mlxxltzKJ+JXagOdIjLlIRuwwUpiI6bqqfR+oM3P8HoulItMkqMKEW2GRsi59Iis8PwP0IsydPWAE/VpnRPW6ZZPr7etN9p2P+L//St5A=="
+SAMPLE_RSA_KEY = (
+    "RuLDinPc4KQAhfl8qtDqql2n6OfzvvLH0TncExH1DvFenNj2ks9vIqyK4s3cPDxIs02HrT915vIM28RXzBI8S7r2D3Gqf1bLZuVSNYSkpb4GhgE7XOvjIcxZNTV0nEOuNZmbAYftpQGEK/i3RdoKXmZlj3EiZX4sXQnfDCt3gIDr8tuamwVDYEeFjJJDD/d6TZniVw9Z6l0GJ+BAj5S5ecb19qoyoM4XvFp1LyyQxJr2Ew+gwRqYl9RWa2Ck/X8LEYvXAk1Njg0="
+)
+SAMPLE_ED25519_KEY = (
+    "RarSX0dYSvElGT0cJi7CcnugS1aqRv/8tEj9HS5GiP1vTRCVBgxteUwd8ozUs82qxyP0"
+)
+SAMPLE_ECDSA_KEY = (
+    "RGFtden1RYN3BT/389mQOeKqjN8o1mlxxltzKJ+JXagOdIjLlIRuwwUpiI6bqqfR+oM3P8HoulItMkqMKEW2GRsi59Iis8PwP0IsydPWAE/VpnRPW6ZZPr7etN9p2P+L//St5A=="
+)
 
 
 class TestSSHKeyExtractor:

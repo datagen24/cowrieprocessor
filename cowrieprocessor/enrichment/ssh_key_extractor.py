@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
-import logging
 from typing import List, Optional, Set
 
 from ..db.models import RawEvent

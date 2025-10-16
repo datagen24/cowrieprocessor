@@ -10,13 +10,13 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from cowrieprocessor.db.models import Base
 from cowrieprocessor.db.models import (
+    Base,
     RawEvent,
-    SSHKeyIntelligence,
-    SSHKeyAssociations,
     SessionSSHKeys,
     SessionSummary,
+    SSHKeyAssociations,
+    SSHKeyIntelligence,
 )
 from cowrieprocessor.enrichment.ssh_key_analytics import SSHKeyAnalytics
 from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
@@ -341,8 +341,8 @@ def test_end_to_end_simple_pipeline(simple_test_db):
         vt_flagged=False,
         dshield_flagged=False,
         enrichment=None,
-        ssh_key_injections=len([l for l in session_links if l.session_id == "session-0"]),
-        unique_ssh_keys=len(set(l.ssh_key_id for l in session_links if l.session_id == "session-0")),
+        ssh_key_injections=len([link for link in session_links if link.session_id == "session-0"]),
+        unique_ssh_keys=len(set(link.ssh_key_id for link in session_links if link.session_id == "session-0")),
     )
     simple_test_db.add(summary)
     simple_test_db.commit()

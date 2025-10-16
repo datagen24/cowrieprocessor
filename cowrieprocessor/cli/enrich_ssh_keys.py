@@ -6,23 +6,21 @@ import argparse
 import json
 import logging
 import sys
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Optional
 
-from sqlalchemy import and_, func, text
-from sqlalchemy.engine import Engine
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
 from ..db.models import (
     RawEvent,
-    SSHKeyIntelligence,
-    SSHKeyAssociations,
     SessionSSHKeys,
     SessionSummary,
+    SSHKeyAssociations,
+    SSHKeyIntelligence,
 )
 from ..enrichment.ssh_key_extractor import SSHKeyExtractor
 from ..status_emitter import StatusEmitter
@@ -210,7 +208,10 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
             if progress_bar:
                 progress_bar.close()
                 
-        logger.info(f"Backfill complete: {total_processed} events processed, {total_keys_extracted} keys extracted, {total_sessions_updated} sessions updated")
+        logger.info(
+            f"Backfill complete: {total_processed} events processed, "
+            f"{total_keys_extracted} keys extracted, {total_sessions_updated} sessions updated"
+        )
         return 0
         
     except Exception as e:
@@ -569,7 +570,10 @@ Examples:
     export_parser.add_argument('--days-back', type=int, help='Export keys from last N days (default: all)')
     
     # Output options
-    export_parser.add_argument('--format', type=str, choices=['json', 'csv'], default='json', help='Output format (default: json)')
+    export_parser.add_argument(
+        '--format', type=str, choices=['json', 'csv'], default='json',
+        help='Output format (default: json)'
+    )
     export_parser.add_argument('--output', type=str, help='Output file (default: stdout)')
     export_parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
     

@@ -4,18 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
-from secrets_resolver import is_reference, resolve_secret
-
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
-from ..loader import LoaderCheckpoint
+from ..enrichment.ssh_key_analytics import SSHKeyAnalytics
 from ..reporting import (
     DailyReportBuilder,
     ElasticsearchPublisher,
@@ -23,7 +19,6 @@ from ..reporting import (
     ReportingRepository,
     WeeklyReportBuilder,
 )
-from ..enrichment.ssh_key_analytics import SSHKeyAnalytics
 from ..reporting.builders import BaseReportBuilder, ReportContext
 from ..status_emitter import StatusEmitter
 from ..telemetry import start_span
@@ -360,7 +355,11 @@ def _generate_traditional_report(args: argparse.Namespace) -> int:
         return 1
 
     if args.output and len(sensor_targets) > 1:
-        print("Error: --output cannot be used with --all-sensors; provide a single sensor or aggregate report", file=sys.stderr)
+        print(
+            "Error: --output cannot be used with --all-sensors; "
+            "provide a single sensor or aggregate report",
+            file=sys.stderr
+        )
         return 1
 
     start, label = _normalize_date_input(args.mode, args.date)
@@ -435,17 +434,26 @@ def main(argv: Iterable[str] | None = None) -> int:
     traditional_parser.add_argument("date", help="Report date (YYYY-MM-DD, YYYY-Www, or YYYY-MM as applicable)")
     traditional_parser.add_argument("--db")
     traditional_parser.add_argument("--sensor")
-    traditional_parser.add_argument("--all-sensors", action="store_true", help="Emit individual reports for each sensor plus aggregate")
+    traditional_parser.add_argument(
+        "--all-sensors", action="store_true",
+        help="Emit individual reports for each sensor plus aggregate"
+    )
     traditional_parser.add_argument("--top-n", type=int, default=10)
     traditional_parser.add_argument("--status-dir", default=None)
     traditional_parser.add_argument("--output", help="Write JSON report to file instead of stdout")
     traditional_parser.add_argument("--ingest-id", help="Status identifier", default=None)
-    traditional_parser.add_argument("--publish", action="store_true", help="Force Elasticsearch publishing when credentials provided")
+    traditional_parser.add_argument(
+        "--publish", action="store_true",
+        help="Force Elasticsearch publishing when credentials provided"
+    )
     traditional_parser.add_argument("--es-host")
     traditional_parser.add_argument("--es-cloud-id")
     traditional_parser.add_argument("--es-index-prefix")
     traditional_parser.add_argument("--es-pipeline")
-    traditional_parser.add_argument("--no-ssl-verify", action="store_true", help="Disable Elasticsearch SSL verification")
+    traditional_parser.add_argument(
+        "--no-ssl-verify", action="store_true",
+        help="Disable Elasticsearch SSL verification"
+    )
     traditional_parser.set_defaults(func=lambda args: _generate_traditional_report(args))
     
     # SSH key intelligence reports
@@ -459,11 +467,17 @@ def main(argv: Iterable[str] | None = None) -> int:
     # Campaign-specific options
     ssh_parser.add_argument("--min-attempts", type=int, default=5, help="Minimum attempts for campaigns (default: 5)")
     ssh_parser.add_argument("--min-ips", type=int, default=3, help="Minimum IPs for campaigns (default: 3)")
-    ssh_parser.add_argument("--confidence-threshold", type=float, default=0.6, help="Minimum confidence for campaigns (default: 0.6)")
+    ssh_parser.add_argument(
+        "--confidence-threshold", type=float, default=0.6,
+        help="Minimum confidence for campaigns (default: 0.6)"
+    )
     
     # Detail-specific options
     ssh_parser.add_argument("--fingerprint", help="SSH key fingerprint for detail report")
-    ssh_parser.add_argument("--min-association-strength", type=float, default=0.3, help="Minimum association strength (default: 0.3)")
+    ssh_parser.add_argument(
+        "--min-association-strength", type=float, default=0.3,
+        help="Minimum association strength (default: 0.3)"
+    )
     ssh_parser.add_argument("--max-related", type=int, default=10, help="Maximum related keys to show (default: 10)")
     
     ssh_parser.set_defaults(func=generate_ssh_key_report)
