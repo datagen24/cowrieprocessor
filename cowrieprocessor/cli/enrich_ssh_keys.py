@@ -8,13 +8,14 @@ import logging
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Set
 
-from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, or_
+from sqlalchemy.orm import Session, aliased
 from tqdm import tqdm
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
+from ..db.json_utils import get_dialect_name, json_field
 from ..db.models import (
     RawEvent,
     SessionSSHKeys,
@@ -155,7 +156,14 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                                 # Store SSH key intelligence
                                 for key in extracted_keys:
                                     try:
-                                        _store_ssh_key_intelligence(session, key, event.session_id, src_ip, input_data)
+                                        _store_ssh_key_intelligence(
+                                            session,
+                                            key,
+                                            event.session_id,
+                                            src_ip,
+                                            input_data,
+                                            event.event_timestamp,
+                                        )
                                     except Exception as store_error:
                                         logger.error(f"Failed to store key for event {event.id}: {store_error}")
                                         session.rollback()
@@ -216,12 +224,36 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
         engine.dispose()
 
 
+def _escape_like(value: str) -> str:
+    """Escape SQL LIKE wildcards in a value."""
+    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+def _normalize_event_timestamp(event_timestamp: Optional[datetime]) -> Optional[datetime]:
+    """Normalize event timestamps to timezone-aware UTC datetimes.
+
+    Args:
+        event_timestamp: Timestamp sourced from the dataset.
+
+    Returns:
+        A timezone-aware UTC datetime or ``None`` when unavailable.
+    """
+    if event_timestamp is None:
+        return None
+
+    if event_timestamp.tzinfo is None:
+        return event_timestamp.replace(tzinfo=UTC)
+
+    return event_timestamp.astimezone(UTC)
+
+
 def _store_ssh_key_intelligence(
     session: Session,
     key: Any,  # ExtractedSSHKey
     session_id: Optional[str],
     src_ip: Optional[str],
     command_text: str,
+    event_timestamp: Optional[datetime],
 ) -> None:
     """Store SSH key intelligence data.
 
@@ -231,6 +263,7 @@ def _store_ssh_key_intelligence(
         session_id: Session ID
         src_ip: Source IP address
         command_text: Original command text
+        event_timestamp: Timestamp sourced from the underlying dataset event
     """
     # Validate required fields before attempting insert
     if not getattr(key, 'key_full', None):
@@ -239,6 +272,8 @@ def _store_ssh_key_intelligence(
     if not getattr(key, 'extraction_method', None):
         logger.error(f"Missing extraction_method for key {getattr(key, 'key_hash', 'unknown')}")
         return
+
+    observed_at = _normalize_event_timestamp(event_timestamp) or datetime.now(UTC)
 
     # Get or create SSH key intelligence record
     key_record = session.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.key_hash == key.key_hash).first()
@@ -274,13 +309,13 @@ def _store_ssh_key_intelligence(
             command_text=command_text[:1000],  # Truncate for storage
             injection_method=_detect_injection_method(command_text),
             source_ip=src_ip,
-            timestamp=datetime.now(UTC),
+            timestamp=observed_at,
         )
         session.add(session_key_link)
         session.flush()
 
     # Track key associations (co-occurrence)
-    _track_key_associations(session, key_record.id, session_id, src_ip)
+    _track_key_associations(session, key_record.id, session_id, src_ip, observed_at)
 
     # Recompute aggregates and temporal data from actual events
     try:
@@ -335,11 +370,88 @@ def _detect_injection_method(command_text: str) -> str:
         return "unknown"
 
 
+def _find_dataset_timestamp_for_session_key(
+    session: Session,
+    dialect_name: str,
+    record: SessionSSHKeys,
+    key_data_cache: Dict[int, Optional[str]],
+) -> Optional[datetime]:
+    """Locate the dataset timestamp corresponding to a session SSH key link.
+
+    Args:
+        session: Active database session.
+        dialect_name: Database dialect name for JSON access helpers.
+        record: SessionSSHKeys record to repair.
+        key_data_cache: Memoized mapping of key_id to key_data.
+
+    Returns:
+        The best-effort dataset timestamp for the record or None if not determinable.
+    """
+    if not record.session_id:
+        return None
+
+    input_field = json_field(RawEvent.payload, "input", dialect_name)
+    command_field = json_field(RawEvent.payload, "command", dialect_name)
+
+    timestamp_query = (
+        session.query(func.min(RawEvent.event_timestamp))
+        .filter(RawEvent.session_id == record.session_id)
+        .filter(RawEvent.event_timestamp.isnot(None))
+        .filter(RawEvent.event_type.contains("command"))
+    )
+
+    command_filters = []
+    if record.command_text:
+        command_filters.append(input_field == record.command_text)
+        command_filters.append(command_field == record.command_text)
+
+        if len(record.command_text) >= 1000:
+            like_pattern = f"{_escape_like(record.command_text)}%"
+            command_filters.append(input_field.like(like_pattern, escape='\\'))
+            command_filters.append(command_field.like(like_pattern, escape='\\'))
+
+    if command_filters:
+        dataset_timestamp = timestamp_query.filter(or_(*command_filters)).scalar()
+        if dataset_timestamp:
+            return _normalize_event_timestamp(dataset_timestamp)
+
+    key_data = key_data_cache.get(record.ssh_key_id)
+    if record.ssh_key_id not in key_data_cache:
+        key_record = session.get(SSHKeyIntelligence, record.ssh_key_id)
+        key_data = key_record.key_data if key_record else None
+        key_data_cache[record.ssh_key_id] = key_data
+
+    if key_data:
+        like_pattern = f"%{_escape_like(key_data)}%"
+        dataset_timestamp = (
+            timestamp_query.filter(
+                or_(
+                    input_field.like(like_pattern, escape='\\'),
+                    command_field.like(like_pattern, escape='\\'),
+                )
+            )
+        ).scalar()
+        if dataset_timestamp:
+            return _normalize_event_timestamp(dataset_timestamp)
+
+    dataset_timestamp = (
+        session.query(func.min(RawEvent.event_timestamp))
+        .filter(RawEvent.session_id == record.session_id)
+        .filter(RawEvent.event_timestamp.isnot(None))
+        .scalar()
+    )
+    if dataset_timestamp:
+        return _normalize_event_timestamp(dataset_timestamp)
+
+    return None
+
+
 def _track_key_associations(
     session: Session,
     key_id: int,
     session_id: Optional[str],
     src_ip: Optional[str],
+    observed_at: datetime,
 ) -> None:
     """Track associations between SSH keys for campaign correlation.
 
@@ -348,9 +460,12 @@ def _track_key_associations(
         key_id: SSH key ID
         session_id: Session ID
         src_ip: Source IP address
+        observed_at: Timestamp of the co-occurrence derived from the dataset
     """
     if not session_id:
         return
+
+    observed_at = observed_at.astimezone(UTC)
 
     # Find other keys used in the same session
     other_keys = (
@@ -379,6 +494,8 @@ def _track_key_associations(
                 co_occurrence_count=1,
                 same_session_count=1,
                 same_ip_count=1 if src_ip else 0,
+                first_seen=observed_at,
+                last_seen=observed_at,
             )
             session.add(association)
         else:
@@ -386,6 +503,11 @@ def _track_key_associations(
             association.same_session_count += 1
             if src_ip:
                 association.same_ip_count += 1
+
+            if association.first_seen is None or observed_at < association.first_seen:
+                association.first_seen = observed_at
+            if association.last_seen is None or observed_at > association.last_seen:
+                association.last_seen = observed_at
 
 
 def _update_session_summaries(session: Session, session_ids: set[str]) -> None:
@@ -512,6 +634,150 @@ def export_ssh_keys(args: argparse.Namespace) -> int:
         engine.dispose()
 
 
+def repair_ssh_key_timestamps(args: argparse.Namespace) -> int:
+    """Repair historical SSH key timestamps using dataset event times.
+
+    Args:
+        args: Parsed command line arguments.
+
+    Returns:
+        Exit code (0 for success).
+    """
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    )
+
+    engine = None
+
+    try:
+        db_settings = resolve_database_settings(args.sensor if args.sensor else None)
+        engine = create_engine_from_settings(db_settings)
+        session_maker = create_session_maker(engine)
+
+        total_links = 0
+        updated_links = 0
+        key_ids_to_refresh: Set[int] = set()
+
+        with session_maker() as session:
+            connection = session.connection()
+            dialect_name = get_dialect_name(connection)
+            key_data_cache: Dict[int, Optional[str]] = {}
+
+            total_links = int(session.query(func.count(SessionSSHKeys.id)).scalar() or 0)
+            logger.info(f"Scanning {total_links} session_ssh_keys records for timestamp repair")
+
+            batch_size = args.batch_size
+            offset = 0
+
+            while True:
+                records = (
+                    session.query(SessionSSHKeys).order_by(SessionSSHKeys.id).offset(offset).limit(batch_size).all()
+                )
+
+                if not records:
+                    break
+
+                for record in records:
+                    dataset_timestamp = _find_dataset_timestamp_for_session_key(
+                        session, dialect_name, record, key_data_cache
+                    )
+                    if not dataset_timestamp:
+                        continue
+
+                    if record.timestamp != dataset_timestamp:
+                        record.timestamp = dataset_timestamp
+                        updated_links += 1
+                        key_ids_to_refresh.add(record.ssh_key_id)
+
+                session.commit()
+                offset += batch_size
+
+            logger.info(f"Updated {updated_links} session_ssh_keys records")
+
+            if not key_ids_to_refresh:
+                logger.info("No aggregate refresh required; exiting")
+                return 0
+
+            logger.info(f"Refreshing aggregates for {len(key_ids_to_refresh)} SSH keys")
+
+            for key_id in key_ids_to_refresh:
+                stats = (
+                    session.query(
+                        func.count(SessionSSHKeys.id),
+                        func.count(func.distinct(SessionSSHKeys.source_ip)),
+                        func.count(func.distinct(SessionSSHKeys.session_id)),
+                        func.min(SessionSSHKeys.timestamp),
+                        func.max(SessionSSHKeys.timestamp),
+                    )
+                    .filter(SessionSSHKeys.ssh_key_id == key_id)
+                    .one()
+                )
+
+                key_record = session.get(SSHKeyIntelligence, key_id)
+                if not key_record:
+                    continue
+
+                key_record.total_attempts = int(stats[0] or 0)
+                key_record.unique_sources = int(stats[1] or 0)
+                key_record.unique_sessions = int(stats[2] or 0)
+
+                if stats[3]:
+                    key_record.first_seen = _normalize_event_timestamp(stats[3])
+                if stats[4]:
+                    key_record.last_seen = _normalize_event_timestamp(stats[4])
+
+            session.commit()
+
+            logger.info("Refreshing affected SSH key associations")
+
+            associations = (
+                session.query(SSHKeyAssociations)
+                .filter(
+                    or_(
+                        SSHKeyAssociations.key_id_1.in_(key_ids_to_refresh),
+                        SSHKeyAssociations.key_id_2.in_(key_ids_to_refresh),
+                    )
+                )
+                .all()
+            )
+
+            for association in associations:
+                key1 = aliased(SessionSSHKeys)
+                key2 = aliased(SessionSSHKeys)
+                rows = (
+                    session.query(key1.timestamp, key2.timestamp)
+                    .filter(key1.session_id == key2.session_id)
+                    .filter(key1.ssh_key_id == association.key_id_1)
+                    .filter(key2.ssh_key_id == association.key_id_2)
+                    .all()
+                )
+
+                if not rows:
+                    continue
+
+                first_candidates = [min(t1, t2) for t1, t2 in rows if t1 and t2]
+                last_candidates = [max(t1, t2) for t1, t2 in rows if t1 and t2]
+
+                if first_candidates:
+                    association.first_seen = _normalize_event_timestamp(min(first_candidates))
+                if last_candidates:
+                    association.last_seen = _normalize_event_timestamp(max(last_candidates))
+
+            session.commit()
+
+        logger.info("Timestamp repair complete")
+        return 0
+
+    except Exception as exc:  # pragma: no cover - defensive logging path
+        logger.error(f"Failed to repair SSH key timestamps: {exc}", exc_info=True)
+        return 1
+
+    finally:
+        if engine is not None:
+            engine.dispose()
+
+
 def main() -> int:
     """Main entry point for cowrie-enrich-ssh-keys command.
 
@@ -540,6 +806,9 @@ Examples:
   
   # Use specific sensor (optional, for debugging)
   cowrie-enrich-ssh-keys backfill --sensor prod-sensor-01 --days-back 30
+
+  # Repair historical first/last seen timestamps after upgrading the extractor
+  cowrie-enrich-ssh-keys repair-timestamps --sensor prod-sensor-01
         """,
     )
 
@@ -584,6 +853,18 @@ Examples:
     export_parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
 
     export_parser.set_defaults(func=export_ssh_keys)
+
+    # repair subcommand
+    repair_parser = subparsers.add_parser(
+        'repair-timestamps',
+        help='Repair first/last seen timestamps to align with dataset observation times',
+    )
+
+    repair_parser.add_argument('--sensor', type=str, help='Sensor name from sensors.toml (optional)')
+    repair_parser.add_argument('--batch-size', type=int, default=500, help='Batch size for database repairs')
+    repair_parser.add_argument('--verbose', action='store_true', help='Enable verbose logging')
+
+    repair_parser.set_defaults(func=repair_ssh_key_timestamps)
 
     # Parse arguments
     args = parser.parse_args()
