@@ -20,7 +20,7 @@ from cowrieprocessor.settings import DatabaseSettings
 class TestCowrieDatabaseCLI:
     """Test CowrieDatabase CLI tool with cross-backend compatibility."""
 
-    def test_cowrie_database_sqlite(self):
+    def test_cowrie_database_sqlite(self) -> None:
         """Test CowrieDatabase with SQLite database."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -59,7 +59,7 @@ class TestCowrieDatabaseCLI:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_cowrie_database_optimization_sqlite(self):
+    def test_cowrie_database_optimization_sqlite(self) -> None:
         """Test database optimization with SQLite."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -86,7 +86,7 @@ class TestCowrieDatabaseCLI:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_cowrie_database_files_stats(self):
+    def test_cowrie_database_files_stats(self) -> None:
         """Test files table statistics."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -115,7 +115,7 @@ class TestCowrieDatabaseCLI:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_cowrie_database_backfill_files(self):
+    def test_cowrie_database_backfill_files(self) -> None:
         """Test files table backfill functionality."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -165,7 +165,7 @@ class TestCowrieDatabaseCLI:
 class TestHealthCLI:
     """Test health check CLI with cross-backend compatibility."""
 
-    def test_health_check_sqlite(self):
+    def test_health_check_sqlite(self) -> None:
         """Test health check with SQLite database."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -186,7 +186,7 @@ class TestHealthCLI:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_health_check_invalid_database(self):
+    def test_health_check_invalid_database(self) -> None:
         """Test health check with invalid database."""
         # Test with non-existent SQLite file
         db_url = "sqlite:///definitely_nonexistent_file_12345.db"
@@ -194,7 +194,7 @@ class TestHealthCLI:
         assert db_ok is False
         assert "sqlite database file missing" in db_summary
 
-    def test_health_check_unsupported_database(self):
+    def test_health_check_unsupported_database(self) -> None:
         """Test health check with unsupported database type."""
         db_url = "mysql://user:pass@localhost/db"
         db_ok, db_summary = _check_database(db_url)
@@ -205,7 +205,7 @@ class TestHealthCLI:
 class TestCLIIntegration:
     """Integration tests for CLI tools."""
 
-    def test_full_cli_workflow_sqlite(self):
+    def test_full_cli_workflow_sqlite(self) -> None:
         """Test complete CLI workflow with SQLite."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -248,7 +248,7 @@ class TestCLIIntegration:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_cli_error_handling(self):
+    def test_cli_error_handling(self) -> None:
         """Test CLI error handling."""
         # Test with invalid database URL
         db_url = "invalid://database"
@@ -271,7 +271,7 @@ class TestCLIIntegration:
 class TestCLIPostgreSQLCompatibility:
     """Test CLI tools with PostgreSQL compatibility (mocked)."""
 
-    def test_postgresql_detection(self):
+    def test_postgresql_detection(self) -> None:
         """Test PostgreSQL database type detection."""
         db_url = "postgresql://user:pass@localhost:5432/cowrie"
         db = CowrieDatabase(db_url)
@@ -279,7 +279,7 @@ class TestCLIPostgreSQLCompatibility:
         assert db._is_sqlite() is False
         assert db._is_postgresql() is True
 
-    def test_postgresql_backup_command_generation(self):
+    def test_postgresql_backup_command_generation(self) -> None:
         """Test PostgreSQL backup command generation."""
         db_url = "postgresql://user:password@host:5432/database"
         CowrieDatabase(db_url)
@@ -297,7 +297,7 @@ class TestCLIPostgreSQLCompatibility:
         assert port == "5432"
         assert database == "database"
 
-    def test_health_check_postgresql_format(self):
+    def test_health_check_postgresql_format(self) -> None:
         """Test health check with PostgreSQL URL format."""
         db_url = "postgresql://user:pass@localhost:5432/cowrie"
 

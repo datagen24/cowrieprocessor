@@ -18,6 +18,8 @@ LOGGER = logging.getLogger(__name__)
 
 class VirusTotalHandler:
     """VirusTotal enrichment handler with quota management and caching."""
+    
+    quota_manager: Optional[VirusTotalQuotaManager]
 
     def __init__(
         self,
@@ -63,10 +65,7 @@ class VirusTotalHandler:
 
     def _get_cache_path(self, file_hash: str) -> Path:
         """Get cache file path for a file hash."""
-        if isinstance(self.cache_dir, Path):
-            return self.cache_dir / f"vt_{file_hash}.json"
-        else:
-            return Path(self.cache_dir) / f"vt_{file_hash}.json"
+        return self.cache_dir / f"vt_{file_hash}.json"
 
     def _load_cached_response(self, file_hash: str) -> Optional[Dict[str, Any]]:
         """Load cached response for a file hash."""
@@ -77,7 +76,8 @@ class VirusTotalHandler:
 
         try:
             with open(cache_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                result: Dict[str, Any] = json.load(f)
+                return result
         except (json.JSONDecodeError, OSError) as e:
             LOGGER.debug("Failed to load cached VT response for %s: %s", file_hash, e)
             return None
@@ -133,7 +133,7 @@ class VirusTotalHandler:
 
             # Convert to dictionary format compatible with existing code
             # Handle non-serializable objects by converting them to basic types
-            def serialize_value(value):
+            def serialize_value(value: Any) -> Any:
                 """Convert vt-py objects to JSON-serializable format."""
                 if hasattr(value, 'to_dict'):
                     # If the object has a to_dict method, use it
@@ -236,7 +236,8 @@ class VirusTotalHandler:
         # Fetch fresh data
         try:
             response = self._fetch_file_info(file_hash)
-            return response
+            result: Dict[str, Any] = response
+            return result
         except Exception as e:
             LOGGER.error("VirusTotal enrichment failed for %s: %s", file_hash, e)
             return None
@@ -300,7 +301,8 @@ class VirusTotalHandler:
             True if file is considered malicious, False otherwise
         """
         stats = self.extract_analysis_stats(vt_response)
-        return stats.get("malicious", 0) >= threshold
+        malicious_count: int = stats.get("malicious", 0)
+        return malicious_count >= threshold
 
     def close(self) -> None:
         """Close the VirusTotal client and quota manager."""

@@ -100,14 +100,17 @@ def test_stored_procedures(engine: Engine) -> None:
         ).fetchone()
 
         print(f"Test repair input: {test_content}")
-        print(f"Test repair output: {result[0]}")
+        if result is not None:
+            print(f"Test repair output: {result[0]}")
+        else:
+            print("Test repair output: No result")
 
         # Test statistics function
         stats = DLQStoredProcedures.get_dlq_statistics_stored_proc(connection)
         print(f"\nCurrent DLQ stats: {stats}")
 
 
-def main() -> None:
+def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="PostgreSQL DLQ Processing with Stored Procedures")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -134,7 +137,7 @@ def main() -> None:
 
     if not args.command:
         parser.print_help()
-        return
+        return 0
 
     # Get database connection
     db_settings = load_database_settings()

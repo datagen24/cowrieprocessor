@@ -38,7 +38,7 @@ def _seed_db(path: Path) -> str:
     return f"sqlite:///{path}"
 
 
-def test_report_cli_dry_run(tmp_path, capsys):
+def test_report_cli_dry_run(tmp_path, capsys) -> None:
     """CLI should emit report JSON and status file in dry-run mode."""
     db_path = tmp_path / "report.sqlite"
     db_url = _seed_db(db_path)
@@ -68,7 +68,7 @@ def test_report_cli_dry_run(tmp_path, capsys):
     assert status_payload["metrics"]["sensors"] == ["aggregate"]
 
 
-def test_report_cli_all_sensors(tmp_path, capsys):
+def test_report_cli_all_sensors(tmp_path, capsys) -> None:
     """CLI should handle --all-sensors by emitting no stdout and multiple checkpoints."""
     db_path = tmp_path / "report.sqlite"
     engine = create_engine(f"sqlite:///{db_path}")

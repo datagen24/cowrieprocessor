@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
@@ -59,7 +59,7 @@ def _needs_static_pool(url: str) -> bool:
     return any(identifier in url for identifier in _SQLITE_MEMORY_IDENTIFIERS)
 
 
-def _sqlite_on_connect(settings: DatabaseSettings):
+def _sqlite_on_connect(settings: DatabaseSettings) -> Callable[[sqlite3.Connection, Any], None]:
     def configure(dbapi_connection: sqlite3.Connection, _: Any) -> None:
         cursor = dbapi_connection.cursor()
         try:

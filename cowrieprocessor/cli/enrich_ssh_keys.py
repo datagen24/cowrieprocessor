@@ -130,16 +130,16 @@ def backfill_ssh_keys(args: argparse.Namespace) -> int:
                     break
 
                 batch_keys_extracted = 0
-                batch_sessions_updated = set()
+                batch_sessions_updated: set[str] = set()
 
                 for event in batch_events:
                     try:
                         # Skip non-Cowrie events (like iptables logs) that don't have expected structure
-                        if not event.payload or not isinstance(event.payload, dict):
+                        if not event.payload or not isinstance(event.payload, dict):  # type: ignore[unreachable]
                             continue
 
                         # Skip events that don't have session_id (likely not Cowrie events)
-                        if not event.session_id:
+                        if not event.session_id:  # type: ignore[unreachable]
                             continue
 
                         # Extract SSH keys from command
@@ -315,7 +315,7 @@ def _store_ssh_key_intelligence(
         session.flush()
 
     # Track key associations (co-occurrence)
-    _track_key_associations(session, key_record.id, session_id, src_ip, observed_at)
+    _track_key_associations(session, int(key_record.id), session_id, src_ip, observed_at)
 
     # Recompute aggregates and temporal data from actual events
     try:
@@ -331,9 +331,9 @@ def _store_ssh_key_intelligence(
             .one()
         )
 
-        key_record.total_attempts = int(stats[0] or 0)
-        key_record.unique_sources = int(stats[1] or 0)
-        key_record.unique_sessions = int(stats[2] or 0)
+        key_record.total_attempts = int(stats[0] or 0)  # type: ignore[assignment]
+        key_record.unique_sources = int(stats[1] or 0)  # type: ignore[assignment]
+        key_record.unique_sessions = int(stats[2] or 0)  # type: ignore[assignment]
 
         # Update temporal data from actual event timestamps
         if stats[3]:  # min timestamp
@@ -406,7 +406,7 @@ def _find_dataset_timestamp_for_session_key(
         command_filters.append(command_field == record.command_text)
 
         if len(record.command_text) >= 1000:
-            like_pattern = f"{_escape_like(record.command_text)}%"
+            like_pattern = f"{_escape_like(str(record.command_text))}%"
             command_filters.append(input_field.like(like_pattern, escape='\\'))
             command_filters.append(command_field.like(like_pattern, escape='\\'))
 
@@ -415,11 +415,11 @@ def _find_dataset_timestamp_for_session_key(
         if dataset_timestamp:
             return _normalize_event_timestamp(dataset_timestamp)
 
-    key_data = key_data_cache.get(record.ssh_key_id)
-    if record.ssh_key_id not in key_data_cache:
+    key_data = key_data_cache.get(int(record.ssh_key_id))
+    if int(record.ssh_key_id) not in key_data_cache:
         key_record = session.get(SSHKeyIntelligence, record.ssh_key_id)
-        key_data = key_record.key_data if key_record else None
-        key_data_cache[record.ssh_key_id] = key_data
+        key_data = str(key_record.key_data) if key_record and key_record.key_data else None
+        key_data_cache[int(record.ssh_key_id)] = key_data
 
     if key_data:
         like_pattern = f"%{_escape_like(key_data)}%"
@@ -499,15 +499,15 @@ def _track_key_associations(
             )
             session.add(association)
         else:
-            association.co_occurrence_count += 1
-            association.same_session_count += 1
+            association.co_occurrence_count += 1  # type: ignore[assignment]
+            association.same_session_count += 1  # type: ignore[assignment]
             if src_ip:
-                association.same_ip_count += 1
+                association.same_ip_count += 1  # type: ignore[assignment]
 
             if association.first_seen is None or observed_at < association.first_seen:
-                association.first_seen = observed_at
+                association.first_seen = observed_at  # type: ignore[assignment]
             if association.last_seen is None or observed_at > association.last_seen:
-                association.last_seen = observed_at
+                association.last_seen = observed_at  # type: ignore[assignment]
 
 
 def _update_session_summaries(session: Session, session_ids: set[str]) -> None:
@@ -588,7 +588,7 @@ def export_ssh_keys(args: argparse.Namespace) -> int:
                         "key_fingerprint": key.key_fingerprint,
                         "key_hash": key.key_hash,
                         "key_comment": key.key_comment,
-                        "key_size_bits": key.key_size_bits,
+                        "key_size_bits": key.key_bits,
                         "first_seen": key.first_seen.isoformat() if key.first_seen else None,
                         "last_seen": key.last_seen.isoformat() if key.last_seen else None,
                         "total_attempts": key.total_attempts,
@@ -686,9 +686,9 @@ def repair_ssh_key_timestamps(args: argparse.Namespace) -> int:
                         continue
 
                     if record.timestamp != dataset_timestamp:
-                        record.timestamp = dataset_timestamp
+                        record.timestamp = dataset_timestamp  # type: ignore[assignment]
                         updated_links += 1
-                        key_ids_to_refresh.add(record.ssh_key_id)
+                        key_ids_to_refresh.add(int(record.ssh_key_id))
 
                 session.commit()
                 offset += batch_size
@@ -718,14 +718,14 @@ def repair_ssh_key_timestamps(args: argparse.Namespace) -> int:
                 if not key_record:
                     continue
 
-                key_record.total_attempts = int(stats[0] or 0)
-                key_record.unique_sources = int(stats[1] or 0)
-                key_record.unique_sessions = int(stats[2] or 0)
+                key_record.total_attempts = int(stats[0] or 0)  # type: ignore[assignment]
+                key_record.unique_sources = int(stats[1] or 0)  # type: ignore[assignment]
+                key_record.unique_sessions = int(stats[2] or 0)  # type: ignore[assignment]
 
                 if stats[3]:
-                    key_record.first_seen = _normalize_event_timestamp(stats[3])
+                    key_record.first_seen = _normalize_event_timestamp(stats[3])  # type: ignore[assignment]
                 if stats[4]:
-                    key_record.last_seen = _normalize_event_timestamp(stats[4])
+                    key_record.last_seen = _normalize_event_timestamp(stats[4])  # type: ignore[assignment]
 
             session.commit()
 
@@ -760,9 +760,9 @@ def repair_ssh_key_timestamps(args: argparse.Namespace) -> int:
                 last_candidates = [max(t1, t2) for t1, t2 in rows if t1 and t2]
 
                 if first_candidates:
-                    association.first_seen = _normalize_event_timestamp(min(first_candidates))
+                    association.first_seen = _normalize_event_timestamp(min(first_candidates))  # type: ignore[assignment]
                 if last_candidates:
-                    association.last_seen = _normalize_event_timestamp(max(last_candidates))
+                    association.last_seen = _normalize_event_timestamp(max(last_candidates))  # type: ignore[assignment]
 
             session.commit()
 
@@ -877,7 +877,8 @@ Examples:
     if hasattr(args, 'start_date') and args.start_date and not args.end_date:
         parser.error("--end-date is required when --start-date is used")
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 if __name__ == '__main__':

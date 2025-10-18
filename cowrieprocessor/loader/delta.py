@@ -48,7 +48,7 @@ class DeltaLoader:
 
     def __init__(
         self,
-        engine,
+        engine: Any,
         config: Optional[DeltaLoaderConfig] = None,
         *,
         enrichment_service: Optional[SessionEnricher] = None,
@@ -164,10 +164,11 @@ class DeltaLoader:
 
                                 # Extract SSH keys from command events
                                 if processed.event_type and any(h in processed.event_type for h in COMMAND_EVENT_HINTS):
-                                    if processed.input and "authorized_keys" in processed.input:
+                                    input_data = processed.payload.get("input", "")
+                                    if input_data and "authorized_keys" in input_data:
                                         try:
                                             extracted_keys = self._ssh_key_extractor.extract_keys_from_command(
-                                                processed.input
+                                                input_data
                                             )
                                             if extracted_keys:
                                                 aggregate.ssh_key_injections += len(extracted_keys)
@@ -311,7 +312,7 @@ class DeltaLoader:
                 last = dead_letters[-1]
                 dead_letter_cb(inserted, last.get("reason"), last.get("source"))
 
-    def _dead_letter_record(self, ingest_id: str, source: str, offset: int, reason: str, processed) -> dict:
+    def _dead_letter_record(self, ingest_id: str, source: str, offset: int, reason: str, processed: Any) -> dict:
         return {
             "ingest_id": ingest_id,
             "source": source,
@@ -335,7 +336,6 @@ class DeltaLoader:
                 except IntegrityError:
                     session.rollback()
             return inserted
-        return len(records)
 
     def _load_cursors(self, session: Session) -> Dict[str, IngestCursor]:
         result = session.execute(select(IngestCursor)).scalars()
@@ -444,17 +444,24 @@ class DeltaLoader:
         return False
 
     def _cursor_generation(self, cursor: Optional[IngestCursor]) -> int:
-        if cursor and cursor.metadata_json and isinstance(cursor.metadata_json, dict):
+        if cursor and cursor.metadata_json:
             try:
-                return int(cursor.metadata_json.get("generation", 0))
+                # Handle SQLAlchemy Column type - use getattr to avoid type issues
+                metadata = getattr(cursor, 'metadata_json', None)
+                if hasattr(metadata, 'get') and callable(getattr(metadata, 'get')):
+                    return int(metadata.get("generation", 0))  # type: ignore[union-attr]
+                return 0
             except (TypeError, ValueError):
                 return 0
         return 0
 
     def _cursor_first_hash(self, cursor: Optional[IngestCursor]) -> Optional[str]:
-        if cursor and cursor.metadata_json and isinstance(cursor.metadata_json, dict):
-            value = cursor.metadata_json.get("first_hash")
-            return str(value) if value is not None else None
+        if cursor and cursor.metadata_json:
+            # Handle SQLAlchemy Column type - use getattr to avoid type issues
+            metadata = getattr(cursor, 'metadata_json', None)
+            if hasattr(metadata, 'get') and callable(getattr(metadata, 'get')):
+                value = metadata.get("first_hash")  # type: ignore[union-attr]
+                return str(value) if value is not None else None
         return None
 
     def _get_cursor_inode(self, cursor: Optional[IngestCursor]) -> Optional[str]:

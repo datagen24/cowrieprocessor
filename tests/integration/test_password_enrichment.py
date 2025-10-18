@@ -27,7 +27,7 @@ def temp_dir():
 
 
 @pytest.fixture
-def test_db(temp_dir):
+def test_db(temp_dir) -> None:
     """Create test database with schema."""
     db_path = temp_dir / "test.db"
     engine = create_engine(f"sqlite:///{db_path}")
@@ -79,7 +79,7 @@ def create_test_event(event_id: int, session_id: str, event_type: str, payload: 
 
 
 @pytest.mark.integration
-def test_end_to_end_password_enrichment(test_db, cache_manager, mock_rate_limiter):
+def test_end_to_end_password_enrichment(test_db, cache_manager, mock_rate_limiter) -> None:
     """Test complete password enrichment workflow."""
     # Create test data
     session_id = "test123"
@@ -166,7 +166,7 @@ def test_end_to_end_password_enrichment(test_db, cache_manager, mock_rate_limite
 
 
 @pytest.mark.integration
-def test_daily_aggregation(test_db, cache_manager, mock_rate_limiter):
+def test_daily_aggregation(test_db, cache_manager, mock_rate_limiter) -> None:
     """Test daily password statistics aggregation."""
     target_date = datetime.now(UTC).date()
 
@@ -219,7 +219,7 @@ def test_daily_aggregation(test_db, cache_manager, mock_rate_limiter):
 
 
 @pytest.mark.integration
-def test_cache_efficiency(cache_manager, mock_rate_limiter):
+def test_cache_efficiency(cache_manager, mock_rate_limiter) -> None:
     """Test that cache reduces API calls."""
 
     # Mock HIBP response
@@ -249,7 +249,7 @@ def test_cache_efficiency(cache_manager, mock_rate_limiter):
 
 
 @pytest.mark.integration
-def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter):
+def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter) -> None:
     """Test force re-enrichment of already-enriched sessions."""
     session_id = "test456"
 
@@ -286,7 +286,7 @@ def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter):
 
 
 @pytest.mark.integration
-def test_novel_password_tracking(test_db, cache_manager, mock_rate_limiter):
+def test_novel_password_tracking(test_db, cache_manager, mock_rate_limiter) -> None:
     """Test tracking of novel (non-breached) passwords."""
     session_id = "novel_test"
 

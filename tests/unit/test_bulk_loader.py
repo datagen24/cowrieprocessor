@@ -29,7 +29,7 @@ def _make_engine(tmp_path: Path):
     return engine
 
 
-def test_bulk_loader_inserts_raw_events(tmp_path):
+def test_bulk_loader_inserts_raw_events(tmp_path) -> None:
     """Loader should persist events, sanitize commands, and populate summaries."""
     events = [
         {
@@ -83,7 +83,7 @@ def test_bulk_loader_inserts_raw_events(tmp_path):
         assert summary.matcher == "sensor-a"
 
 
-def test_bulk_loader_is_idempotent(tmp_path):
+def test_bulk_loader_is_idempotent(tmp_path) -> None:
     """Loader should tolerate re-ingesting the same file without duplicating rows."""
     events = [
         {
@@ -114,7 +114,7 @@ def _write_multiline_events(path: Path, events: list[dict]):
             fh.write("\n")
 
 
-def test_bulk_loader_handles_multiline_json(tmp_path):
+def test_bulk_loader_handles_multiline_json(tmp_path) -> None:
     """Loader should parse pretty-printed JSON when multiline_json is enabled."""
     events = [
         {
@@ -148,7 +148,7 @@ def test_bulk_loader_handles_multiline_json(tmp_path):
         assert sessions == {"multiline123"}
 
 
-def test_bulk_loader_rejects_multiline_json_by_default(tmp_path):
+def test_bulk_loader_rejects_multiline_json_by_default(tmp_path) -> None:
     """Loader should reject pretty-printed JSON when multiline_json is disabled."""
     events = [
         {
@@ -171,7 +171,7 @@ def test_bulk_loader_rejects_multiline_json_by_default(tmp_path):
     assert metrics.events_quarantined == 6  # All are quarantined due to validation errors
 
 
-def test_bulk_loader_mixed_json_formats(tmp_path):
+def test_bulk_loader_mixed_json_formats(tmp_path) -> None:
     """Loader should handle mixed single-line and multiline JSON formats."""
     # Create a file with both formats
     source = tmp_path / "mixed_events.json"
@@ -248,7 +248,7 @@ class DummyEnrichment:
         }
 
 
-def test_bulk_loader_sets_enrichment_flags(tmp_path):
+def test_bulk_loader_sets_enrichment_flags(tmp_path) -> None:
     """Loader should populate summary flags when enrichment service is provided."""
     events = [
         {
@@ -293,7 +293,7 @@ def test_bulk_loader_sets_enrichment_flags(tmp_path):
         assert sessions == {"enrich1"}
 
 
-def test_bulk_loader_multiline_json_malformed_limit(tmp_path):
+def test_bulk_loader_multiline_json_malformed_limit(tmp_path) -> None:
     """Loader should handle malformed multiline JSON gracefully."""
     source = tmp_path / "malformed_multiline.json"
     with source.open("w", encoding="utf-8") as fh:

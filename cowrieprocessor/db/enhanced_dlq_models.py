@@ -2,19 +2,18 @@
 
 This module extends the DeadLetterEvent model with security enhancements,
 audit trails, and operational monitoring capabilities.
-"""
 
-from __future__ import annotations
+Migrated to SQLAlchemy 2.0 DeclarativeBase pattern with full type safety.
+"""
 
 import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Optional
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from sqlalchemy import (
-    Boolean,
     CheckConstraint,
-    Column,
     DateTime,
     Index,
     Integer,
@@ -23,54 +22,55 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql.elements import ColumnElement
 
-Base = declarative_base()
+from .base import Base
 
 
 class EnhancedDeadLetterEvent(Base):
     """Enhanced Dead Letter Event with security and audit features."""
 
-    __tablename__ = "dead_letter_events"
+    __tablename__ = "enhanced_dead_letter_events"
 
     # Primary identification
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    ingest_id = Column(String(64), nullable=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ingest_id: Mapped[str | None] = mapped_column(String(64), index=True)
 
     # Source tracking
-    source = Column(String(512), nullable=True, index=True)
-    source_offset = Column(Integer, nullable=True)
-    source_inode = Column(String(128), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(512), index=True)
+    source_offset: Mapped[int | None] = mapped_column(Integer)
+    source_inode: Mapped[str | None] = mapped_column(String(128))
 
     # Failure information
-    reason = Column(String(128), nullable=False, index=True)
-    payload = Column(JSONB, nullable=False)
-    metadata_json = Column(JSONB, nullable=True)
+    reason: Mapped[str] = mapped_column(String(128), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     # Security & Audit enhancements
-    payload_checksum = Column(String(64), nullable=True, index=True)
-    retry_count = Column(Integer, nullable=False, server_default="0")
-    error_history = Column(JSONB, nullable=True)
-    processing_attempts = Column(JSONB, nullable=True)
+    payload_checksum: Mapped[str | None] = mapped_column(String(64), index=True)
+    retry_count: Mapped[int] = mapped_column(server_default="0")
+    error_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    processing_attempts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     # Resolution tracking
-    resolved = Column(Boolean, nullable=False, server_default="false", index=True)
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
-    resolution_method = Column(String(64), nullable=True)  # 'stored_proc', 'application', 'manual'
+    resolved: Mapped[bool] = mapped_column(server_default="false", index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_method: Mapped[str | None] = mapped_column(String(64))  # 'stored_proc', 'application', 'manual'
 
     # Idempotency and concurrency control
-    idempotency_key = Column(String(128), nullable=True, unique=True, index=True)
-    processing_lock = Column(UUID, nullable=True, index=True)
-    lock_expires_at = Column(DateTime(timezone=True), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
+    processing_lock: Mapped[uuid.UUID | None] = mapped_column(UUID, index=True)
+    lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Priority and classification
-    priority = Column(Integer, nullable=False, server_default="5")  # 1=highest, 10=lowest
-    classification = Column(String(32), nullable=True)  # 'malicious', 'corrupted', 'format_error'
+    priority: Mapped[int] = mapped_column(server_default="5")  # 1=highest, 10=lowest
+    classification: Mapped[str | None] = mapped_column(String(32))  # 'malicious', 'corrupted', 'format_error'
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
-    last_processed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    last_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Constraints
     __table_args__ = (
@@ -89,6 +89,12 @@ class EnhancedDeadLetterEvent(Base):
         if not self.processing_lock or not self.lock_expires_at:
             return False
         return datetime.now(timezone.utc) < self.lock_expires_at
+    
+    @is_locked.expression
+    @classmethod
+    def _is_locked_expression(cls) -> ColumnElement[bool]:
+        """SQL expression for is_locked check."""
+        return (cls.processing_lock.is_not(None)) & (func.now() < cls.lock_expires_at)
 
     @hybrid_property
     def checksum_valid(self) -> bool:
@@ -141,8 +147,8 @@ class EnhancedDeadLetterEvent(Base):
         if self.is_locked:
             return False
 
-        self.processing_lock = lock_id
-        self.lock_expires_at = datetime.now(timezone.utc) + datetime.timedelta(minutes=expires_in_minutes)
+        self.processing_lock = uuid.UUID(lock_id)
+        self.lock_expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_in_minutes)
         return True
 
     def release_processing_lock(self) -> None:
@@ -173,30 +179,30 @@ class DLQProcessingMetrics(Base):
 
     __tablename__ = "dlq_processing_metrics"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    processing_session_id = Column(String(64), nullable=False, index=True)
-    processing_method = Column(String(32), nullable=False)  # 'stored_proc', 'application'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    processing_session_id: Mapped[str] = mapped_column(String(64), index=True)
+    processing_method: Mapped[str] = mapped_column(String(32))  # 'stored_proc', 'application'
 
     # Batch metrics
-    batch_size = Column(Integer, nullable=False)
-    processed_count = Column(Integer, nullable=False)
-    repaired_count = Column(Integer, nullable=False)
-    failed_count = Column(Integer, nullable=False)
-    skipped_count = Column(Integer, nullable=False)
+    batch_size: Mapped[int] = mapped_column(Integer)
+    processed_count: Mapped[int] = mapped_column(Integer)
+    repaired_count: Mapped[int] = mapped_column(Integer)
+    failed_count: Mapped[int] = mapped_column(Integer)
+    skipped_count: Mapped[int] = mapped_column(Integer)
 
     # Performance metrics
-    processing_duration_ms = Column(Integer, nullable=False)
-    avg_processing_time_ms = Column(Integer, nullable=True)
-    peak_memory_mb = Column(Integer, nullable=True)
+    processing_duration_ms: Mapped[int] = mapped_column(Integer)
+    avg_processing_time_ms: Mapped[int | None] = mapped_column(Integer)
+    peak_memory_mb: Mapped[int | None] = mapped_column(Integer)
 
     # Error metrics
-    circuit_breaker_triggered = Column(Boolean, nullable=False, server_default="false")
-    rate_limit_hits = Column(Integer, nullable=False, server_default="0")
-    lock_timeout_count = Column(Integer, nullable=False, server_default="0")
+    circuit_breaker_triggered: Mapped[bool] = mapped_column(server_default="false")
+    rate_limit_hits: Mapped[int] = mapped_column(server_default="0")
+    lock_timeout_count: Mapped[int] = mapped_column(server_default="0")
 
     # Timestamps
-    started_at = Column(DateTime(timezone=True), nullable=False)
-    completed_at = Column(DateTime(timezone=True), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         Index('ix_dlq_metrics_session', 'processing_session_id'),
@@ -210,22 +216,22 @@ class DLQCircuitBreakerState(Base):
 
     __tablename__ = "dlq_circuit_breaker_state"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    breaker_name = Column(String(64), nullable=False, unique=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    breaker_name: Mapped[str] = mapped_column(String(64), unique=True)
 
     # Circuit breaker state
-    state = Column(String(16), nullable=False)  # 'closed', 'open', 'half_open'
-    failure_count = Column(Integer, nullable=False, server_default="0")
-    last_failure_time = Column(DateTime(timezone=True), nullable=True)
-    next_attempt_time = Column(DateTime(timezone=True), nullable=True)
+    state: Mapped[str] = mapped_column(String(16))  # 'closed', 'open', 'half_open'
+    failure_count: Mapped[int] = mapped_column(server_default="0")
+    last_failure_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_attempt_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Configuration
-    failure_threshold = Column(Integer, nullable=False, server_default="5")
-    timeout_seconds = Column(Integer, nullable=False, server_default="60")
+    failure_threshold: Mapped[int] = mapped_column(server_default="5")
+    timeout_seconds: Mapped[int] = mapped_column(server_default="60")
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index('ix_circuit_breaker_state', 'state'),

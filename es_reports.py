@@ -836,7 +836,7 @@ class CowrieReporter:
         if prev_hits:
             prev = cast(Dict[str, Any], prev_hits[0]['_source'])
 
-            def pct_change(curr, prev_val):
+            def pct_change(curr: float, prev_val: float) -> float:
                 return round(((curr - prev_val) / prev_val * 100) if prev_val > 0 else 0, 2)
 
             sessions_curr = monthly['sessions'].get('total', 0)
@@ -853,13 +853,13 @@ class CowrieReporter:
 
         return monthly
 
-    def close(self):
+    def close(self) -> None:
         """Close database connections."""
         self.conn.close()
         self.es.close()
 
 
-def main():
+def main() -> None:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(description='Generate Elasticsearch reports from Cowrie data')
 
@@ -978,17 +978,17 @@ def main():
             reporter.backfill_daily(args.start, args.end, args.sensors)
 
         elif args.command == 'weekly':
-            report = reporter.generate_weekly_rollup(args.week)
-            if report:
-                reporter.index_report(report, "cowrie.reports.weekly-write")
-                print(json.dumps(report, indent=2))
+            weekly_report: Dict[str, Any] | None = reporter.generate_weekly_rollup(args.week)
+            if weekly_report is not None:
+                reporter.index_report(weekly_report, "cowrie.reports.weekly-write")
+                print(json.dumps(weekly_report, indent=2))
             else:
                 logger.error("Failed to generate weekly rollup")
         elif args.command == 'monthly':
-            report = reporter.generate_monthly_rollup(args.month)
-            if report:
-                reporter.index_report(report, "cowrie.reports.monthly-write")
-                print(json.dumps(report, indent=2))
+            monthly_report: Dict[str, Any] | None = reporter.generate_monthly_rollup(args.month)
+            if monthly_report is not None:
+                reporter.index_report(monthly_report, "cowrie.reports.monthly-write")
+                print(json.dumps(monthly_report, indent=2))
             else:
                 logger.error("Failed to generate monthly rollup")
 

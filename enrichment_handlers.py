@@ -83,10 +83,10 @@ def _empty_dshield() -> dict[str, dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def with_timeout(timeout_seconds: float, func: Callable, *args, **kwargs):
+def with_timeout(timeout_seconds: float, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Execute ``func`` enforcing a wall-clock timeout via ``SIGALRM``."""
 
-    def timeout_handler(signum, frame):  # pragma: no cover - signal handler
+    def timeout_handler(signum: int, frame: Any) -> None:  # pragma: no cover - signal handler
         raise TimeoutError("Operation timed out")
 
     old_handler = signal.signal(signal.SIGALRM, timeout_handler)
@@ -111,7 +111,7 @@ def vt_query(
     vtapi: str,
     skip_enrich: bool = False,
     *,
-    session_factory: SessionFactory = None,
+    session_factory: SessionFactory | None = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Any:
     """Query VirusTotal for ``file_hash`` and persist the JSON response."""
@@ -121,12 +121,14 @@ def vt_query(
     # Use rate-limited session factory if none provided
     if session_factory is None:
         rate_limit, burst = get_service_rate_limit("virustotal")
-        session_factory = create_rate_limited_session_factory(rate_limit, burst)
+        session_factory = create_rate_limited_session_factory(rate_limit, burst)  # type: ignore[assignment]
 
     # Custom retry logic for 401 errors with longer backoff
     max_retries = 3
     for attempt in range(max_retries + 1):
         try:
+            if session_factory is None:
+                raise ValueError("Session factory is required")
             return _vt_query_single_attempt(file_hash, cache_dir, vtapi, session_factory, timeout)
         except requests.HTTPError as e:
             if hasattr(e, 'response') and e.response.status_code == 401:
@@ -312,7 +314,7 @@ def safe_read_uh_data(
         return ""
 
     try:
-        return with_timeout(
+        result = with_timeout(
             timeout,
             read_uh_data,
             ip_address,
@@ -321,6 +323,7 @@ def safe_read_uh_data(
             session_factory=session_factory,
             timeout=timeout,
         )
+        return str(result)
     except TimeoutError:
         LOGGER.warning("URLHaus query timed out for %s", ip_address)
         return "TIMEOUT"
@@ -601,13 +604,13 @@ class EnrichmentService:
         if enable_telemetry:
             self.telemetry = EnrichmentTelemetry(telemetry_phase)
         else:
-            self.telemetry = None
+            self.telemetry = None  # type: ignore[assignment]
 
         # Use rate-limited sessions if enabled
         if enable_rate_limiting:
             self._session_factory = self._create_rate_limited_session_factory
         else:
-            self._session_factory = session_factory
+            self._session_factory = session_factory  # type: ignore[assignment]
         self._timeout = timeout
 
         # Track active sessions for cleanup
@@ -920,7 +923,7 @@ class EnrichmentService:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit with cleanup."""
         self.close()
 

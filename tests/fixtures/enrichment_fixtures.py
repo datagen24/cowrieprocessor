@@ -11,7 +11,11 @@ def load_json_fixture(fixture_name: str) -> Dict[str, Any]:
     """Load JSON fixture from the fixtures directory."""
     fixture_path = Path(__file__).parent / f"{fixture_name}.json"
     try:
-        return json.loads(fixture_path.read_text(encoding="utf-8"))
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+        else:
+            return {}
     except FileNotFoundError:
         # Return minimal valid response if fixture doesn't exist
         return {}
@@ -349,20 +353,20 @@ def create_mock_session(response_text: str, status_code: int = 200) -> Any:
     mock_response.json = lambda: json.loads(response_text) if response_text else {}
 
     class MockSession:
-        def __init__(self):
+        def __init__(self) -> None:
             self.headers = {}
             self.calls = []
             self.closed = False
 
-        def get(self, url: str, timeout: float = 30):
+        def get(self, url: str, timeout: float = 30) -> Any:
             self.calls.append(("GET", url, timeout))
             return mock_response
 
-        def post(self, url: str, headers: dict, data: dict, timeout: float = 30):
+        def post(self, url: str, headers: dict, data: dict, timeout: float = 30) -> Any:
             self.calls.append(("POST", url, headers, data, timeout))
             return mock_response
 
-        def close(self):
+        def close(self) -> None:
             self.closed = True
 
     return MockSession()

@@ -10,7 +10,7 @@ from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
 class TestUnicodeSanitizer:
     """Test cases for UnicodeSanitizer class."""
 
-    def test_sanitize_unicode_string_basic(self):
+    def test_sanitize_unicode_string_basic(self) -> None:
         """Test basic Unicode control character removal."""
         # Test null bytes and common control characters
         test_cases = [
@@ -25,7 +25,7 @@ class TestUnicodeSanitizer:
             result = UnicodeSanitizer.sanitize_unicode_string(input_text)
             assert result == expected
 
-    def test_sanitize_unicode_string_preserve_whitespace(self):
+    def test_sanitize_unicode_string_preserve_whitespace(self) -> None:
         """Test that safe whitespace characters are preserved."""
         test_cases = [
             ("hello\tworld", "hello\tworld"),  # tab
@@ -39,7 +39,7 @@ class TestUnicodeSanitizer:
             result = UnicodeSanitizer.sanitize_unicode_string(input_text, preserve_whitespace=True)
             assert result == expected
 
-    def test_sanitize_unicode_string_strict_mode(self):
+    def test_sanitize_unicode_string_strict_mode(self) -> None:
         """Test strict mode with more aggressive filtering."""
         # Strict mode should remove more characters
         input_text = "hello\x08\x0b\x0cworld"  # backspace, vertical tab, form feed
@@ -53,14 +53,14 @@ class TestUnicodeSanitizer:
         assert "hello" in strict_result
         assert "world" in strict_result
 
-    def test_sanitize_unicode_string_replacement(self):
+    def test_sanitize_unicode_string_replacement(self) -> None:
         """Test custom replacement characters."""
         input_text = "hello\x00world"
 
         result = UnicodeSanitizer.sanitize_unicode_string(input_text, replacement="[NULL]")
         assert result == "hello[NULL]world"
 
-    def test_sanitize_json_string_valid_json(self):
+    def test_sanitize_json_string_valid_json(self) -> None:
         """Test sanitization of valid JSON with control characters."""
         # JSON with control characters in string values
         json_with_control_chars = '{"message": "hello\\u0000world", "data": "test\\u0016value"}'
@@ -72,7 +72,7 @@ class TestUnicodeSanitizer:
         assert parsed["message"] == "helloworld"  # control chars removed
         assert parsed["data"] == "testvalue"  # control chars removed
 
-    def test_sanitize_json_string_malformed_json(self):
+    def test_sanitize_json_string_malformed_json(self) -> None:
         """Test sanitization of malformed JSON."""
         # Malformed JSON with control characters
         malformed_json = '{"message": "hello\\u0000world", "data": "test\\u0016value"'  # missing closing brace
@@ -84,7 +84,7 @@ class TestUnicodeSanitizer:
         assert "\x00" not in result
         assert "\x16" not in result
 
-    def test_sanitize_json_object_recursive(self):
+    def test_sanitize_json_object_recursive(self) -> None:
         """Test recursive sanitization of JSON objects."""
         test_obj = {
             "level1": {"message": "hello\x00world", "list": ["item1\x01", "item2\x02", "normal"]},
@@ -98,7 +98,7 @@ class TestUnicodeSanitizer:
         assert result["level1"]["list"] == ["item1", "item2", "normal"]
         assert result["direct"] == "testvalue"
 
-    def test_sanitize_filename(self):
+    def test_sanitize_filename(self) -> None:
         """Test filename sanitization."""
         test_cases = [
             ("normal_file.txt", "normal_file.txt"),
@@ -117,7 +117,7 @@ class TestUnicodeSanitizer:
             assert result == expected
             assert len(result) <= 512  # Length limit
 
-    def test_sanitize_url(self):
+    def test_sanitize_url(self) -> None:
         """Test URL sanitization."""
         test_cases = [
             ("https://example.com", "https://example.com"),
@@ -132,7 +132,7 @@ class TestUnicodeSanitizer:
             assert result == expected
             assert len(result) <= 1024  # Length limit
 
-    def test_sanitize_command(self):
+    def test_sanitize_command(self) -> None:
         """Test command sanitization."""
         test_cases = [
             ("ls -la", "ls -la"),
@@ -146,7 +146,7 @@ class TestUnicodeSanitizer:
             result = UnicodeSanitizer.sanitize_command(input_command)
             assert result == expected
 
-    def test_is_safe_for_postgres_json(self):
+    def test_is_safe_for_postgres_json(self) -> None:
         """Test PostgreSQL JSON safety check."""
         safe_cases = [
             "normal text",
@@ -168,7 +168,7 @@ class TestUnicodeSanitizer:
         for text in unsafe_cases:
             assert not UnicodeSanitizer.is_safe_for_postgres_json(text)
 
-    def test_validate_and_sanitize_payload_string(self):
+    def test_validate_and_sanitize_payload_string(self) -> None:
         """Test payload validation and sanitization with string input."""
         # Valid JSON string with control characters
         payload_str = '{"eventid": "cowrie.session.connect", "message": "hello\\u0000world"}'
@@ -179,7 +179,7 @@ class TestUnicodeSanitizer:
         assert result["eventid"] == "cowrie.session.connect"
         assert result["message"] == "helloworld"  # control char removed
 
-    def test_validate_and_sanitize_payload_dict(self):
+    def test_validate_and_sanitize_payload_dict(self) -> None:
         """Test payload validation and sanitization with dict input."""
         payload_dict = {
             "eventid": "cowrie.session.connect",
@@ -193,7 +193,7 @@ class TestUnicodeSanitizer:
         assert result["message"] == "helloworld"  # control char removed
         assert result["data"]["nested"] == "valuehere"  # control char removed
 
-    def test_validate_and_sanitize_payload_invalid(self):
+    def test_validate_and_sanitize_payload_invalid(self) -> None:
         """Test payload validation with invalid input."""
         with pytest.raises(ValueError, match="Invalid payload type"):
             UnicodeSanitizer.validate_and_sanitize_payload(123)
@@ -201,7 +201,7 @@ class TestUnicodeSanitizer:
         with pytest.raises(ValueError, match="Invalid JSON payload"):
             UnicodeSanitizer.validate_and_sanitize_payload("{invalid json")
 
-    def test_real_world_cowrie_examples(self):
+    def test_real_world_cowrie_examples(self) -> None:
         """Test with real-world examples from Cowrie logs."""
         # Example from the error message
         problematic_json = (
@@ -214,7 +214,7 @@ class TestUnicodeSanitizer:
         assert parsed["eventid"] == "cowrie.session.connect"
         assert parsed["message"] == "Remote SSH version: "  # control chars removed
 
-    def test_edge_cases(self):
+    def test_edge_cases(self) -> None:
         """Test edge cases and boundary conditions."""
         # Empty input
         assert UnicodeSanitizer.sanitize_unicode_string("") == ""
@@ -234,7 +234,7 @@ class TestUnicodeSanitizer:
         assert "\x00" not in result
         assert len(result) == 20000
 
-    def test_unicode_normalization(self):
+    def test_unicode_normalization(self) -> None:
         """Test handling of various Unicode characters."""
         # Test with actual Unicode characters (not just control chars)
         unicode_text = "hello 世界\x00test"
@@ -250,14 +250,14 @@ class TestUnicodeSanitizer:
 class TestConvenienceFunctions:
     """Test convenience functions."""
 
-    def test_sanitize_unicode_string_function(self):
+    def test_sanitize_unicode_string_function(self) -> None:
         """Test the convenience function for string sanitization."""
         from cowrieprocessor.utils.unicode_sanitizer import sanitize_unicode_string
 
         result = sanitize_unicode_string("hello\x00world")
         assert result == "helloworld"
 
-    def test_sanitize_json_payload_function(self):
+    def test_sanitize_json_payload_function(self) -> None:
         """Test the convenience function for JSON payload sanitization."""
         from cowrieprocessor.utils.unicode_sanitizer import sanitize_json_payload
 
@@ -267,7 +267,7 @@ class TestConvenienceFunctions:
         assert isinstance(result, dict)
         assert result["message"] == "helloworld"
 
-    def test_is_safe_for_database_function(self):
+    def test_is_safe_for_database_function(self) -> None:
         """Test the convenience function for database safety check."""
         from cowrieprocessor.utils.unicode_sanitizer import is_safe_for_database
 

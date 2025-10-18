@@ -223,8 +223,6 @@ def enumerate_sessions(
     events_processed = 0
 
     for entry in entries:
-        if not isinstance(entry, dict):
-            continue
         events_processed += 1
         session_id, match_type = match_session(entry)
         if not session_id:

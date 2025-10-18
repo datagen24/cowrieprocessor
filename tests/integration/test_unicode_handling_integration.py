@@ -12,7 +12,7 @@ from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
 class TestUnicodeHandlingIntegration:
     """Integration tests for Unicode control character handling."""
 
-    def test_bulk_loader_handles_unicode_control_chars(self):
+    def test_bulk_loader_handles_unicode_control_chars(self) -> None:
         """Test that BulkLoader properly handles Unicode control characters."""
         # Create mock data with problematic Unicode characters
         problematic_data = [
@@ -44,7 +44,7 @@ class TestUnicodeHandlingIntegration:
             if "filename" in payload:
                 assert "\x01" not in payload["filename"]
 
-    def test_dlq_processing_repairs_unicode_issues(self):
+    def test_dlq_processing_repairs_unicode_issues(self) -> None:
         """Test that DLQ processing can repair JSON with Unicode control characters."""
         from cowrieprocessor.loader.dlq_processor import JSONRepairStrategies
 
@@ -59,7 +59,7 @@ class TestUnicodeHandlingIntegration:
         assert parsed["eventid"] == "cowrie.session.connect"
         assert parsed["message"] == "helloworld"  # control chars removed
 
-    def test_file_processing_sanitizes_unicode(self):
+    def test_file_processing_sanitizes_unicode(self) -> None:
         """Test that file processing sanitizes Unicode in filenames and URLs."""
         from cowrieprocessor.loader.file_processor import sanitize_filename, sanitize_url
 
@@ -77,7 +77,7 @@ class TestUnicodeHandlingIntegration:
         assert "\x00" not in clean_url
         assert "\x16" not in clean_url
 
-    def test_postgresql_json_compatibility(self):
+    def test_postgresql_json_compatibility(self) -> None:
         """Test that sanitized data is compatible with PostgreSQL JSON processing."""
         # Create test data that would cause PostgreSQL errors
         problematic_payload = {
@@ -100,7 +100,7 @@ class TestUnicodeHandlingIntegration:
         assert "\u0003" not in json_str
         assert "\u0016" not in json_str
 
-    def test_real_world_error_scenario(self):
+    def test_real_world_error_scenario(self) -> None:
         """Test the specific error scenario from the user's report."""
         # This is the exact error from the user's message
         problematic_json = (
@@ -121,7 +121,7 @@ class TestUnicodeHandlingIntegration:
         # Verify the eventid is preserved
         assert parsed["eventid"] == "cowrie.session.file_download"
 
-    def test_backfill_operation_handles_unicode(self):
+    def test_backfill_operation_handles_unicode(self) -> None:
         """Test that backfill operations can handle Unicode control characters."""
         # Mock event with problematic payload
         mock_event = Mock()
@@ -148,7 +148,7 @@ class TestUnicodeHandlingIntegration:
         assert payload["eventid"] == "cowrie.session.file_download"
         assert payload["filename"] == "filename.txt"  # control char removed
 
-    def test_performance_with_large_data(self):
+    def test_performance_with_large_data(self) -> None:
         """Test performance with large amounts of data containing Unicode control chars."""
         # Create a large dataset with control characters
         large_data = []
@@ -173,7 +173,7 @@ class TestUnicodeHandlingIntegration:
         # Should successfully process all events
         assert processed_count == 1000
 
-    def test_unicode_normalization_edge_cases(self):
+    def test_unicode_normalization_edge_cases(self) -> None:
         """Test edge cases in Unicode normalization."""
         # Test with various Unicode categories
         test_cases = [

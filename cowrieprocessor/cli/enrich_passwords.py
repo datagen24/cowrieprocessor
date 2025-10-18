@@ -166,15 +166,15 @@ def _track_password(
 
     if existing:
         # Update existing record
-        existing.last_seen = timestamp_dt
-        existing.times_seen += 1
-        existing.last_hibp_check = datetime.now(UTC)
-        existing.updated_at = datetime.now(UTC)
+        existing.last_seen = timestamp_dt  # type: ignore[assignment]
+        existing.times_seen += 1  # type: ignore[assignment]
+        existing.last_hibp_check = datetime.now(UTC)  # type: ignore[assignment]
+        existing.updated_at = datetime.now(UTC)  # type: ignore[assignment]
 
         # Update breach info if it changed
         if existing.breached != hibp_result['breached']:
             existing.breached = hibp_result['breached']
-            existing.breach_prevalence = hibp_result.get('prevalence')
+            existing.breach_prevalence = hibp_result.get('prevalence')  # type: ignore[assignment]
 
         password_id = existing.id
     else:
@@ -222,11 +222,11 @@ def _track_password(
     if usage_record:
         # Update existing usage entry with the latest information
         if success and not usage_record.success:
-            usage_record.success = True
+            usage_record.success = True  # type: ignore[assignment]
         if sanitized_username and not usage_record.username:
-            usage_record.username = sanitized_username
+            usage_record.username = sanitized_username  # type: ignore[assignment]
         if usage_record.timestamp is None or timestamp_dt > usage_record.timestamp:
-            usage_record.timestamp = timestamp_dt
+            usage_record.timestamp = timestamp_dt  # type: ignore[assignment]
     else:
         usage_record = PasswordSessionUsage(
             password_id=password_id,
@@ -239,9 +239,9 @@ def _track_password(
 
         # Increment unique_sessions counter for existing passwords
         if existing:
-            existing.unique_sessions += 1
+            existing.unique_sessions += 1  # type: ignore[assignment]
 
-    return password_id
+    return int(password_id)
 
 
 def _enrich_session(
@@ -298,7 +298,7 @@ def _enrich_session(
                 password=password,
                 password_sha256=password_sha256,
                 hibp_result=hibp_result,
-                session_id=session_summary.session_id,
+                session_id=str(session_summary.session_id),
                 username=attempt['username'],
                 success=attempt['success'],
                 timestamp=attempt['timestamp'],
@@ -357,7 +357,7 @@ def _update_session_enrichment(
         logger.warning(f"Session {session_id} not found")
         return
 
-    enrichment = session_summary.enrichment or {}
+    enrichment: Dict[str, Any] = session_summary.enrichment or {}  # type: ignore[assignment]
     enrichment['password_stats'] = password_stats
 
     # Update the session
@@ -423,12 +423,12 @@ def _aggregate_daily_stats(
     existing = db_session.query(PasswordStatistics).filter(PasswordStatistics.date == target_date).first()
 
     if existing:
-        existing.total_attempts = total_attempts
-        existing.unique_passwords = len(unique_passwords_set)
-        existing.breached_count = breached_count
-        existing.novel_count = novel_count
-        existing.max_prevalence = max_prevalence if max_prevalence > 0 else None
-        existing.updated_at = datetime.now(UTC)
+        existing.total_attempts = total_attempts  # type: ignore[assignment]
+        existing.unique_passwords = len(unique_passwords_set)  # type: ignore[assignment]
+        existing.breached_count = breached_count  # type: ignore[assignment]
+        existing.novel_count = novel_count  # type: ignore[assignment]
+        existing.max_prevalence = max_prevalence if max_prevalence > 0 else None  # type: ignore[assignment]
+        existing.updated_at = datetime.now(UTC)  # type: ignore[assignment]
     else:
         daily_stats = PasswordStatistics(
             date=target_date,
@@ -912,7 +912,8 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
                         sanitized = UnicodeSanitizer.sanitize_json_string(payload)
                         try:
                             parsed = json.loads(sanitized)
-                            return parsed.get('src_ip')
+                            parsed_result: str | None = parsed.get('src_ip')
+                            return parsed_result
                         except (json.JSONDecodeError, ValueError):
                             pass
             else:
@@ -926,7 +927,8 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
                 """
                 result = conn.execute(text(query), {"session_id": session_id}).fetchone()
                 if result and result[0]:
-                    return result[0]
+                    result_value: str | None = str(result[0])
+                    return result_value
     except Exception as e:
         logger.debug(f"Failed to extract IP for session {session_id}: {e}")
 
@@ -1139,7 +1141,7 @@ def update_file(
         conn.commit()
 
 
-def track_enrichment_stats(enrichment: dict, stats: dict) -> None:
+def track_enrichment_stats(enrichment: Any, stats: dict) -> None:
     """Track enrichment service usage and failures."""
     if not isinstance(enrichment, dict):
         return
@@ -1629,7 +1631,8 @@ Examples:
     if hasattr(args, 'start_date') and args.start_date and not args.end_date:
         parser.error("--end-date is required when --start-date is used")
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 if __name__ == '__main__':

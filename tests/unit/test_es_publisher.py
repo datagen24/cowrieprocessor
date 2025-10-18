@@ -13,7 +13,7 @@ class _DummyClient:
     pass
 
 
-def test_elasticsearch_publisher_builds_actions(monkeypatch):
+def test_elasticsearch_publisher_builds_actions(monkeypatch) -> None:
     """Publisher should generate bulk actions with ILM aliases and doc ids."""
     recorded = {}
 
@@ -48,7 +48,7 @@ def test_elasticsearch_publisher_builds_actions(monkeypatch):
     assert actions[1]["_id"] == "aggregate:weekly:2024-W01"
 
 
-def test_elasticsearch_publisher_requires_client():
+def test_elasticsearch_publisher_requires_client() -> None:
     """Publisher should raise when client is missing."""
     with pytest.raises(RuntimeError):
         ElasticsearchPublisher(None, index_prefix="cowrie.reports")

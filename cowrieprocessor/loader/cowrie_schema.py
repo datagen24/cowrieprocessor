@@ -14,14 +14,14 @@ try:
     from jsonschema import ValidationError, validate
 except ImportError:
     # Fallback for environments without jsonschema
-    def validate(instance, schema):
+    def validate(instance: Any, schema: Dict[str, Any]) -> None:
         """Fallback validate function when jsonschema is not available."""
         pass
 
-    class ValidationError(Exception):
+    class ValidationError(Exception):  # type: ignore[no-redef]
         """Fallback ValidationError class when jsonschema is not available."""
 
-        def __init__(self, message):
+        def __init__(self, message: str) -> None:
             """Initialize ValidationError with message."""
             self.message = message
             super().__init__(message)
@@ -359,7 +359,8 @@ class CowrieEventSchema:
         """Get required fields for a specific event type."""
         schema = cls.get_event_schema(eventid)
         if schema:
-            return schema.get("required", [])
+            required_fields: List[str] = schema.get("required", [])
+            return required_fields
         return []
 
 
@@ -486,7 +487,7 @@ class EventRepairer:
         return url
 
 
-def main():
+def main() -> None:
     """CLI entry point for schema validation."""
     import argparse
     import json
