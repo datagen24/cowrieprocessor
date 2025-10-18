@@ -41,7 +41,7 @@ def hibp_enricher(cache_manager, mock_rate_limiter):
     return HIBPPasswordEnricher(cache_manager, mock_rate_limiter)
 
 
-def test_init_creates_enricher(cache_manager, mock_rate_limiter):
+def test_init_creates_enricher(cache_manager, mock_rate_limiter) -> None:
     """Test HIBPPasswordEnricher initializes correctly."""
     enricher = HIBPPasswordEnricher(cache_manager, mock_rate_limiter)
     assert enricher.cache_manager == cache_manager
@@ -49,7 +49,7 @@ def test_init_creates_enricher(cache_manager, mock_rate_limiter):
     assert enricher.stats['checks'] == 0
 
 
-def test_check_password_breached(hibp_enricher, mock_rate_limiter):
+def test_check_password_breached(hibp_enricher, mock_rate_limiter) -> None:
     """Test checking a breached password."""
     # Mock API response
     mock_response = Mock()
@@ -67,7 +67,7 @@ def test_check_password_breached(hibp_enricher, mock_rate_limiter):
     assert result['error'] is None
 
 
-def test_check_password_not_breached(hibp_enricher, mock_rate_limiter):
+def test_check_password_not_breached(hibp_enricher, mock_rate_limiter) -> None:
     """Test checking a non-breached password."""
     # Generate a password that won't be in the response
     test_password = "ThisIsAVeryUniquePassword123!@#"
@@ -89,7 +89,7 @@ def test_check_password_not_breached(hibp_enricher, mock_rate_limiter):
     assert result['error'] is None
 
 
-def test_check_password_uses_cache(hibp_enricher, cache_manager, mock_rate_limiter):
+def test_check_password_uses_cache(hibp_enricher, cache_manager, mock_rate_limiter) -> None:
     """Test that second check uses cache."""
     # First check - mock API response
     test_password = "password123"
@@ -112,7 +112,7 @@ def test_check_password_uses_cache(hibp_enricher, cache_manager, mock_rate_limit
     assert mock_rate_limiter.get.call_count == 1  # Not called again
 
 
-def test_check_password_api_error(hibp_enricher, mock_rate_limiter):
+def test_check_password_api_error(hibp_enricher, mock_rate_limiter) -> None:
     """Test handling of API errors."""
     mock_rate_limiter.get = Mock(side_effect=requests.RequestException("Network error"))
 
@@ -125,7 +125,7 @@ def test_check_password_api_error(hibp_enricher, mock_rate_limiter):
     assert hibp_enricher.stats['errors'] == 1
 
 
-def test_parse_response_valid(hibp_enricher):
+def test_parse_response_valid(hibp_enricher) -> None:
     """Test parsing valid HIBP response."""
     response_text = """003D68EB55068C33ACE09247EE4C639306B:3
 00D4F6E8FA6EECAD2A3AA415EEC418D38EC:2
@@ -139,13 +139,13 @@ def test_parse_response_valid(hibp_enricher):
     assert result['011053FD0102E94D6AE2F8B83D76FAF94F6'] == 1
 
 
-def test_parse_response_empty(hibp_enricher):
+def test_parse_response_empty(hibp_enricher) -> None:
     """Test parsing empty response."""
     result = hibp_enricher._parse_response("")
     assert len(result) == 0
 
 
-def test_parse_response_malformed(hibp_enricher):
+def test_parse_response_malformed(hibp_enricher) -> None:
     """Test parsing malformed response lines."""
     response_text = """003D68EB55068C33ACE09247EE4C639306B:3
 INVALID_LINE
@@ -159,7 +159,7 @@ INVALID_LINE
     assert '00D4F6E8FA6EECAD2A3AA415EEC418D38EC' in result
 
 
-def test_extract_result_found(hibp_enricher):
+def test_extract_result_found(hibp_enricher) -> None:
     """Test extracting result when hash is found."""
     hash_data = {
         'ABC123': 100,
@@ -173,7 +173,7 @@ def test_extract_result_found(hibp_enricher):
     assert result['cached'] is False
 
 
-def test_extract_result_not_found(hibp_enricher):
+def test_extract_result_not_found(hibp_enricher) -> None:
     """Test extracting result when hash is not found."""
     hash_data = {
         'ABC123': 100,
@@ -186,7 +186,7 @@ def test_extract_result_not_found(hibp_enricher):
     assert result['cached'] is True
 
 
-def test_get_stats(hibp_enricher):
+def test_get_stats(hibp_enricher) -> None:
     """Test getting statistics."""
     stats = hibp_enricher.get_stats()
 
@@ -198,7 +198,7 @@ def test_get_stats(hibp_enricher):
     assert 'errors' in stats
 
 
-def test_reset_stats(hibp_enricher, mock_rate_limiter):
+def test_reset_stats(hibp_enricher, mock_rate_limiter) -> None:
     """Test resetting statistics."""
     # Make some checks
     mock_response = Mock()
@@ -215,7 +215,7 @@ def test_reset_stats(hibp_enricher, mock_rate_limiter):
     assert hibp_enricher.stats['api_calls'] == 0
 
 
-def test_k_anonymity_only_sends_prefix(hibp_enricher, mock_rate_limiter):
+def test_k_anonymity_only_sends_prefix(hibp_enricher, mock_rate_limiter) -> None:
     """Test that only 5-character prefix is sent to API."""
     test_password = "testpassword"
     sha1_hash = hashlib.sha1(test_password.encode('utf-8')).hexdigest().upper()
@@ -234,7 +234,7 @@ def test_k_anonymity_only_sends_prefix(hibp_enricher, mock_rate_limiter):
     assert len(expected_prefix) == 5
 
 
-def test_stats_increment_correctly(hibp_enricher, mock_rate_limiter):
+def test_stats_increment_correctly(hibp_enricher, mock_rate_limiter) -> None:
     """Test that statistics increment correctly."""
     # Setup mock response with breached password
     sha1_hash = hashlib.sha1("breached".encode('utf-8')).hexdigest().upper()

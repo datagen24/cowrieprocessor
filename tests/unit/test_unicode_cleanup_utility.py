@@ -33,7 +33,7 @@ class TestUnicodeCleanupUtility:
 
         self.db._get_engine.return_value = self.mock_engine
 
-    def test_sanitize_unicode_in_database_dry_run(self):
+    def test_sanitize_unicode_in_database_dry_run(self) -> None:
         """Test dry run functionality."""
         # Mock database records with Unicode control characters
         mock_records = [
@@ -59,7 +59,7 @@ class TestUnicodeCleanupUtility:
         self.mock_connection.execute.assert_called_once()
         # Should only be called once for the SELECT query, not for any UPDATE queries
 
-    def test_sanitize_unicode_in_database_actual_run(self):
+    def test_sanitize_unicode_in_database_actual_run(self) -> None:
         """Test actual sanitization run."""
         # Mock database records with Unicode control characters
         mock_records = [
@@ -83,14 +83,14 @@ class TestUnicodeCleanupUtility:
         # Should be called twice: once for SELECT, once for UPDATE
         assert self.mock_connection.execute.call_count == 2
 
-    def test_sanitize_unicode_in_database_no_table(self):
+    def test_sanitize_unicode_in_database_no_table(self) -> None:
         """Test error handling when raw_events table doesn't exist."""
         self.db._table_exists.return_value = False
 
         with pytest.raises(Exception, match="Raw events table does not exist"):
             self.db.sanitize_unicode_in_database()
 
-    def test_sanitize_unicode_in_database_batch_processing(self):
+    def test_sanitize_unicode_in_database_batch_processing(self) -> None:
         """Test batch processing with multiple batches."""
         # Mock first batch
         mock_records_batch1 = [
@@ -122,7 +122,7 @@ class TestUnicodeCleanupUtility:
         assert result['records_skipped'] == 1  # Record 2 is clean
         assert result['batches_processed'] == 2  # Two batches processed
 
-    def test_sanitize_unicode_in_database_limit(self):
+    def test_sanitize_unicode_in_database_limit(self) -> None:
         """Test limit functionality."""
         mock_records = [
             Mock(id=1, payload_text='{"eventid": "test", "message": "hello\x00world"}'),
@@ -147,7 +147,7 @@ class TestUnicodeCleanupUtility:
         assert result['records_updated'] == 1  # Record 1 has control characters
         assert result['records_skipped'] == 1  # Record 2 is clean
 
-    def test_sanitize_unicode_in_database_error_handling(self):
+    def test_sanitize_unicode_in_database_error_handling(self) -> None:
         """Test error handling for individual records."""
         # Mock records with one that has problematic data
         mock_records = [
@@ -166,7 +166,7 @@ class TestUnicodeCleanupUtility:
         assert result['records_skipped'] == 1  # Record 2 is clean
         assert result['errors'] == 0  # No errors should occur
 
-    def test_sanitize_unicode_in_database_postgresql_vs_sqlite(self):
+    def test_sanitize_unicode_in_database_postgresql_vs_sqlite(self) -> None:
         """Test different database dialects."""
         # Test PostgreSQL
         with patch('cowrieprocessor.db.json_utils.get_dialect_name_from_engine', return_value='postgresql'):
@@ -192,7 +192,7 @@ class TestUnicodeCleanupUtility:
             assert result['records_processed'] == 1
             assert result['records_updated'] == 1
 
-    def test_sanitize_unicode_in_database_json_validation(self):
+    def test_sanitize_unicode_in_database_json_validation(self) -> None:
         """Test JSON validation during sanitization."""
         # Mock records with various JSON states
         mock_records = [
@@ -214,7 +214,7 @@ class TestUnicodeCleanupUtility:
         assert result['records_skipped'] == 2  # Records 2 and 3 should be skipped due to JSON issues
         assert result['errors'] == 0
 
-    def test_sanitize_unicode_in_database_progress_logging(self):
+    def test_sanitize_unicode_in_database_progress_logging(self) -> None:
         """Test that progress logging works without hanging."""
         # Mock a small number of records to test logging without performance issues
         mock_records = [Mock(id=i, payload_text='{"eventid": "test", "message": "normal"}') for i in range(50)]
@@ -229,7 +229,7 @@ class TestUnicodeCleanupUtility:
             assert result['records_updated'] == 0
             assert result['errors'] == 0
 
-    def test_sanitize_unicode_in_database_real_world_scenario(self):
+    def test_sanitize_unicode_in_database_real_world_scenario(self) -> None:
         """Test with real-world Cowrie log data."""
         # Mock records with actual Cowrie log patterns
         mock_records = [
@@ -253,7 +253,7 @@ class TestUnicodeCleanupUtility:
         assert result['records_skipped'] == 1  # Record 2 is clean
         assert result['errors'] == 0
 
-    def test_sanitize_unicode_in_database_empty_database(self):
+    def test_sanitize_unicode_in_database_empty_database(self) -> None:
         """Test behavior with empty database."""
         # Mock empty result set
         self.mock_connection.execute.return_value.fetchall.return_value = []

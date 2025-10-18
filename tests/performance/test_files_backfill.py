@@ -57,7 +57,7 @@ def performance_engine(tmp_path):
 class TestFilesBackfillPerformance:
     """Test performance characteristics of files table backfill."""
 
-    def test_bulk_loader_performance(self, performance_engine, large_event_dataset):
+    def test_bulk_loader_performance(self, performance_engine, large_event_dataset) -> None:
         """Test bulk loader performance with large dataset."""
         json_file, events = large_event_dataset
 
@@ -98,7 +98,7 @@ class TestFilesBackfillPerformance:
         print(f"  Events per second: {events_per_second:.1f}")
         print(f"  Batches committed: {metrics.batches_committed}")
 
-    def test_memory_usage_stability(self, performance_engine, large_event_dataset):
+    def test_memory_usage_stability(self, performance_engine, large_event_dataset) -> None:
         """Test that memory usage remains stable during large backfill."""
         import os
 
@@ -129,7 +129,7 @@ class TestFilesBackfillPerformance:
         print(f"  Final: {final_memory:.1f}MB")
         print(f"  Increase: {memory_increase:.1f}MB")
 
-    def test_batch_size_optimization(self, performance_engine, large_event_dataset):
+    def test_batch_size_optimization(self, performance_engine, large_event_dataset) -> None:
         """Test different batch sizes for optimal performance."""
         json_file, events = large_event_dataset
 
@@ -174,7 +174,7 @@ class TestFilesBackfillPerformance:
         # Verify that larger batch sizes generally perform better
         assert best_result["batch_size"] >= 100, "Larger batch sizes should perform better"
 
-    def test_concurrent_access_during_backfill(self, performance_engine, large_event_dataset):
+    def test_concurrent_access_during_backfill(self, performance_engine, large_event_dataset) -> None:
         """Test that database remains accessible during backfill."""
         import queue
         import threading
@@ -235,7 +235,7 @@ class TestFilesBackfillPerformance:
 
         print(f"Backfill completed in {end_time - start_time:.2f}s with {metrics.events_read} events")
 
-    def test_large_file_metadata_handling(self, performance_engine, tmp_path):
+    def test_large_file_metadata_handling(self, performance_engine, tmp_path) -> None:
         """Test handling of files with large metadata."""
         # Create events with large filenames and URLs
         events = []

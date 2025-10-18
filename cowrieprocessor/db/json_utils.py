@@ -9,8 +9,9 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import Column, func
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.elements import BinaryExpression, ColumnElement
+from sqlalchemy.sql.expression import BooleanClauseList
 
 
 class JSONAccessor:
@@ -28,7 +29,7 @@ class JSONAccessor:
     """
 
     @staticmethod
-    def get_field(column: Column, field: str, dialect_name: str) -> ColumnElement:
+    def get_field(column: Column[Any], field: str, dialect_name: str) -> ColumnElement[Any]:
         """Extract a JSON field using the appropriate backend syntax.
 
         Args:
@@ -49,7 +50,7 @@ class JSONAccessor:
             return func.json_extract(column, f"$.{field}")
 
     @staticmethod
-    def get_nested_field(column: Column, path: str, dialect_name: str) -> ColumnElement:
+    def get_nested_field(column: Column[Any], path: str, dialect_name: str) -> ColumnElement[Any]:
         """Extract a nested JSON field using the appropriate backend syntax.
 
         Args:
@@ -67,7 +68,7 @@ class JSONAccessor:
         if dialect_name == "postgresql":
             # Split path and build nested access
             parts = path.split(".")
-            expr = column
+            expr: ColumnElement[Any] = column
             for part in parts[:-1]:
                 expr = expr.op('->')(part)
             return expr.op('->>')(parts[-1])
@@ -75,7 +76,7 @@ class JSONAccessor:
             return func.json_extract(column, f"$.{path}")
 
     @staticmethod
-    def field_exists(column: Column, field: str, dialect_name: str) -> BinaryExpression:
+    def field_exists(column: Column[Any], field: str, dialect_name: str) -> BinaryExpression[bool]:
         """Check if a JSON field exists and is not null.
 
         Args:
@@ -94,7 +95,7 @@ class JSONAccessor:
         return field_expr.isnot(None)
 
     @staticmethod
-    def field_not_empty(column: Column, field: str, dialect_name: str) -> BinaryExpression:
+    def field_not_empty(column: Column[Any], field: str, dialect_name: str) -> BooleanClauseList:
         """Check if a JSON field exists, is not null, and is not empty string.
 
         Args:
@@ -113,7 +114,7 @@ class JSONAccessor:
         return field_expr.isnot(None) & (field_expr != "")
 
     @staticmethod
-    def field_equals(column: Column, field: str, value: Any, dialect_name: str) -> BinaryExpression:
+    def field_equals(column: Column[Any], field: str, value: Any, dialect_name: str) -> BinaryExpression[bool]:
         """Check if a JSON field equals a specific value.
 
         Args:
@@ -130,10 +131,11 @@ class JSONAccessor:
             # PostgreSQL: payload->>'eventid' = 'cowrie.session.connect'
         """
         field_expr = JSONAccessor.get_field(column, field, dialect_name)
-        return field_expr == value
+        result: BinaryExpression[bool] = field_expr == value
+        return result
 
     @staticmethod
-    def field_like(column: Column, field: str, pattern: str, dialect_name: str) -> BinaryExpression:
+    def field_like(column: Column[Any], field: str, pattern: str, dialect_name: str) -> BinaryExpression[bool]:
         """Check if a JSON field matches a LIKE pattern.
 
         Args:
@@ -165,7 +167,7 @@ def get_dialect_name(connection: Connection) -> str:
     return connection.dialect.name
 
 
-def get_dialect_name_from_engine(engine) -> str:
+def get_dialect_name_from_engine(engine: Engine) -> str:
     """Get the database dialect name from an engine.
 
     Args:
@@ -178,7 +180,7 @@ def get_dialect_name_from_engine(engine) -> str:
 
 
 # Convenience functions for common operations
-def json_field(column: Column, field: str, dialect_name: str) -> ColumnElement:
+def json_field(column: Column[Any], field: str, dialect_name: str) -> ColumnElement[Any]:
     """Convenience function for JSON field extraction.
 
     Args:
@@ -192,7 +194,7 @@ def json_field(column: Column, field: str, dialect_name: str) -> ColumnElement:
     return JSONAccessor.get_field(column, field, dialect_name)
 
 
-def json_field_exists(column: Column, field: str, dialect_name: str) -> BinaryExpression:
+def json_field_exists(column: Column[Any], field: str, dialect_name: str) -> BinaryExpression[bool]:
     """Convenience function for JSON field existence check.
 
     Args:
@@ -206,7 +208,7 @@ def json_field_exists(column: Column, field: str, dialect_name: str) -> BinaryEx
     return JSONAccessor.field_exists(column, field, dialect_name)
 
 
-def json_field_not_empty(column: Column, field: str, dialect_name: str) -> BinaryExpression:
+def json_field_not_empty(column: Column[Any], field: str, dialect_name: str) -> BooleanClauseList:
     """Convenience function for JSON field not empty check.
 
     Args:
@@ -220,7 +222,7 @@ def json_field_not_empty(column: Column, field: str, dialect_name: str) -> Binar
     return JSONAccessor.field_not_empty(column, field, dialect_name)
 
 
-def json_field_equals(column: Column, field: str, value: Any, dialect_name: str) -> BinaryExpression:
+def json_field_equals(column: Column[Any], field: str, value: Any, dialect_name: str) -> BinaryExpression[bool]:
     """Convenience function for JSON field equality check.
 
     Args:
@@ -235,7 +237,7 @@ def json_field_equals(column: Column, field: str, value: Any, dialect_name: str)
     return JSONAccessor.field_equals(column, field, value, dialect_name)
 
 
-def json_field_like(column: Column, field: str, pattern: str, dialect_name: str) -> BinaryExpression:
+def json_field_like(column: Column[Any], field: str, pattern: str, dialect_name: str) -> BinaryExpression[bool]:
     """Convenience function for JSON field LIKE pattern check.
 
     Args:

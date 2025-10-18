@@ -17,7 +17,7 @@ from cowrieprocessor.settings import DatabaseSettings
 class TestMigrationSystem:
     """Test migration system functionality."""
 
-    def test_migration_application_sqlite(self):
+    def test_migration_application_sqlite(self) -> None:
         """Test migration application on SQLite database."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -80,7 +80,7 @@ class TestMigrationSystem:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_migration_idempotency_sqlite(self):
+    def test_migration_idempotency_sqlite(self) -> None:
         """Test that migrations are idempotent on SQLite."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -109,7 +109,7 @@ class TestMigrationSystem:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_migration_with_data_sqlite(self):
+    def test_migration_with_data_sqlite(self) -> None:
         """Test migration with existing data in SQLite."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -159,7 +159,7 @@ class TestMigrationSystem:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_migration_error_handling(self):
+    def test_migration_error_handling(self) -> None:
         """Test migration error handling."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -191,7 +191,7 @@ class TestMigrationSystem:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_migration_from_scratch(self):
+    def test_migration_from_scratch(self) -> None:
         """Test migration from completely empty database."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -228,7 +228,7 @@ class TestMigrationSystem:
 class TestMigrationCompatibility:
     """Test migration compatibility across different scenarios."""
 
-    def test_boolean_defaults_migration(self):
+    def test_boolean_defaults_migration(self) -> None:
         """Test boolean defaults migration specifically."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -266,7 +266,7 @@ class TestMigrationCompatibility:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_json_extraction_migration(self):
+    def test_json_extraction_migration(self) -> None:
         """Test JSON extraction migration specifically."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -321,7 +321,7 @@ class TestMigrationCompatibility:
 class TestMigrationIntegration:
     """Integration tests for migration system."""
 
-    def test_full_migration_cycle(self):
+    def test_full_migration_cycle(self) -> None:
         """Test complete migration cycle from version 0 to current."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name

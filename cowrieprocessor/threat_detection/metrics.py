@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -51,15 +51,8 @@ class SnowshoeDetectionMetrics:
     enrichment_coverage: float = 0.0
 
     # Error tracking
-    errors: List[str] = None
-    warnings: List[str] = None
-
-    def __post_init__(self) -> None:
-        """Initialize default values for optional fields."""
-        if self.errors is None:
-            self.errors = []
-        if self.warnings is None:
-            self.warnings = []
+    errors: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
     @property
     def detection_efficiency(self) -> float:
@@ -114,7 +107,7 @@ class SnowshoeDetectionMetrics:
         else:
             return "low"
 
-    def to_status_dict(self) -> Dict[str, any]:
+    def to_status_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary format for StatusEmitter.
 
         Returns:
@@ -186,24 +179,17 @@ class SnowshoeCampaignMetrics:
     max_confidence_score: float
 
     # Geographic spread
-    countries_affected: List[str]
-    asns_affected: List[str]
-    geographic_diversity_score: float
+    countries_affected: List[str] = field(default_factory=list)
+    asns_affected: List[str] = field(default_factory=list)
+    geographic_diversity_score: float = 0.0
 
     # Temporal characteristics
-    campaign_duration_hours: float
-    detection_frequency_per_hour: float
+    campaign_duration_hours: float = 0.0
+    detection_frequency_per_hour: float = 0.0
 
     # Risk assessment
-    risk_trend: str  # "increasing", "stable", "decreasing"
-    threat_level: str  # "low", "moderate", "high", "critical"
-
-    def __post_init__(self) -> None:
-        """Calculate derived metrics."""
-        if self.countries_affected is None:
-            self.countries_affected = []
-        if self.asns_affected is None:
-            self.asns_affected = []
+    risk_trend: str = "stable"  # "increasing", "stable", "decreasing"
+    threat_level: str = "low"  # "low", "moderate", "high", "critical"
 
     @property
     def campaign_velocity(self) -> float:
@@ -219,7 +205,7 @@ class SnowshoeCampaignMetrics:
             return 0.0
         return round(self.total_unique_ips / self.campaign_duration_hours, 2)
 
-    def to_status_dict(self) -> Dict[str, any]:
+    def to_status_dict(self) -> Dict[str, Any]:
         """Convert campaign metrics to dictionary format for StatusEmitter."""
         return {
             "campaign_id": self.campaign_id,
@@ -253,7 +239,7 @@ class SnowshoeCampaignMetrics:
 
 
 def create_snowshoe_metrics_from_detection(
-    detection_result: Dict[str, any],
+    detection_result: Dict[str, Any],
     analysis_duration: float,
     analysis_id: str,
     window_hours: float,

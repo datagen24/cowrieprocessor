@@ -18,15 +18,31 @@ def _to_dict(obj: Any) -> Dict[str, Any]:
     if hasattr(obj, "__dataclass_fields__"):
         if is_dataclass(obj):
             try:
-                return _normalize({field.name: getattr(obj, field.name) for field in fields(obj)})
+                result = _normalize({field.name: getattr(obj, field.name) for field in fields(obj)})
+                if isinstance(result, dict):
+                    return result
+                else:
+                    return {}
             except TypeError:
                 pass
         dataclass_fields = getattr(obj, "__dataclass_fields__")
-        return _normalize({name: getattr(obj, name) for name in dataclass_fields})
+        result = _normalize({name: getattr(obj, name) for name in dataclass_fields})
+        if isinstance(result, dict):
+            return result
+        else:
+            return {}
     if hasattr(obj, "__dict__"):
-        return _normalize(dict(obj.__dict__))
+        result = _normalize(dict(obj.__dict__))
+        if isinstance(result, dict):
+            return result
+        else:
+            return {}
     if isinstance(obj, dict):
-        return _normalize(dict(obj))
+        result = _normalize(dict(obj))
+        if isinstance(result, dict):
+            return result
+        else:
+            return {}
     raise TypeError(f"Unsupported object type for status serialization: {type(obj)!r}")
 
 

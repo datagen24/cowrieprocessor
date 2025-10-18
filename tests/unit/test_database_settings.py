@@ -8,7 +8,7 @@ from cowrieprocessor.db import create_engine_from_settings, create_session_maker
 from cowrieprocessor.settings import DatabaseSettings, load_database_settings
 
 
-def test_default_settings_use_sqlite_tmp(monkeypatch, tmp_path):
+def test_default_settings_use_sqlite_tmp(monkeypatch, tmp_path) -> None:
     """Settings fall back to a local SQLite URL when no overrides exist."""
     monkeypatch.delenv("COWRIEPROC_DB_URL", raising=False)
     monkeypatch.delenv("COWRIEPROC_DB_PATH", raising=False)
@@ -17,7 +17,7 @@ def test_default_settings_use_sqlite_tmp(monkeypatch, tmp_path):
     assert settings.url.startswith("sqlite:///"), "default URL should target SQLite"
 
 
-def test_env_overrides_database_url(monkeypatch, tmp_path):
+def test_env_overrides_database_url(monkeypatch, tmp_path) -> None:
     """Explicit DB URL environment variable takes precedence."""
     db_path = tmp_path / "custom.sqlite"
     monkeypatch.setenv("COWRIEPROC_DB_URL", f"sqlite:///{db_path}")
@@ -25,7 +25,7 @@ def test_env_overrides_database_url(monkeypatch, tmp_path):
     assert settings.url.endswith(str(db_path))
 
 
-def test_env_path_override(monkeypatch, tmp_path):
+def test_env_path_override(monkeypatch, tmp_path) -> None:
     """DB path override is translated into a SQLite URL when URL is unset."""
     db_path = tmp_path / "path.sqlite"
     monkeypatch.delenv("COWRIEPROC_DB_URL", raising=False)
@@ -35,7 +35,7 @@ def test_env_path_override(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("wal", [True, False])
-def test_sqlite_engine_pragmas(monkeypatch, tmp_path, wal):
+def test_sqlite_engine_pragmas(monkeypatch, tmp_path, wal) -> None:
     """SQLite engines apply WAL preference and fallback PRAGMAs consistently."""
     db_path = tmp_path / "engine.sqlite"
     settings = DatabaseSettings(
@@ -59,7 +59,7 @@ def test_sqlite_engine_pragmas(monkeypatch, tmp_path, wal):
         assert session.bind is engine
 
 
-def test_settings_pool_options_from_env(monkeypatch):
+def test_settings_pool_options_from_env(monkeypatch) -> None:
     """Pool related environment variables populate the settings object."""
     monkeypatch.setenv("COWRIEPROC_DB_POOL_SIZE", "5")
     monkeypatch.setenv("COWRIEPROC_DB_POOL_TIMEOUT", "55")

@@ -6,7 +6,7 @@ import asyncio
 import random
 import time
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 import requests
 
@@ -25,7 +25,7 @@ class RateLimiter:
         """
         self.rate = rate
         self.burst = burst
-        self.tokens = burst
+        self.tokens: float = float(burst)
         self.last_update = time.time()
         self._lock = asyncio.Lock()
 
@@ -71,7 +71,7 @@ class RateLimitedSession:
         """
         self.session = requests.Session()
         self.rate_limiter = RateLimiter(rate_limit, burst)
-        self._loop = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create event loop for rate limiting."""
@@ -140,7 +140,10 @@ def with_retries(
 
                     time.sleep(backoff)
 
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            else:
+                raise RuntimeError("Retry loop completed without exception")
 
         return wrapper
 
@@ -172,4 +175,4 @@ SERVICE_RATE_LIMITS = {
 def get_service_rate_limit(service: str) -> tuple[float, int]:
     """Get rate limit configuration for a service."""
     config = SERVICE_RATE_LIMITS.get(service, {"rate": 1.0, "burst": 2})
-    return config["rate"], config["burst"]
+    return config["rate"], int(config["burst"])

@@ -55,7 +55,7 @@ def simple_test_db():
         Path(temp_file.name).unlink(missing_ok=True)
 
 
-def test_ssh_key_extraction_and_storage(simple_test_db):
+def test_ssh_key_extraction_and_storage(simple_test_db) -> None:
     """Test basic SSH key extraction and storage."""
     extractor = SSHKeyExtractor()
 
@@ -93,7 +93,7 @@ def test_ssh_key_extraction_and_storage(simple_test_db):
     assert stored_keys[0].key_fingerprint == key.key_fingerprint
 
 
-def test_session_key_linking(simple_test_db):
+def test_session_key_linking(simple_test_db) -> None:
     """Test linking SSH keys to sessions."""
     extractor = SSHKeyExtractor()
 
@@ -140,7 +140,7 @@ def test_session_key_linking(simple_test_db):
     assert stored_links[0].ssh_key_id == key_record.id
 
 
-def test_ssh_key_analytics_basic(simple_test_db):
+def test_ssh_key_analytics_basic(simple_test_db) -> None:
     """Test basic SSH key analytics functionality."""
     # Create sample key records
     key1 = SSHKeyIntelligence(
@@ -196,7 +196,7 @@ def test_ssh_key_analytics_basic(simple_test_db):
     assert timeline.total_attempts == 3
 
 
-def test_session_summary_ssh_key_counts(simple_test_db):
+def test_session_summary_ssh_key_counts(simple_test_db) -> None:
     """Test session summary with SSH key counts."""
     # Create session summary with SSH key counts
     summary = SessionSummary(
@@ -227,7 +227,7 @@ def test_session_summary_ssh_key_counts(simple_test_db):
     assert stored_summary.unique_ssh_keys == 1
 
 
-def test_geographic_spread_analysis(simple_test_db):
+def test_geographic_spread_analysis(simple_test_db) -> None:
     """Test geographic spread analysis."""
     # Create a key record
     key = SSHKeyIntelligence(
@@ -274,7 +274,7 @@ def test_geographic_spread_analysis(simple_test_db):
     assert "subnet_distribution" in geo_spread
 
 
-def test_end_to_end_simple_pipeline(simple_test_db):
+def test_end_to_end_simple_pipeline(simple_test_db) -> None:
     """Test a simple end-to-end pipeline."""
     extractor = SSHKeyExtractor()
 

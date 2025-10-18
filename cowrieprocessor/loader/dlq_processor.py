@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from ..db.engine import create_engine_from_settings, create_session_maker
 from ..db.models import DeadLetterEvent, RawEvent
 from ..settings import DatabaseSettings, load_database_settings
@@ -184,7 +187,7 @@ class JSONRepairStrategies:
         # This regex finds: "key": "value"with"quote"
         pattern = r'("[\w_]+"\s*:\s*")([^"]*")([^"]*")([^"]*")'
 
-        def fix_quote_match(match):
+        def fix_quote_match(match: re.Match[str]) -> str:
             key_part = match.group(1)  # "key": "
             value_start = match.group(2)  # "value"
             middle_part = match.group(3)  # "with"
@@ -247,7 +250,7 @@ class JSONRepairStrategies:
 class EventStitcher:
     """Stitches fragmented events into complete Cowrie events."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the event stitcher."""
         self.validator = CowrieEventValidator()
         self.repair_strategies = JSONRepairStrategies()
@@ -261,7 +264,7 @@ class EventStitcher:
         Returns:
             Analysis results with suggested repair strategy
         """
-        analysis = {
+        analysis: Dict[str, Any] = {
             "content_length": len(malformed_content),
             "line_count": len(malformed_content.splitlines()),
             "has_opening_brace": '{' in malformed_content,
@@ -314,6 +317,10 @@ class EventStitcher:
 
                 # Try to parse the repaired content
                 event = json.loads(sanitized_content)
+                
+                # Type guard to ensure event is a dict
+                if not isinstance(event, dict):
+                    continue
 
                 # Validate the parsed event
                 is_valid, errors = self.validator.validate_event(event)
@@ -461,7 +468,7 @@ class EventStitcher:
         lang_cs = self._extract_array_values(content, 'langCS')
 
         # Build complete event
-        event = {
+        event: Dict[str, Any] = {
             "eventid": "cowrie.client.kex",
             "timestamp": self._get_current_timestamp(),
             "session": "unknown-session",  # Default value
@@ -486,7 +493,7 @@ class EventStitcher:
 
     def _reconstruct_client_event(self, content: str, eventid: str) -> str:
         """Reconstruct a generic client event."""
-        event = {
+        event: Dict[str, Any] = {
             "eventid": eventid,
             "timestamp": self._get_current_timestamp(),
             "session": "unknown-session",
@@ -511,7 +518,7 @@ class EventStitcher:
         lang_cs = self._extract_array_values(content, 'langCS')
 
         # Build complete event
-        event = {
+        event: Dict[str, Any] = {
             "eventid": "cowrie.client.kex",
             "timestamp": self._get_current_timestamp(),
             "session": "unknown-session",
@@ -532,7 +539,7 @@ class EventStitcher:
 
     def _reconstruct_generic_event(self, content: str, eventid: str) -> str:
         """Reconstruct a generic Cowrie event."""
-        event = {
+        event: Dict[str, Any] = {
             "eventid": eventid,
             "timestamp": self._get_current_timestamp(),
             "session": "unknown-session",
@@ -556,7 +563,7 @@ class EventStitcher:
             content = content[1:-1]
 
         # Create a simple event with this as a message
-        event = {
+        event: Dict[str, Any] = {
             "eventid": "cowrie.system.info",
             "timestamp": self._get_current_timestamp(),
             "message": content,
@@ -624,7 +631,7 @@ def _load_database_settings_from_sensors(db_path: Optional[str] = None) -> Datab
                 import tomllib
             except ImportError:
                 # Fall back to tomli for older Python versions
-                import tomli as tomllib
+                import tomli as tomllib  # type: ignore[no-redef]
 
             with sensors_file.open("rb") as handle:
                 data = tomllib.load(handle)
@@ -639,7 +646,7 @@ def _load_database_settings_from_sensors(db_path: Optional[str] = None) -> Datab
             print(f"Warning: Could not load database config from sensors.toml: {e}")
 
     # Fall back to default settings
-    return DatabaseSettings()
+    return DatabaseSettings(url="sqlite:///cowrie.db")
 
 
 class DLQProcessor:
@@ -676,16 +683,17 @@ class DLQProcessor:
         session_factory = create_session_maker(engine)
 
         with session_factory() as session:
-            # Query DLQ events
-            query = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved)
+            # Build query using SQLAlchemy 2.0 select()
+            stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
 
             if reason_filter:
-                query = query.filter(DeadLetterEvent.reason == reason_filter)
+                stmt = stmt.where(DeadLetterEvent.reason == reason_filter)
 
             if limit:
-                query = query.limit(limit)
+                stmt = stmt.limit(limit)
 
-            dlq_events = query.all()
+            result = session.execute(stmt)
+            dlq_events = result.scalars().all()
 
             for dlq_event in dlq_events:
                 stats["processed"] += 1
@@ -706,8 +714,8 @@ class DLQProcessor:
 
                     if success:
                         # Mark DLQ event as resolved
-                        dlq_event.resolved = True
-                        dlq_event.resolved_at = datetime.now(timezone.utc)
+                        dlq_event.resolved = True  # type: ignore[assignment]
+                        dlq_event.resolved_at = datetime.now(timezone.utc)  # type: ignore[assignment]
                         stats["repaired"] += 1
                     else:
                         stats["failed"] += 1
@@ -718,16 +726,16 @@ class DLQProcessor:
 
         return stats
 
-    def _extract_malformed_content(self, dlq_event: DeadLetterEvent) -> Optional[str]:
+    def _extract_malformed_content(self, dlq_event: DeadLetterEvent) -> Optional[str]:  # type: ignore[misc,unreachable,unused-ignore]
         """Extract malformed content from DLQ event."""
         payload = dlq_event.payload
 
-        if isinstance(payload, dict):
-            return payload.get("malformed_content")
+        if isinstance(payload, dict):  # type: ignore[unreachable]
+            return payload.get("malformed_content")  # type: ignore[unreachable]
 
         return None
 
-    def _insert_repaired_event(self, session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]) -> bool:
+    def _insert_repaired_event(self, session: Session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]) -> bool:
         """Insert repaired event into raw_events table with duplicate handling."""
         try:
             from sqlalchemy.dialects.postgresql import insert
@@ -749,7 +757,7 @@ class DLQProcessor:
 
             # Use PostgreSQL UPSERT (ON CONFLICT DO UPDATE)
             # This will update the existing record with repaired data
-            stmt = insert(RawEvent.__table__).values(**event_data)
+            stmt = insert(RawEvent).values(**event_data)
             stmt = stmt.on_conflict_do_update(
                 index_elements=['source', 'source_inode', 'source_generation', 'source_offset'],
                 set_={
@@ -771,30 +779,28 @@ class DLQProcessor:
         except Exception:
             # If we're not using PostgreSQL, fall back to check-then-insert
             try:
-                from sqlalchemy import select
-
-                existing_query = select(RawEvent).where(
+                select_stmt = select(RawEvent).where(
                     RawEvent.source == dlq_event.source,
                     RawEvent.source_offset == dlq_event.source_offset,
                     RawEvent.source_inode == dlq_event.source,
                     RawEvent.source_generation == 0,
                 )
 
-                existing_event = session.execute(existing_query).first()
+                result = session.execute(select_stmt)
+                existing_event = result.scalar_one_or_none()
 
                 if existing_event:
                     # Event already exists, update it with repaired data
-                    existing_raw_event = existing_event[0]
-                    existing_raw_event.payload = repaired_event
-                    existing_raw_event.risk_score = 50
-                    existing_raw_event.quarantined = False
-                    existing_raw_event.session_id = repaired_event.get("session")
-                    existing_raw_event.event_type = repaired_event.get("eventid")
-                    existing_raw_event.event_timestamp = repaired_event.get("timestamp")
+                    existing_event.payload = repaired_event  # type: ignore[assignment]
+                    existing_event.risk_score = 50  # type: ignore[assignment]
+                    existing_event.quarantined = False  # type: ignore[assignment]
+                    existing_event.session_id = repaired_event.get("session")  # type: ignore[assignment]
+                    existing_event.event_type = repaired_event.get("eventid")  # type: ignore[assignment]
+                    existing_event.event_timestamp = repaired_event.get("timestamp")  # type: ignore[assignment]
                     # Update the ingest timestamp to reflect the repair
                     from datetime import datetime
 
-                    existing_raw_event.ingest_at = datetime.utcnow()
+                    existing_event.ingest_at = datetime.utcnow()  # type: ignore[assignment]
                     return True
 
                 # Create new raw event record
@@ -820,7 +826,7 @@ class DLQProcessor:
 
     def analyze_dlq_patterns(self) -> Dict[str, Any]:
         """Analyze patterns in DLQ events to understand common issues."""
-        patterns = {
+        patterns: Dict[str, Any] = {
             "total_events": 0,
             "by_reason": {},
             "by_source": {},
@@ -833,7 +839,9 @@ class DLQProcessor:
         session_factory = create_session_maker(engine)
 
         with session_factory() as session:
-            dlq_events = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved).all()
+            stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
+            result = session.execute(stmt)
+            dlq_events = result.scalars().all()
 
             patterns["total_events"] = len(dlq_events)
 
@@ -855,7 +863,7 @@ class DLQProcessor:
         return patterns
 
 
-def main():
+def main() -> None:
     """CLI entry point for DLQ processing."""
     import argparse
 

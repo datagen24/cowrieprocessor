@@ -6,9 +6,9 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from sqlalchemy import and_
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from ..db.models import SessionSSHKeys, SSHKeyAssociations, SSHKeyIntelligence
@@ -121,26 +121,23 @@ class SSHKeyAnalytics:
         cutoff_date = datetime.now() - timedelta(days=days_back)
 
         # Find keys that meet minimum criteria
-        candidate_keys = (
-            self.session.query(SSHKeyIntelligence)
-            .filter(
-                and_(
-                    SSHKeyIntelligence.total_attempts >= min_attempts,
-                    SSHKeyIntelligence.unique_sources >= min_ips,
-                    SSHKeyIntelligence.last_seen >= cutoff_date,
-                )
+        stmt = select(SSHKeyIntelligence).where(
+            and_(
+                SSHKeyIntelligence.total_attempts >= min_attempts,
+                SSHKeyIntelligence.unique_sources >= min_ips,
+                SSHKeyIntelligence.last_seen >= cutoff_date,
             )
-            .all()
         )
+        candidate_keys = self.session.execute(stmt).scalars().all()
 
         if len(candidate_keys) < min_keys:
             return []
 
         # Build key association graph
-        associations = self._build_association_graph(candidate_keys)
+        associations = self._build_association_graph(list(candidate_keys))
 
         # Find connected components (campaigns)
-        campaigns = self._find_connected_campaigns(associations, candidate_keys, confidence_threshold)
+        campaigns = self._find_connected_campaigns(associations, list(candidate_keys), confidence_threshold)
 
         # Filter campaigns by minimum criteria
         filtered_campaigns = []
@@ -163,20 +160,17 @@ class SSHKeyAnalytics:
         Returns:
             KeyTimeline object or None if key not found
         """
-        key_record = (
-            self.session.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.key_fingerprint == key_fingerprint).first()
-        )
+        stmt = select(SSHKeyIntelligence).where(SSHKeyIntelligence.key_fingerprint == key_fingerprint)
+        key_record = self.session.execute(stmt).scalar_one_or_none()
 
         if not key_record:
             return None
 
         # Get session details
-        sessions = (
-            self.session.query(SessionSSHKeys)
-            .filter(SessionSSHKeys.ssh_key_id == key_record.id)
-            .order_by(SessionSSHKeys.timestamp)
-            .all()
+        session_stmt = (
+            select(SessionSSHKeys).where(SessionSSHKeys.ssh_key_id == key_record.id).order_by(SessionSSHKeys.timestamp)
         )
+        sessions = self.session.execute(session_stmt).scalars().all()
 
         session_info = []
         for session in sessions:
@@ -193,13 +187,13 @@ class SSHKeyAnalytics:
             )
 
         return KeyTimeline(
-            key_fingerprint=key_record.key_fingerprint,
-            key_type=key_record.key_type,
-            first_seen=key_record.first_seen,
-            last_seen=key_record.last_seen,
-            total_attempts=key_record.total_attempts,
-            unique_sources=key_record.unique_sources,
-            unique_sessions=key_record.unique_sessions,
+            key_fingerprint=str(key_record.key_fingerprint),
+            key_type=str(key_record.key_type),
+            first_seen=cast(Optional[datetime], key_record.first_seen),
+            last_seen=cast(Optional[datetime], key_record.last_seen),
+            total_attempts=int(key_record.total_attempts),
+            unique_sources=int(key_record.unique_sources),
+            unique_sessions=int(key_record.unique_sessions),
             sessions=session_info,
         )
 
@@ -220,21 +214,17 @@ class SSHKeyAnalytics:
             List of key associations
         """
         # Find the key record
-        key_record = (
-            self.session.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.key_fingerprint == key_fingerprint).first()
-        )
+        stmt = select(SSHKeyIntelligence).where(SSHKeyIntelligence.key_fingerprint == key_fingerprint)
+        key_record = self.session.execute(stmt).scalar_one_or_none()
 
         if not key_record:
             return []
 
         # Find associations
-        associations = (
-            self.session.query(SSHKeyAssociations)
-            .filter(
-                and_((SSHKeyAssociations.key_id_1 == key_record.id) | (SSHKeyAssociations.key_id_2 == key_record.id))
-            )
-            .all()
+        assoc_stmt = select(SSHKeyAssociations).where(
+            (SSHKeyAssociations.key_id_1 == key_record.id) | (SSHKeyAssociations.key_id_2 == key_record.id)
         )
+        associations = self.session.execute(assoc_stmt).scalars().all()
 
         # Get related key information and calculate association strength
         related_keys = []
@@ -245,7 +235,8 @@ class SSHKeyAnalytics:
             else:
                 related_key_id = assoc.key_id_1
 
-            related_key = self.session.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.id == related_key_id).first()
+            related_stmt = select(SSHKeyIntelligence).where(SSHKeyIntelligence.id == related_key_id)
+            related_key = self.session.execute(related_stmt).scalar_one_or_none()
 
             if related_key:
                 # Calculate association strength based on co-occurrence
@@ -255,12 +246,12 @@ class SSHKeyAnalytics:
                 if association_strength >= min_association_strength:
                     related_keys.append(
                         KeyAssociation(
-                            key1_fingerprint=key_record.key_fingerprint,
-                            key2_fingerprint=related_key.key_fingerprint,
-                            co_occurrence_count=assoc.co_occurrence_count,
-                            same_session_count=assoc.same_session_count,
-                            same_ip_count=assoc.same_ip_count,
-                            association_strength=association_strength,
+                            key1_fingerprint=str(key_record.key_fingerprint),
+                            key2_fingerprint=str(related_key.key_fingerprint),
+                            co_occurrence_count=int(assoc.co_occurrence_count),
+                            same_session_count=int(assoc.same_session_count),
+                            same_ip_count=int(assoc.same_ip_count),
+                            association_strength=float(association_strength),
                         )
                     )
 
@@ -277,28 +268,27 @@ class SSHKeyAnalytics:
         Returns:
             Dictionary with geographic spread metrics
         """
-        key_record = (
-            self.session.query(SSHKeyIntelligence).filter(SSHKeyIntelligence.key_fingerprint == key_fingerprint).first()
-        )
+        stmt = select(SSHKeyIntelligence).where(SSHKeyIntelligence.key_fingerprint == key_fingerprint)
+        key_record = self.session.execute(stmt).scalar_one_or_none()
 
         if not key_record:
             return {}
 
         # Get unique source IPs from sessions using this key
-        sessions = (
-            self.session.query(SessionSSHKeys.source_ip)
-            .filter(and_(SessionSSHKeys.ssh_key_id == key_record.id, SessionSSHKeys.source_ip.isnot(None)))
+        ip_stmt = (
+            select(SessionSSHKeys.source_ip)
+            .where(and_(SessionSSHKeys.ssh_key_id == key_record.id, SessionSSHKeys.source_ip.isnot(None)))
             .distinct()
-            .all()
         )
+        sessions = self.session.execute(ip_stmt).scalars().all()
 
-        unique_ips = [session.source_ip for session in sessions if session.source_ip]
+        unique_ips = [ip for ip in sessions if ip]
 
         # Calculate basic metrics
         ip_count = len(unique_ips)
 
         # Group IPs by /24 subnet (basic geographic clustering)
-        subnets = defaultdict(int)
+        subnets: dict[str, int] = defaultdict(int)
         for ip in unique_ips:
             if '.' in ip:  # IPv4
                 subnet = '.'.join(ip.split('.')[:-1]) + '.0/24'
@@ -333,13 +323,13 @@ class SSHKeyAnalytics:
         """
         cutoff_date = datetime.now() - timedelta(days=days_back)
 
-        keys = (
-            self.session.query(SSHKeyIntelligence)
-            .filter(SSHKeyIntelligence.last_seen >= cutoff_date)
+        keys_stmt = (
+            select(SSHKeyIntelligence)
+            .where(SSHKeyIntelligence.last_seen >= cutoff_date)
             .order_by(SSHKeyIntelligence.total_attempts.desc(), SSHKeyIntelligence.unique_sources.desc())
             .limit(limit)
-            .all()
         )
+        keys = self.session.execute(keys_stmt).scalars().all()
 
         results = []
         for key in keys:
@@ -367,21 +357,20 @@ class SSHKeyAnalytics:
         Returns:
             Dictionary mapping key IDs to sets of associated key IDs
         """
-        graph = defaultdict(set)
+        graph: dict[int, set[int]] = defaultdict(set)
         key_ids = {key.id for key in keys}
 
         # Get all associations between candidate keys
-        associations = (
-            self.session.query(SSHKeyAssociations)
-            .filter(and_(SSHKeyAssociations.key_id_1.in_(key_ids), SSHKeyAssociations.key_id_2.in_(key_ids)))
-            .all()
+        graph_stmt = select(SSHKeyAssociations).where(
+            and_(SSHKeyAssociations.key_id_1.in_(key_ids), SSHKeyAssociations.key_id_2.in_(key_ids))
         )
+        associations = self.session.execute(graph_stmt).scalars().all()
 
         for assoc in associations:
-            graph[assoc.key_id_1].add(assoc.key_id_2)
-            graph[assoc.key_id_2].add(assoc.key_id_1)
+            graph[int(assoc.key_id_1)].add(int(assoc.key_id_2))
+            graph[int(assoc.key_id_2)].add(int(assoc.key_id_1))
 
-        return graph
+        return dict(graph)
 
     def _find_connected_campaigns(
         self,
@@ -399,16 +388,16 @@ class SSHKeyAnalytics:
         Returns:
             List of detected campaigns
         """
-        visited = set()
+        visited: set[int] = set()
         campaigns = []
         campaign_id = 0
 
-        key_map = {key.id: key for key in keys}
+        key_map: dict[int, SSHKeyIntelligence] = {int(key.id): key for key in keys}
 
         for key in keys:
             if key.id not in visited:
                 # Start DFS to find connected component
-                component = self._dfs_component(key.id, graph, visited)
+                component = self._dfs_component(int(key.id), graph, visited)
 
                 if len(component) >= 2:  # Campaign needs at least 2 keys
                     campaign_id += 1
@@ -416,33 +405,33 @@ class SSHKeyAnalytics:
                     # Calculate campaign metrics
                     campaign_keys = [key_map[key_id] for key_id in component]
 
-                    total_sessions = sum(key.unique_sessions for key in campaign_keys)
-                    unique_ips = set()
-                    key_types = set()
-                    injection_methods = set()
+                    total_sessions = sum(int(key.unique_sessions) for key in campaign_keys)
+                    unique_ips: set[str] = set()
+                    key_types: set[str] = set()
+                    injection_methods: set[str] = set()
                     first_seen = None
                     last_seen = None
 
                     for key_record in campaign_keys:
-                        key_types.add(key_record.key_type)
+                        key_types.add(str(key_record.key_type))
                         if key_record.first_seen:
-                            if first_seen is None or key_record.first_seen < first_seen:
+                            if first_seen is None or key_record.first_seen < first_seen:  # type: ignore[unreachable]
                                 first_seen = key_record.first_seen
                         if key_record.last_seen:
-                            if last_seen is None or key_record.last_seen > last_seen:
+                            if last_seen is None or key_record.last_seen > last_seen:  # type: ignore[unreachable]
                                 last_seen = key_record.last_seen
 
                     # Get injection methods from sessions
                     for key_record in campaign_keys:
-                        sessions = (
-                            self.session.query(SessionSSHKeys.injection_method)
-                            .filter(SessionSSHKeys.ssh_key_id == key_record.id)
+                        method_stmt = (
+                            select(SessionSSHKeys.injection_method)
+                            .where(SessionSSHKeys.ssh_key_id == key_record.id)
                             .distinct()
-                            .all()
                         )
-                        for session in sessions:
-                            if session.injection_method:
-                                injection_methods.add(session.injection_method)
+                        sessions = self.session.execute(method_stmt).scalars().all()
+                        for method in sessions:
+                            if method:
+                                injection_methods.add(method)
 
                     # Calculate confidence score based on key diversity and usage patterns
                     confidence_score = self._calculate_campaign_confidence(
@@ -453,10 +442,13 @@ class SSHKeyAnalytics:
                         campaigns.append(
                             CampaignInfo(
                                 campaign_id=f"campaign_{campaign_id}",
-                                key_fingerprints={key.key_fingerprint for key in campaign_keys},
+                                key_fingerprints={str(key.key_fingerprint) for key in campaign_keys},
                                 total_sessions=total_sessions,
                                 unique_ips=len(unique_ips),
-                                date_range=(first_seen, last_seen),
+                                date_range=(
+                                    cast(datetime, first_seen) if first_seen else datetime.min,
+                                    cast(datetime, last_seen) if last_seen else datetime.min,
+                                ),
                                 confidence_score=confidence_score,
                                 key_types=key_types,
                                 injection_methods=injection_methods,

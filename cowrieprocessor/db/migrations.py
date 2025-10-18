@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 14
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,8 @@ def _is_generated_column(connection: Connection, table_name: str, column_name: s
             if row[1] == column_name:  # Column name is in position 1
                 # In SQLite, generated columns have a non-null "hidden" value (position 5)
                 # Position 5 is "hidden" - 0 for regular columns, > 0 for generated columns
-                return row[5] > 0  # hidden column indicates generated column
+                hidden_value = row[5]
+                return bool(hidden_value > 0)  # hidden column indicates generated column
 
         return False
     except Exception:
@@ -201,6 +202,16 @@ def apply_migrations(engine: Engine) -> int:
             _set_schema_version(connection, 12)
             version = 12
 
+        if version < 13:
+            _upgrade_to_v13(connection)
+            _set_schema_version(connection, 13)
+            version = 13
+
+        if version < 14:
+            _upgrade_to_v14(connection)
+            _set_schema_version(connection, 14)
+            version = 14
+
     return version
 
 
@@ -255,7 +266,14 @@ def _upgrade_to_v4(connection: Connection) -> None:
     from .models import Files
 
     try:
-        Files.__table__.create(connection, checkfirst=True)
+        # Use MetaData.create_all() instead of Table.create()
+        from sqlalchemy import MetaData
+        metadata = MetaData()
+        # Cast to Table type since we know Files.__table__ is a Table
+        from sqlalchemy import Table
+        files_table = Files.__table__
+        assert isinstance(files_table, Table), "Files.__table__ should be a Table"
+        metadata.create_all(connection, tables=[files_table], checkfirst=True)
         logger.info("Successfully created files table")
     except Exception as e:
         logger.warning(f"Failed to create files table: {e}")
@@ -1664,6 +1682,181 @@ def _upgrade_to_v12(connection: Connection) -> None:
         logger.warning("event_timestamp column not found - skipping conversion")
 
     logger.info("Event timestamp type conversion migration (v12) completed successfully")
+
+
+def _upgrade_to_v13(connection: Connection) -> None:
+    """Upgrade to v13 schema by adding longtail detection-session junction table and checkpoints table."""
+    dialect_name = connection.dialect.name
+
+    # Create longtail_detection_sessions junction table
+    if not _table_exists(connection, 'longtail_detection_sessions'):
+        if dialect_name == 'postgresql':
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_detection_sessions (
+                    detection_id INTEGER NOT NULL REFERENCES longtail_detections(id) ON DELETE CASCADE,
+                    session_id VARCHAR(64) NOT NULL REFERENCES session_summaries(session_id) ON DELETE CASCADE,
+                    PRIMARY KEY (detection_id, session_id)
+                )
+                """,
+                "Create longtail_detection_sessions junction table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create longtail_detection_sessions table")
+        else:
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_detection_sessions (
+                    detection_id INTEGER NOT NULL REFERENCES longtail_detections(id) ON DELETE CASCADE,
+                    session_id VARCHAR(64) NOT NULL REFERENCES session_summaries(session_id) ON DELETE CASCADE,
+                    PRIMARY KEY (detection_id, session_id)
+                )
+                """,
+                "Create longtail_detection_sessions junction table (SQLite)",
+            ):
+                raise Exception("Failed to create longtail_detection_sessions table")
+    else:
+        logger.info("longtail_detection_sessions table already exists, skipping creation")
+
+    # Create indexes for junction table
+    if _table_exists(connection, 'longtail_detection_sessions'):
+        indexes_to_create = [
+            ("ix_longtail_detection_sessions_detection", "longtail_detection_sessions(detection_id)"),
+            ("ix_longtail_detection_sessions_session", "longtail_detection_sessions(session_id)"),
+        ]
+
+        for index_name, index_def in indexes_to_create:
+            if not _safe_execute_sql(
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+            ):
+                logger.warning(f"Failed to create index {index_name}, continuing...")
+
+    # Create longtail_analysis_checkpoints table
+    if not _table_exists(connection, 'longtail_analysis_checkpoints'):
+        if dialect_name == 'postgresql':
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_analysis_checkpoints (
+                    id SERIAL PRIMARY KEY,
+                    checkpoint_date DATE NOT NULL UNIQUE,
+                    window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+                    window_end TIMESTAMP WITH TIME ZONE NOT NULL,
+                    sessions_analyzed INTEGER NOT NULL,
+                    vocabulary_hash VARCHAR(64) NOT NULL,
+                    last_analysis_id INTEGER REFERENCES longtail_analysis(id),
+                    completed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+                )
+                """,
+                "Create longtail_analysis_checkpoints table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create longtail_analysis_checkpoints table")
+        else:
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE longtail_analysis_checkpoints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    checkpoint_date DATE NOT NULL UNIQUE,
+                    window_start TIMESTAMP NOT NULL,
+                    window_end TIMESTAMP NOT NULL,
+                    sessions_analyzed INTEGER NOT NULL,
+                    vocabulary_hash VARCHAR(64) NOT NULL,
+                    last_analysis_id INTEGER REFERENCES longtail_analysis(id),
+                    completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+                "Create longtail_analysis_checkpoints table (SQLite)",
+            ):
+                raise Exception("Failed to create longtail_analysis_checkpoints table")
+    else:
+        logger.info("longtail_analysis_checkpoints table already exists, skipping creation")
+
+    # Create indexes for checkpoints table
+    if _table_exists(connection, 'longtail_analysis_checkpoints'):
+        indexes_to_create = [
+            ("ix_longtail_checkpoints_date", "longtail_analysis_checkpoints(checkpoint_date)"),
+            ("ix_longtail_checkpoints_window", "longtail_analysis_checkpoints(window_start, window_end)"),
+            ("ix_longtail_checkpoints_analysis", "longtail_analysis_checkpoints(last_analysis_id)"),
+        ]
+
+        for index_name, index_def in indexes_to_create:
+            if not _safe_execute_sql(
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+            ):
+                logger.warning(f"Failed to create index {index_name}, continuing...")
+
+    logger.info("Longtail detection-session linking and checkpoints migration (v13) completed successfully")
+
+
+def _upgrade_to_v14(connection: Connection) -> None:
+    """Upgrade to v14 schema by adding analysis_id to vector tables."""
+    dialect_name = connection.dialect.name
+    
+    # Only apply to PostgreSQL databases (vector tables only exist on PostgreSQL with pgvector)
+    if dialect_name != 'postgresql':
+        logger.info("Skipping v14 migration (vector tables only exist on PostgreSQL)")
+        return
+    
+    # Check if vector tables exist
+    if not _table_exists(connection, 'command_sequence_vectors'):
+        logger.info("Vector tables do not exist, skipping v14 migration")
+        return
+    
+    logger.info("Upgrading to v14: Adding analysis_id to vector tables...")
+    
+    # Add analysis_id column to command_sequence_vectors
+    if not _column_exists(connection, 'command_sequence_vectors', 'analysis_id'):
+        if not _safe_execute_sql(
+            connection,
+            """
+            ALTER TABLE command_sequence_vectors 
+            ADD COLUMN analysis_id INTEGER REFERENCES longtail_analysis(id) ON DELETE CASCADE
+            """,
+            "Add analysis_id column to command_sequence_vectors",
+        ):
+            raise Exception("Failed to add analysis_id column to command_sequence_vectors")
+        
+        # Create index for analysis_id lookups
+        if not _safe_execute_sql(
+            connection,
+            """
+            CREATE INDEX ix_command_sequence_vectors_analysis 
+            ON command_sequence_vectors(analysis_id)
+            """,
+            "Create index on command_sequence_vectors.analysis_id",
+        ):
+            logger.warning("Failed to create index on command_sequence_vectors.analysis_id")
+    else:
+        logger.info("analysis_id column already exists in command_sequence_vectors")
+    
+    # Add analysis_id column to behavioral_vectors
+    if not _column_exists(connection, 'behavioral_vectors', 'analysis_id'):
+        if not _safe_execute_sql(
+            connection,
+            """
+            ALTER TABLE behavioral_vectors 
+            ADD COLUMN analysis_id INTEGER REFERENCES longtail_analysis(id) ON DELETE CASCADE
+            """,
+            "Add analysis_id column to behavioral_vectors",
+        ):
+            raise Exception("Failed to add analysis_id column to behavioral_vectors")
+        
+        # Create index for analysis_id lookups
+        if not _safe_execute_sql(
+            connection,
+            """
+            CREATE INDEX ix_behavioral_vectors_analysis 
+            ON behavioral_vectors(analysis_id)
+            """,
+            "Create index on behavioral_vectors.analysis_id",
+        ):
+            logger.warning("Failed to create index on behavioral_vectors.analysis_id")
+    else:
+        logger.info("analysis_id column already exists in behavioral_vectors")
+    
+    logger.info("Vector table analysis_id migration (v14) completed successfully")
 
 
 def _downgrade_from_v9(connection: Connection) -> None:

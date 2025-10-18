@@ -17,7 +17,7 @@ def _session_factory(tmp_path):
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def test_session_stats_and_top_commands(tmp_path):
+def test_session_stats_and_top_commands(tmp_path) -> None:
     """Repository aggregates stats and top values correctly."""
     factory = _session_factory(tmp_path)
     repo = ReportingRepository(factory)
@@ -108,7 +108,7 @@ def test_session_stats_and_top_commands(tmp_path):
     assert repo.sensors() == ["sensor-a"]
 
 
-def test_enriched_sessions(tmp_path):
+def test_enriched_sessions(tmp_path) -> None:
     """Repository returns enrichment payload metadata for flagged sessions."""
     factory = _session_factory(tmp_path)
     repo = ReportingRepository(factory)

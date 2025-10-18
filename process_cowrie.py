@@ -26,7 +26,10 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
 
 import dropbox
 import requests
@@ -87,8 +90,8 @@ logging.root.setLevel(logging.DEBUG)
 date = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
 
 USE_NEW_ENRICHMENT = os.getenv("USE_NEW_ENRICHMENT", "false").lower() == "true"
-ENRICHMENT_CACHE_MANAGER: Optional[EnrichmentCacheManager] = None
-LEGACY_ENRICHMENT_ADAPTER: Optional[LegacyEnrichmentAdapter] = None
+ENRICHMENT_CACHE_MANAGER: Optional[Any] = None
+LEGACY_ENRICHMENT_ADAPTER: Optional[Any] = None
 
 parser = argparse.ArgumentParser(description='DShield Honeypot Cowrie Data Identifiers')
 parser.add_argument(
@@ -301,7 +304,7 @@ else:
     class MockArgs:
         """Mock arguments object for import-time compatibility."""
 
-        def __init__(self):
+        def __init__(self) -> None:
             """Initialize mock arguments with default values."""
             # Only set attributes that are accessed directly without getattr defaults
             self.logpath = '/tmp/cowrie-logs'
@@ -328,7 +331,7 @@ else:
             self.sensor = None
             self.db = '../cowrieprocessor.sqlite'
 
-    args = MockArgs()
+    args = MockArgs()  # type: ignore
 
 log_location = args.logpath
 tty_file = args.ttyfile
@@ -390,12 +393,12 @@ class TimeoutError(Exception):
     pass
 
 
-def timeout_handler(signum, frame):
+def timeout_handler(signum: int, frame: Any) -> None:
     """Signal handler for timeout."""
     raise TimeoutError("Operation timed out")
 
 
-def with_timeout(timeout_seconds, func, *args, **kwargs):
+def with_timeout(timeout_seconds: int, func: Any, *args: Any, **kwargs: Any) -> Any:
     """Execute a function with a timeout.
 
     Args:
@@ -423,7 +426,7 @@ def with_timeout(timeout_seconds, func, *args, **kwargs):
         signal.signal(signal.SIGALRM, old_handler)
 
 
-def rate_limit(service):
+def rate_limit(service: str) -> None:
     """Simple per-service rate limiter based on requests per minute."""
     now = time.time()
     per_min = rate_limits.get(service, 60)
@@ -436,7 +439,7 @@ def rate_limit(service):
     last_request_time[service] = time.time()
 
 
-def cache_get(service, key):
+def cache_get(service: str, key: str) -> Optional[Any]:
     """Fetch (last_fetched, data) for a service/key from indicator_cache."""
     cur = con.cursor()
     cur.execute('SELECT last_fetched, data FROM indicator_cache WHERE service=? AND key=?', (service, key))
@@ -444,7 +447,7 @@ def cache_get(service, key):
     return row if row else None
 
 
-def cache_upsert(service, key, data):
+def cache_upsert(service: str, key: str, data: Any) -> None:
     """Upsert indicator_cache row for service/key with current timestamp and data."""
     cur = con.cursor()
     cur.execute(
@@ -507,7 +510,7 @@ RUN_STARTED_AT = time.time()
 STATUS_PAYLOAD_VERSION = 2
 
 
-def write_status(state: str, total_files: int, processed_files: int, current_file: str = "", **extra):
+def write_status(state: str, total_files: int, processed_files: int, current_file: str = "", **extra: Any) -> None:
     """Write JSON status to the status file at most every status_interval seconds.
 
     Additional fields can be provided via keyword args and will be merged
@@ -866,7 +869,7 @@ def db_commit(force: bool = False) -> None:
         logging.error("Commit failed", exc_info=True)
 
 
-def initialize_database():
+def initialize_database() -> None:
     """Create and evolve the local SQLite schema if needed.
 
     Creates the ``sessions``, ``commands``, and ``files`` tables when absent
@@ -1159,7 +1162,7 @@ def _source_file_from_entry(entry: Dict[str, object]) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
-def get_connected_sessions(data):
+def get_connected_sessions(data: Any) -> set[str]:
     """Return unique session IDs that successfully authenticated.
 
     Args:
@@ -1176,7 +1179,7 @@ def get_connected_sessions(data):
     return sessions
 
 
-def get_session_id(data, type, match):
+def get_session_id(data: Any, type: str, match: str) -> set[str]:
     """Identify sessions by artifact type.
 
     Args:
@@ -1211,7 +1214,7 @@ def get_session_id(data, type, match):
     return sessions
 
 
-def get_session_duration(session, data):
+def get_session_duration(session: str, data: Any) -> Any:
     """Return the session duration in seconds, if present.
 
     Args:
@@ -1232,7 +1235,7 @@ def get_session_duration(session, data):
     return duration
 
 
-def get_protocol_login(session, data):
+def get_protocol_login(session: str, data: Any) -> Optional[str]:
     """Return the network protocol for a session.
 
     Args:
@@ -1246,10 +1249,11 @@ def get_protocol_login(session, data):
     for each_entry in data:
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.session.connect":
-                return each_entry['protocol']
+                return str(each_entry['protocol']) if each_entry['protocol'] else None
+    return None
 
 
-def get_login_data(session, data):
+def get_login_data(session: str, data: Any) -> Optional[tuple[Any, Any, Any, Any]]:
     """Extract login details for a session.
 
     Args:
@@ -1264,9 +1268,10 @@ def get_login_data(session, data):
         if each_entry['session'] == session:
             if each_entry['eventid'] == "cowrie.login.success":
                 return each_entry['username'], each_entry['password'], each_entry['timestamp'], each_entry['src_ip']
+    return None
 
 
-def get_command_total(session, data):
+def get_command_total(session: str, data: Any) -> int:
     """Count commands executed in a session.
 
     Args:
@@ -1284,7 +1289,7 @@ def get_command_total(session, data):
     return count
 
 
-def get_file_download(session, data):
+def get_file_download(session: str, data: Any) -> list[Any]:
     """Collect file download events for a session.
 
     Args:
@@ -1319,7 +1324,7 @@ def get_file_download(session, data):
     return returndata
 
 
-def get_file_upload(session, data):
+def get_file_upload(session: str, data: Any) -> list[Any]:
     """Collect file upload events for a session.
 
     Args:
@@ -1355,7 +1360,7 @@ def get_file_upload(session, data):
     return returndata
 
 
-def vt_query(hash, cache_dir: Path):
+def vt_query(hash: str, cache_dir: Path) -> None:
     """Query VirusTotal for a file hash and write the JSON response.
 
     Args:
@@ -1417,7 +1422,7 @@ def vt_query(hash, cache_dir: Path):
     logging.error("VT query failed for %s after retries", hash)
 
 
-def vt_filescan(hash, cache_dir: Path):
+def vt_filescan(hash: str, cache_dir: Path) -> None:
     """Upload a local file to VirusTotal for scanning.
 
     Args:
@@ -1452,17 +1457,17 @@ def vt_filescan(hash, cache_dir: Path):
     logging.error("VT filescan failed for %s", hash)
 
 
-def dshield_query(ip_address):
+def dshield_query(ip_address: str) -> Dict[str, Any]:
     """Return DShield metadata, leveraging the shared enrichment helper."""
     if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
-        return LEGACY_ENRICHMENT_ADAPTER.dshield(ip_address)
+        return LEGACY_ENRICHMENT_ADAPTER.dshield(ip_address)  # type: ignore
     if skip_enrich:
         return {"ip": {"asname": "", "ascountry": ""}}
 
     cached = cache_get('dshield_ip', ip_address)
     if cached and (time.time() - cached[0]) < ip_ttl_seconds:
         try:
-            return json.loads(cached[1])
+            return json.loads(cached[1])  # type: ignore
         except Exception:
             logging.debug("Cached DShield entry for %s was invalid JSON", ip_address, exc_info=True)
 
@@ -1480,14 +1485,14 @@ def dshield_query(ip_address):
         cache_upsert('dshield_ip', ip_address, json.dumps(result))
     except Exception:
         logging.debug("Failed to persist DShield cache entry for %s", ip_address, exc_info=True)
-    return result
+    return result  # type: ignore
 
 
-def safe_read_uh_data(ip_address, urlhausapi):
+def safe_read_uh_data(ip_address: str, urlhausapi: str) -> Dict[str, Any]:
     """Return URLHaus tags via the shared enrichment helper."""
     if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
-        return LEGACY_ENRICHMENT_ADAPTER.urlhaus(ip_address)
-    return enrichment_safe_read_uh_data(
+        return LEGACY_ENRICHMENT_ADAPTER.urlhaus(ip_address)  # type: ignore
+    return enrichment_safe_read_uh_data(  # type: ignore
         ip_address,
         urlhausapi,
         skip_enrich=skip_enrich,
@@ -1497,7 +1502,7 @@ def safe_read_uh_data(ip_address, urlhausapi):
     )
 
 
-def read_vt_data(hash, cache_dir: Path):
+def read_vt_data(hash: str, cache_dir: Path) -> tuple[Optional[str], Optional[str], Optional[str], Optional[bool]]:
     """Parse a cached VirusTotal response for selected fields.
 
     Args:
@@ -1537,11 +1542,11 @@ def read_vt_data(hash, cache_dir: Path):
     return vt_description, vt_threat_classification, vt_first_submission, vt_malicious
 
 
-def read_spur_data(ip_address):
+def read_spur_data(ip_address: str) -> Dict[str, Any]:
     """Return SPUR attributes via the shared enrichment helper."""
     if LEGACY_ENRICHMENT_ADAPTER and LEGACY_ENRICHMENT_ADAPTER.enabled:
-        return LEGACY_ENRICHMENT_ADAPTER.spur(ip_address)
-    return enrichment_read_spur_data(
+        return LEGACY_ENRICHMENT_ADAPTER.spur(ip_address)  # type: ignore
+    return enrichment_read_spur_data(  # type: ignore
         ip_address,
         spurapi or "",
         skip_enrich=skip_enrich,
@@ -1552,12 +1557,12 @@ def read_spur_data(ip_address):
 
 
 def print_session_info(
-    data,
-    sessions,
-    attack_type,
-    data_by_session=None,
+    data: Any,
+    sessions: Any,
+    attack_type: str,
+    data_by_session: Optional[Any] = None,
     metrics_map: Optional[Dict[str, SessionMetrics]] = None,
-):
+) -> None:
     """Render and persist details for the provided sessions.
 
     For each session, prints a formatted report, enriches from external
@@ -1615,7 +1620,9 @@ def print_session_info(
         if not username or not password or not timestamp or not src_ip:
             try:
                 logging.info(f"Session {session} - Getting login data from raw entries")
-                username, password, timestamp, src_ip = get_login_data(session, session_data)
+                login_data = get_login_data(session, session_data)
+                if login_data:
+                    username, password, timestamp, src_ip = login_data
                 if login_epoch is None and timestamp:
                     parsed = _parse_timestamp_to_epoch(timestamp)
                     if parsed is not None:
@@ -1794,18 +1801,21 @@ def print_session_info(
                         # commented out due to too many inclusions from hosts.deny data
                         # abnormal_attacks.add(session)
                     else:
-                        vt_classifications.append(vt_threat_classification)
-                    attackstring += (
-                        "{:>30s}  {}".format(
-                            "VT First Submssion",
-                            (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                        vt_classifications.append(vt_threat_classification or "<blank>")
+                    if vt_first_submission:
+                        attackstring += (
+                            "{:>30s}  {}".format(
+                                "VT First Submssion",
+                                (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                            )
+                            + "\n"
                         )
-                        + "\n"
-                    )
-                    if (datetime.datetime.now() - datetime.datetime.fromtimestamp(int(vt_first_submission))).days <= 5:
-                        abnormal_attacks.add(session)
-                        vt_recent_submissions.add(session)
-                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits", (vt_malicious)) + "\n"
+                        if (datetime.datetime.now() - datetime.datetime.fromtimestamp(
+                            int(vt_first_submission)
+                        )).days <= 5:
+                            abnormal_attacks.add(session)
+                            vt_recent_submissions.add(session)
+                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits", (vt_malicious or 0)) + "\n"
 
                 if each_download[2] != "" and email:
                     if re.search('[a-zA-Z]', each_download[2]):
@@ -1970,14 +1980,15 @@ def print_session_info(
                     attackstring += (
                         "{:>30s}  {:50s}".format("VT Threat Classification", (vt_threat_classification)) + "\n"
                     )
-                    attackstring += (
-                        "{:>30s}  {}".format(
-                            "VT First Submssion",
-                            (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                    if vt_first_submission:
+                        attackstring += (
+                            "{:>30s}  {}".format(
+                                "VT First Submssion",
+                                (datetime.datetime.fromtimestamp(int(vt_first_submission))),
+                            )
+                            + "\n"
                         )
-                        + "\n"
-                    )
-                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits", (vt_malicious)) + "\n"
+                    attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits", (vt_malicious or 0)) + "\n"
 
                     if upload_data_needed == 0:
                         sql = '''UPDATE files SET vt_description=?, vt_threat_classification=?, vt_first_submission=?,
@@ -2130,7 +2141,8 @@ def print_session_info(
                         db_commit()
 
         attackstring += "\n////////////////// COMMANDS ATTEMPTED //////////////////\n\n"
-        attackstring += get_commands(data, session) + "\n"
+        get_commands(data, session)
+        attackstring += "\n"
         attackstring += (
             "\nXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n"
             "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n\n"
@@ -2266,7 +2278,7 @@ def print_session_info(
             report_file.close()
 
 
-def print_summary():
+def print_summary() -> None:
     """Legacy no-op summary function retained for compatibility.
 
     The previous implementation referenced undefined globals. This
@@ -2276,7 +2288,7 @@ def print_summary():
     return None
 
 
-def get_commands(data, session):
+def get_commands(data: Any, session: str) -> None:
     """Collect input commands for a session and persist them.
 
     Args:
@@ -2305,7 +2317,6 @@ def get_commands(data, session):
                     # epoch_time = (utc_time - datetime.datetime(1970, 1, 1)).total_seconds()
                     cur.execute(sql, (session, each_entry['input'], epoch_time, time.time(), hostname))
     db_commit()
-    return commands
 
 
 initialize_database()
@@ -2314,7 +2325,7 @@ if len(list_of_files) == 0:
     sys.exit(0)
 
 
-def open_json_lines(path: str):
+def open_json_lines(path: str) -> io.TextIOWrapper:
     """Open a JSONL file (supports .bz2 and .gz) for text reading."""
     if path.endswith('.bz2'):
         bz2_raw = bz2.BZ2File(path, 'rb')
@@ -2481,7 +2492,7 @@ for filename in list_of_files:
 write_status(state='files_complete', total_files=total_files, processed_files=processed_files, current_file='')
 
 
-def update_stage_status(state, **extra):
+def update_stage_status(state: str, **extra: Any) -> None:
     """Helper to emit status updates for post-file phases."""
     write_status(
         state=state,
@@ -2620,7 +2631,7 @@ for key, value in sorted_command_counts:
 abnormal_command_counts = abnormal_command_counts[0 : int(len(abnormal_command_counts) * (2 / 3))]
 
 
-def evaluate_sessions(target_sessions):
+def evaluate_sessions(target_sessions: Any) -> None:
     """Inspect selected sessions and update abnormal/command-count sets."""
     total_sessions_local = len(target_sessions)
     sessions_processed_local = 0
@@ -2795,7 +2806,7 @@ db_commit()
 
 
 # Run longtail analysis if requested
-def get_database_url():
+def get_database_url() -> str:
     """Get the database URL from the parsed arguments."""
     return f"sqlite:///{args.db}"
 
@@ -2804,11 +2815,21 @@ longtail_analysis_requested = os.getenv("RUN_LONGTAIL_ANALYSIS", "false").lower(
 if longtail_analysis_requested:
     try:
         print("🔍 Running longtail threat analysis...")
+
+        # Default to storing results unless explicitly disabled
+        store_results_env = os.getenv("LONGTAIL_STORE_RESULTS", "true").lower()
+        store_results = store_results_env == "true"
+
+        if store_results:
+            print("   📊 Results will be stored in database")
+        else:
+            print("   📄 Results will not be stored (LONGTAIL_STORE_RESULTS=false)")
+
         longtail_result = run_longtail_analysis(
             db_url=get_database_url(),
             lookback_days=int(os.getenv("LONGTAIL_LOOKBACK_DAYS", "7")),
             output_path=os.getenv("LONGTAIL_OUTPUT_PATH"),
-            store_results=os.getenv("LONGTAIL_STORE_RESULTS", "false").lower() == "true",
+            store_results=store_results,
         )
 
         if longtail_result:

@@ -132,11 +132,15 @@ def resolve_secret(value: Optional[str]) -> Optional[str]:
             raw = _sh(["vault", "kv", "get", "-format=json", path])
             try:
                 obj = json.loads(raw)
-                data = obj.get("data", {})
+                if not isinstance(obj, dict):
+                    return raw
+                data_value = obj.get("data", {})
+                if not isinstance(data_value, dict):
+                    return raw
                 # KV v2 nests under data.data
-                if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
-                    return json.dumps(data["data"])  # Caller can parse
-                return json.dumps(data)
+                if "data" in data_value and isinstance(data_value["data"], dict):
+                    return json.dumps(data_value["data"])  # Caller can parse
+                return json.dumps(data_value)
             except Exception:
                 return raw
 

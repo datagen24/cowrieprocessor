@@ -38,7 +38,7 @@ except Exception:
     pass
 
 
-def vt_filescan(filename):
+def vt_filescan(filename: str) -> None:
     """Submit a file to VirusTotal and record responses.
 
     Args:
@@ -74,7 +74,7 @@ def vt_filescan(filename):
         out.write(response.text)
 
 
-def sha256sum(filename):
+def sha256sum(filename: str) -> str:
     """Compute the SHA-256 checksum of a file.
 
     Args:

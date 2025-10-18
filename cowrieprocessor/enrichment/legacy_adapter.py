@@ -53,7 +53,8 @@ class LegacyEnrichmentAdapter:
     def dshield(self, ip_address: str) -> Dict[str, Any]:
         """Return DShield metadata for the supplied IP."""
         enrichment = self._get_session_enrichment(ip_address)
-        return enrichment.get("dshield", {"ip": {"asname": "", "ascountry": ""}})
+        result: Dict[str, Any] = enrichment.get("dshield", {"ip": {"asname": "", "ascountry": ""}})
+        return result
 
     def urlhaus(self, ip_address: str) -> str:
         """Return URLHaus tags for the supplied IP address."""
@@ -82,7 +83,8 @@ class LegacyEnrichmentAdapter:
                 handle.write(json.dumps(vt_data))
         except OSError:
             pass
-        return vt_data
+        result: Dict[str, Any] = vt_data
+        return result
 
     def cache_snapshot(self) -> Dict[str, int]:
         """Expose underlying cache telemetry."""

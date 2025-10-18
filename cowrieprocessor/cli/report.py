@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
 from ..enrichment.ssh_key_analytics import SSHKeyAnalytics
@@ -146,18 +146,53 @@ def _create_publisher(args: argparse.Namespace) -> Optional[ElasticsearchPublish
     if not (args.es_host or args.es_cloud_id):
         raise RuntimeError("Either --es-host or --es-cloud-id is required when publishing to Elasticsearch")
 
+    # Create Elasticsearch client
+    try:
+        from elasticsearch import Elasticsearch
+        
+        if args.es_cloud_id:
+            client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
+        else:
+            client = Elasticsearch(hosts=[args.es_host], verify_certs=not args.no_ssl_verify)
+    except ImportError:
+        raise RuntimeError("Elasticsearch client not available; install elasticsearch package")
+
     return ElasticsearchPublisher(
-        host=args.es_host,
-        cloud_id=args.es_cloud_id,
+        client=client,
         index_prefix=args.es_index_prefix,
         pipeline=args.es_pipeline,
-        verify_ssl=not args.no_ssl_verify,
+    )
+
+
+def _create_elasticsearch_publisher(args: argparse.Namespace) -> ElasticsearchPublisher:
+    """Create ElasticsearchPublisher instance from command line arguments."""
+    if not args.es_index_prefix:
+        raise RuntimeError("--es-index-prefix is required when publishing to Elasticsearch")
+
+    if not (args.es_host or args.es_cloud_id):
+        raise RuntimeError("Either --es-host or --es-cloud-id is required when publishing to Elasticsearch")
+
+    # Create Elasticsearch client
+    try:
+        from elasticsearch import Elasticsearch
+        
+        if args.es_cloud_id:
+            client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
+        else:
+            client = Elasticsearch(hosts=[args.es_host], verify_certs=not args.no_ssl_verify)
+    except ImportError:
+        raise RuntimeError("Elasticsearch client not available; install elasticsearch package")
+
+    return ElasticsearchPublisher(
+        client=client,
+        index_prefix=args.es_index_prefix,
+        pipeline=args.es_pipeline,
     )
 
 
 def _target_sensors(
     repository: ReportingRepository, mode: str, sensor: Optional[str], all_sensors: bool
-) -> List[Optional[str]]:
+) -> List[str]:
     """Determine target sensors for report generation.
 
     Args:
@@ -170,13 +205,13 @@ def _target_sensors(
         List of sensor names (None for aggregate)
     """
     if all_sensors:
-        sensor_list = repository.get_available_sensors()
+        sensor_list: List[str] = repository.sensors()
         if not sensor_list:
             raise ValueError("No sensors found in database")
         return sensor_list
     if sensor:
         return [sensor]
-    return [None]
+    return []
 
 
 def generate_ssh_key_report(args: argparse.Namespace) -> int:
@@ -385,23 +420,14 @@ def _generate_traditional_report(args: argparse.Namespace) -> int:
         reports = []
         for idx, context in enumerate(contexts):
             try:
-                report = builder.build_report(context)
+                report = builder.build(context)
                 reports.append(report)
                 metrics.reports_generated += 1
 
                 if args.publish:
-                    publisher = ElasticsearchPublisher(
-                        host=args.es_host,
-                        cloud_id=args.es_cloud_id,
-                        index_prefix=args.es_index_prefix,
-                        pipeline=args.es_pipeline,
-                        verify_ssl=not args.no_ssl_verify,
-                    )
-                    if publisher.can_publish():
-                        publisher.publish_report(report)
-                        metrics.published_reports += 1
-                    else:
-                        print("Warning: Elasticsearch credentials not available, skipping publish", file=sys.stderr)
+                    publisher = _create_elasticsearch_publisher(args)
+                    publisher.publish([report])
+                    metrics.published_reports += 1
 
             except Exception as e:
                 print(f"Failed to generate report for {context.sensor or 'aggregate'}: {e}", file=sys.stderr)
@@ -476,13 +502,289 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     ssh_parser.set_defaults(func=generate_ssh_key_report)
 
+    # Longtail analysis reports
+    longtail_parser = subparsers.add_parser('longtail', help='Generate longtail threat analysis reports')
+    longtail_parser.add_argument("period", help="Time period: last-day, last-week, last-month, last-quarter, last-year, Q12024, 2024-01")
+    longtail_parser.add_argument("--format", choices=["json", "table", "text"], default="text", help="Output format")
+    longtail_parser.add_argument("--threats", action="store_true", help="Show top threats")
+    longtail_parser.add_argument("--vectors", action="store_true", help="Show vector statistics")
+    longtail_parser.add_argument("--trends", action="store_true", help="Show trend data")
+    longtail_parser.add_argument("--limit", type=int, default=10, help="Limit for top threats")
+    longtail_parser.add_argument("--db", help="Database URL or SQLite path")
+    longtail_parser.add_argument("--output", help="Output file path (default: stdout)")
+    longtail_parser.set_defaults(func=generate_longtail_report)
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if not args.command:
         parser.print_help()
         return 1
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
+
+
+def generate_longtail_report(args: argparse.Namespace) -> int:
+    """Generate longtail threat analysis reports.
+    
+    Args:
+        args: Parsed command line arguments
+        
+    Returns:
+        Exit code (0 for success)
+    """
+    try:
+        # Get date range
+        start_date, end_date = _get_period_dates(args.period)
+        
+        # Setup database
+        settings = resolve_database_settings(args.db)
+        engine = create_engine_from_settings(settings)
+        
+        # Get analysis summary
+        summary = _get_analysis_summary(engine, start_date, end_date)
+        
+        # Prepare output data
+        if args.format == "json":
+            output_data = {
+                "period": args.period,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "summary": summary
+            }
+            
+            if args.threats:
+                output_data["top_threats"] = _get_top_threats(engine, start_date, end_date, args.limit)
+            
+            if args.vectors:
+                output_data["vector_stats"] = _get_vector_stats(engine, start_date, end_date)
+            
+            if args.trends:
+                output_data["trends"] = _get_trend_data(engine, start_date, end_date)
+            
+            output_text = json.dumps(output_data, indent=2, default=str)
+        else:
+            # Text/table format
+            output_lines = []
+            output_lines.append(f"📊 LONGTAIL ANALYSIS REPORT - {args.period.upper()}")
+            output_lines.append(f"📅 Period: {start_date.date()} to {end_date.date()}")
+            output_lines.append("")
+            
+            # Summary
+            output_lines.append("📈 SUMMARY")
+            output_lines.append(f"  Total Analyses: {summary.get('total_analyses', 0) or 0}")
+            output_lines.append(f"  Rare Commands: {summary.get('total_rare_commands', 0) or 0}")
+            output_lines.append(f"  Outlier Sessions: {summary.get('total_outlier_sessions', 0) or 0}")
+            output_lines.append(f"  Emerging Patterns: {summary.get('total_emerging_patterns', 0) or 0}")
+            output_lines.append(f"  High Entropy Payloads: {summary.get('total_high_entropy_payloads', 0) or 0}")
+            output_lines.append(f"  Avg Confidence: {summary.get('avg_confidence', 0) or 0:.3f}")
+            output_lines.append(f"  Total Events Analyzed: {summary.get('total_events_analyzed', 0) or 0:,}")
+            output_lines.append("")
+            
+            # Top threats
+            if args.threats:
+                threats = _get_top_threats(engine, start_date, end_date, args.limit)
+                if threats:
+                    output_lines.append("🚨 TOP THREATS")
+                    for i, threat in enumerate(threats, 1):
+                        output_lines.append(f"  {i:2d}. {threat['command'][:60]}...")
+                        output_lines.append(f"      Count: {threat['detection_count']}, Confidence: {threat['avg_confidence']:.3f}, Sessions: {threat['unique_sessions']}")
+                    output_lines.append("")
+            
+            # Vector stats
+            if args.vectors:
+                vector_stats = _get_vector_stats(engine, start_date, end_date)
+                if vector_stats.get('total_vectors', 0) > 0:
+                    output_lines.append("🔢 VECTOR STATISTICS")
+                    output_lines.append(f"  Total Vectors: {vector_stats.get('total_vectors', 0):,}")
+                    output_lines.append(f"  Unique Sessions: {vector_stats.get('unique_sessions', 0):,}")
+                    output_lines.append(f"  Unique Analyses: {vector_stats.get('unique_analyses', 0)}")
+                    output_lines.append(f"  Avg Vector Dimensions: {vector_stats.get('avg_vector_dimensions', 0):.1f}")
+                    output_lines.append("")
+            
+            # Trends
+            if args.trends:
+                trends = _get_trend_data(engine, start_date, end_date)
+                if trends:
+                    output_lines.append("📊 DAILY TRENDS")
+                    for trend in trends[-7:]:  # Show last 7 days
+                        output_lines.append(f"  {trend['day'].date()}: {trend['analyses_count']} analyses, {trend['rare_commands']} rare commands, {trend['outlier_sessions']} outliers")
+                    output_lines.append("")
+            
+            output_text = "\n".join(output_lines)
+        
+        # Output results
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(output_text)
+            print(f"Report written to {args.output}")
+        else:
+            print(output_text)
+        
+        return 0
+        
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def _get_period_dates(period: str) -> tuple[datetime, datetime]:
+    """Get start and end dates for common time periods."""
+    now = datetime.now(UTC)
+    
+    if period == "last-day":
+        start = now - timedelta(days=1)
+        return start, now
+    elif period == "last-week":
+        start = now - timedelta(weeks=1)
+        return start, now
+    elif period == "last-month":
+        start = now - timedelta(days=30)
+        return start, now
+    elif period == "last-quarter":
+        start = now - timedelta(days=90)
+        return start, now
+    elif period == "last-year":
+        start = now - timedelta(days=365)
+        return start, now
+    elif period.startswith("Q") and len(period) == 6:
+        # Quarter format: Q12024
+        quarter = int(period[1])
+        year = int(period[2:])
+        start_month = (quarter - 1) * 3 + 1
+        start = datetime(year, start_month, 1, tzinfo=UTC)
+        if quarter == 4:
+            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            end = datetime(year, start_month + 3, 1, tzinfo=UTC)
+        return start, end
+    elif len(period) == 7 and period[4] == "-":
+        # Month format: 2024-01
+        year, month = int(period[:4]), int(period[5:])
+        start = datetime(year, month, 1, tzinfo=UTC)
+        if month == 12:
+            end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        else:
+            end = datetime(year, month + 1, 1, tzinfo=UTC)
+        return start, end
+    else:
+        raise ValueError(f"Unsupported period format: {period}")
+
+
+def _get_analysis_summary(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    """Get analysis summary for a time period."""
+    from sqlalchemy import text
+    
+    query = """
+        SELECT 
+            COUNT(*) as total_analyses,
+            SUM(rare_command_count) as total_rare_commands,
+            SUM(outlier_session_count) as total_outlier_sessions,
+            SUM(emerging_pattern_count) as total_emerging_patterns,
+            SUM(high_entropy_payload_count) as total_high_entropy_payloads,
+            AVG(confidence_score) as avg_confidence,
+            AVG(data_quality_score) as avg_data_quality,
+            SUM(total_events_analyzed) as total_events_analyzed,
+            MIN(window_start) as earliest_analysis,
+            MAX(window_end) as latest_analysis
+        FROM longtail_analysis 
+        WHERE window_start >= :start_date 
+          AND window_end <= :end_date
+    """
+    
+    with engine.connect() as conn:
+        result = conn.execute(text(query), {
+            "start_date": start_date,
+            "end_date": end_date
+        })
+        row = result.fetchone()
+        return dict(row._mapping) if row else {}
+
+
+def _get_top_threats(engine: Any, start_date: datetime, end_date: datetime, limit: int) -> List[Dict[str, Any]]:
+    """Get top threats for a time period."""
+    from sqlalchemy import text
+    
+    query = """
+        SELECT 
+            ld.detection_data->>'command' as command,
+            COUNT(*) as detection_count,
+            AVG(ld.confidence_score) as avg_confidence,
+            AVG(ld.severity_score) as avg_severity,
+            COUNT(DISTINCT lds.session_id) as unique_sessions,
+            MAX(ld.timestamp) as latest_detection
+        FROM longtail_detections ld
+        JOIN longtail_detection_sessions lds ON ld.id = lds.detection_id
+        JOIN longtail_analysis la ON ld.analysis_id = la.id
+        WHERE ld.detection_type = 'rare_command'
+          AND la.window_start >= :start_date
+          AND la.window_end <= :end_date
+        GROUP BY ld.detection_data->>'command'
+        ORDER BY detection_count DESC, avg_severity DESC
+        LIMIT :limit
+    """
+    
+    with engine.connect() as conn:
+        result = conn.execute(text(query), {
+            "start_date": start_date,
+            "end_date": end_date,
+            "limit": limit
+        })
+        return [dict(row._mapping) for row in result]
+
+
+def _get_vector_stats(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+    """Get vector statistics for a time period."""
+    from sqlalchemy import text
+    
+    query = """
+        SELECT 
+            COUNT(*) as total_vectors,
+            COUNT(DISTINCT session_id) as unique_sessions,
+            COUNT(DISTINCT analysis_id) as unique_analyses,
+            AVG(array_length(sequence_vector, 1)) as avg_vector_dimensions,
+            MIN(timestamp) as earliest_vector,
+            MAX(timestamp) as latest_vector
+        FROM command_sequence_vectors 
+        WHERE analysis_id IS NOT NULL
+          AND timestamp >= :start_date
+          AND timestamp <= :end_date
+    """
+    
+    with engine.connect() as conn:
+        result = conn.execute(text(query), {
+            "start_date": start_date,
+            "end_date": end_date
+        })
+        row = result.fetchone()
+        return dict(row._mapping) if row else {}
+
+
+def _get_trend_data(engine: Any, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+    """Get trend data for a time period."""
+    from sqlalchemy import text
+    
+    query = """
+        SELECT 
+            DATE_TRUNC('day', window_start) as day,
+            COUNT(*) as analyses_count,
+            SUM(rare_command_count) as rare_commands,
+            SUM(outlier_session_count) as outlier_sessions,
+            AVG(confidence_score) as avg_confidence,
+            SUM(total_events_analyzed) as total_events
+        FROM longtail_analysis 
+        WHERE window_start >= :start_date
+          AND window_end <= :end_date
+        GROUP BY DATE_TRUNC('day', window_start)
+        ORDER BY day
+    """
+    
+    with engine.connect() as conn:
+        result = conn.execute(text(query), {
+            "start_date": start_date,
+            "end_date": end_date
+        })
+        return [dict(row._mapping) for row in result]
 
 
 if __name__ == "__main__":  # pragma: no cover

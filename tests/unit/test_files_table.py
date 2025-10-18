@@ -32,7 +32,7 @@ def session(engine):
 class TestFilesTable:
     """Test Files table model."""
 
-    def test_create_files_record(self, session):
+    def test_create_files_record(self, session) -> None:
         """Test creating a Files record."""
         file_record = Files(
             session_id="session123",
@@ -55,7 +55,7 @@ class TestFilesTable:
         assert result.download_url == "http://example.com/test.txt"
         assert result.enrichment_status == "pending"
 
-    def test_unique_constraint_session_hash(self, session):
+    def test_unique_constraint_session_hash(self, session) -> None:
         """Test unique constraint on session_id + shasum."""
         # Create first record
         file_record1 = Files(
@@ -79,7 +79,7 @@ class TestFilesTable:
         with pytest.raises(Exception):  # IntegrityError or similar
             session.commit()
 
-    def test_different_sessions_same_hash(self, session):
+    def test_different_sessions_same_hash(self, session) -> None:
         """Test that same hash can exist for different sessions."""
         # Create record for session1
         file_record1 = Files(
@@ -105,7 +105,7 @@ class TestFilesTable:
         results = session.query(Files).filter_by(shasum="a" * 64).all()
         assert len(results) == 2
 
-    def test_enrichment_status_default(self, session):
+    def test_enrichment_status_default(self, session) -> None:
         """Test that enrichment_status defaults to 'pending'."""
         file_record = Files(
             session_id="session123",
@@ -119,7 +119,7 @@ class TestFilesTable:
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.enrichment_status == "pending"
 
-    def test_vt_enrichment_fields(self, session):
+    def test_vt_enrichment_fields(self, session) -> None:
         """Test VirusTotal enrichment fields."""
         vt_first_seen = datetime.now()
         vt_last_analysis = datetime.now()
@@ -153,7 +153,7 @@ class TestFilesTable:
         assert result.vt_scan_date == vt_last_analysis
         assert result.enrichment_status == "enriched"
 
-    def test_timestamps_auto_generated(self, session):
+    def test_timestamps_auto_generated(self, session) -> None:
         """Test that timestamps are auto-generated."""
         file_record = Files(
             session_id="session123",
@@ -170,7 +170,7 @@ class TestFilesTable:
         assert isinstance(result.first_seen, datetime)
         assert isinstance(result.last_updated, datetime)
 
-    def test_nullable_fields(self, session):
+    def test_nullable_fields(self, session) -> None:
         """Test that optional fields can be null."""
         file_record = Files(
             session_id="session123",
@@ -190,7 +190,7 @@ class TestFilesTable:
         assert result.vt_description is None
         assert result.vt_malicious is False  # Default value
 
-    def test_vt_malicious_default(self, session):
+    def test_vt_malicious_default(self, session) -> None:
         """Test that vt_malicious defaults to False."""
         file_record = Files(
             session_id="session123",
@@ -204,7 +204,7 @@ class TestFilesTable:
         result = session.query(Files).filter_by(shasum="a" * 64).first()
         assert result.vt_malicious is False
 
-    def test_query_by_enrichment_status(self, session):
+    def test_query_by_enrichment_status(self, session) -> None:
         """Test querying files by enrichment status."""
         # Create files with different statuses
         pending_file = Files(
@@ -241,7 +241,7 @@ class TestFilesTable:
         assert len(enriched_files) == 1
         assert enriched_files[0].filename == "enriched.txt"
 
-    def test_query_by_vt_malicious(self, session):
+    def test_query_by_vt_malicious(self, session) -> None:
         """Test querying files by VT malicious flag."""
         # Create clean and malicious files
         clean_file = Files(
@@ -273,7 +273,7 @@ class TestFilesTable:
         assert len(clean_files) == 1
         assert clean_files[0].filename == "clean.txt"
 
-    def test_query_by_session_id(self, session):
+    def test_query_by_session_id(self, session) -> None:
         """Test querying files by session ID."""
         # Create files for different sessions
         session1_file1 = Files(

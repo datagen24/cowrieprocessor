@@ -115,7 +115,7 @@ def create_files_record(file_data: Dict[str, Any]) -> Files:
     )
 
 
-def validate_file_hash(shasum: str) -> bool:
+def validate_file_hash(shasum: str | None) -> bool:
     """Validate that a string is a proper SHA-256 hash.
 
     Args:

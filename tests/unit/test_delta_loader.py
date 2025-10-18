@@ -41,7 +41,7 @@ def _write_events(path: Path, events: list[dict], mode: str = "w") -> None:
             fh.write("\n")
 
 
-def test_delta_loader_ingests_only_new_events(tmp_path):
+def test_delta_loader_ingests_only_new_events(tmp_path) -> None:
     """Delta loader should append new events without duplicating existing rows."""
     source = tmp_path / "cowrie.log"
     initial_events = [
@@ -78,7 +78,7 @@ def test_delta_loader_ingests_only_new_events(tmp_path):
         assert cursor.last_offset >= 2
 
 
-def test_delta_loader_handles_file_rotation(tmp_path):
+def test_delta_loader_handles_file_rotation(tmp_path) -> None:
     """When a file is rewritten with a new inode, delta loader should reprocess events."""
     source = tmp_path / "cowrie.log"
     _write_events(
@@ -120,7 +120,7 @@ def test_delta_loader_handles_file_rotation(tmp_path):
         assert total == 3  # original + two new from rotated file
 
 
-def test_delta_loader_records_dead_letters(tmp_path):
+def test_delta_loader_records_dead_letters(tmp_path) -> None:
     """Invalid events should populate the dead-letter queue instead of raw table."""
     source = tmp_path / "dlq.log"
     _write_events(source, [{"session": "dlq1", "eventid": "cowrie.command.input", "input": "wget http://bad"}])
