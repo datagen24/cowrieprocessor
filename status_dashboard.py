@@ -66,7 +66,7 @@ def render(entries: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     """CLI entrypoint for the simple status dashboard."""
     ap = argparse.ArgumentParser(description="Tail processor status files and render dashboard")
     ap.add_argument('--status-dir', default='/mnt/dshield/data/logs/status', help='Directory with <sensor>.json files')

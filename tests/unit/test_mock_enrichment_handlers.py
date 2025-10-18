@@ -22,7 +22,7 @@ class TestMockOTXHandler:
         """Create mock OTX handler with temporary cache directory."""
         return MockOTXHandler("test_key", tmp_path)
 
-    def test_otx_check_ip_caches_results(self, mock_otx):
+    def test_otx_check_ip_caches_results(self, mock_otx) -> None:
         """Mock OTX should cache results properly."""
         ip = "192.168.1.100"
 
@@ -42,7 +42,7 @@ class TestMockOTXHandler:
         cached = json.loads(cache_file.read_text(encoding="utf-8"))
         assert cached == result1
 
-    def test_otx_check_ip_handles_private_ips(self, mock_otx):
+    def test_otx_check_ip_handles_private_ips(self, mock_otx) -> None:
         """Mock OTX should return clean results for private IPs."""
         private_ips = ["192.168.1.1", "10.0.0.1", "127.0.0.1"]
 
@@ -52,7 +52,7 @@ class TestMockOTXHandler:
             assert len(result["pulse_info"]["pulses"]) == 0
             assert result["malware_families"] == []
 
-    def test_otx_check_ip_handles_known_good_ips(self, mock_otx):
+    def test_otx_check_ip_handles_known_good_ips(self, mock_otx) -> None:
         """Mock OTX should return clean results for known good IPs."""
         good_ips = ["8.8.8.8", "1.1.1.1", "9.9.9.9"]
 
@@ -61,7 +61,7 @@ class TestMockOTXHandler:
             assert result["reputation"] == 0
             assert len(result["pulse_info"]["pulses"]) == 0
 
-    def test_otx_check_ip_handles_suspicious_ips(self, mock_otx):
+    def test_otx_check_ip_handles_suspicious_ips(self, mock_otx) -> None:
         """Mock OTX should return malicious results for suspicious IPs."""
         # Set seed for deterministic results
         import random
@@ -77,7 +77,7 @@ class TestMockOTXHandler:
             # With seed 42, these should be flagged
             assert result["reputation"] > 0 or len(result["pulse_info"]["pulses"]) > 0
 
-    def test_otx_check_file_hash_caches_results(self, mock_otx):
+    def test_otx_check_file_hash_caches_results(self, mock_otx) -> None:
         """Mock OTX file hash check should cache results."""
         hash_value = "d41d8cd98f00b204e9800998ecf8427e"
 
@@ -91,7 +91,7 @@ class TestMockOTXHandler:
         cache_file = mock_otx.cache_dir / f"otx_hash_{hash_value}.json"
         assert cache_file.exists()
 
-    def test_otx_check_file_hash_handles_known_bad_hashes(self, mock_otx):
+    def test_otx_check_file_hash_handles_known_bad_hashes(self, mock_otx) -> None:
         """Mock OTX should flag known bad hashes."""
         bad_hashes = ["0000deadbeef", "deadbeef0000", "badhash123456"]
 
@@ -101,7 +101,7 @@ class TestMockOTXHandler:
             assert result["pulses"] > 0
             assert len(result["threat_names"]) > 0
 
-    def test_otx_check_file_hash_handles_known_good_hashes(self, mock_otx):
+    def test_otx_check_file_hash_handles_known_good_hashes(self, mock_otx) -> None:
         """Mock OTX should return clean results for known good hashes."""
         good_hashes = ["aaaacleanhash", "clean12345678", "goodhash0000"]
 
@@ -111,7 +111,7 @@ class TestMockOTXHandler:
             assert result["pulses"] == 0
             assert len(result["threat_names"]) == 0
 
-    def test_otx_rate_limiting(self, mock_otx):
+    def test_otx_rate_limiting(self, mock_otx) -> None:
         """Mock OTX should implement rate limiting."""
         # Make requests up to the limit
         for i in range(4):
@@ -131,7 +131,7 @@ class TestMockAbuseIPDBHandler:
         """Create mock AbuseIPDB handler with temporary cache directory."""
         return MockAbuseIPDBHandler("test_key", tmp_path)
 
-    def test_abuseipdb_check_ip_caches_results(self, mock_abuseipdb):
+    def test_abuseipdb_check_ip_caches_results(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should cache results properly."""
         ip = "192.168.1.100"
 
@@ -145,7 +145,7 @@ class TestMockAbuseIPDBHandler:
         cache_file = mock_abuseipdb.cache_dir / f"abuse_{ip}_90.json"
         assert cache_file.exists()
 
-    def test_abuseipdb_check_ip_handles_private_ips(self, mock_abuseipdb):
+    def test_abuseipdb_check_ip_handles_private_ips(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should return low risk for private IPs."""
         private_ips = ["192.168.1.1", "10.0.0.1", "127.0.0.1"]
 
@@ -155,7 +155,7 @@ class TestMockAbuseIPDBHandler:
             assert result["data"]["totalReports"] == 0
             assert result["data"]["isWhitelisted"] is True
 
-    def test_abuseipdb_check_ip_handles_known_good_ips(self, mock_abuseipdb):
+    def test_abuseipdb_check_ip_handles_known_good_ips(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should return low risk for known good IPs."""
         good_ips = ["8.8.8.8", "1.1.1.1"]
 
@@ -164,7 +164,7 @@ class TestMockAbuseIPDBHandler:
             assert result["data"]["abuseConfidenceScore"] == 0
             assert result["data"]["isWhitelisted"] is True
 
-    def test_abuseipdb_check_ip_handles_suspicious_ips(self, mock_abuseipdb):
+    def test_abuseipdb_check_ip_handles_suspicious_ips(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should return high risk for suspicious IPs."""
         suspicious_ips = ["203.0.113.1", "198.51.100.1"]
 
@@ -174,7 +174,7 @@ class TestMockAbuseIPDBHandler:
             assert result["data"]["totalReports"] > 0
             assert len(result["data"]["reports"]) > 0
 
-    def test_abuseipdb_rate_limiting(self, mock_abuseipdb):
+    def test_abuseipdb_rate_limiting(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should implement rate limiting."""
         # Make requests up to the limit
         for i in range(4):
@@ -185,7 +185,7 @@ class TestMockAbuseIPDBHandler:
         result = mock_abuseipdb.check_ip("192.168.1.999")
         assert result == {"error": "rate_limit"}
 
-    def test_abuseipdb_quota_exceeded(self, mock_abuseipdb):
+    def test_abuseipdb_quota_exceeded(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should handle quota exceeded."""
         mock_abuseipdb.set_quota_exceeded(True)
 
@@ -197,7 +197,7 @@ class TestMockAbuseIPDBHandler:
         result = mock_abuseipdb.check_ip("192.168.1.100")
         assert "error" not in result
 
-    def test_abuseipdb_custom_max_age(self, mock_abuseipdb):
+    def test_abuseipdb_custom_max_age(self, mock_abuseipdb) -> None:
         """Mock AbuseIPDB should handle different max age parameters."""
         ip = "192.168.1.100"
 
@@ -227,7 +227,7 @@ class TestMockStatisticalAnalyzer:
         mock_db = Mock()
         return MockStatisticalAnalyzer(mock_db)
 
-    def test_analyze_upload_patterns(self, mock_analyzer):
+    def test_analyze_upload_patterns(self, mock_analyzer) -> None:
         """Mock analyzer should return upload pattern analysis."""
         result = mock_analyzer.analyze_upload_patterns(days=30)
 
@@ -247,7 +247,7 @@ class TestMockStatisticalAnalyzer:
         assert isinstance(result["most_distributed"], list)
         assert isinstance(result["file_type_distribution"], dict)
 
-    def test_analyze_attack_velocity(self, mock_analyzer):
+    def test_analyze_attack_velocity(self, mock_analyzer) -> None:
         """Mock analyzer should return attack velocity analysis."""
         result = mock_analyzer.analyze_attack_velocity()
 
@@ -265,7 +265,7 @@ class TestMockStatisticalAnalyzer:
         for behavior in expected_behaviors:
             assert behavior in result["behavior_distribution"]
 
-    def test_detect_coordinated_attacks(self, mock_analyzer):
+    def test_detect_coordinated_attacks(self, mock_analyzer) -> None:
         """Mock analyzer should detect coordinated attacks."""
         result = mock_analyzer.detect_coordinated_attacks()
 
@@ -281,7 +281,7 @@ class TestMockStatisticalAnalyzer:
             assert len(attack["ips"]) >= 3  # Coordinated attacks need multiple IPs
             assert attack["confidence"] > 0.5
 
-    def test_generate_threat_indicators(self, mock_analyzer):
+    def test_generate_threat_indicators(self, mock_analyzer) -> None:
         """Mock analyzer should generate threat indicators."""
         result = mock_analyzer.generate_threat_indicators()
 
@@ -304,7 +304,7 @@ class TestMockStatisticalAnalyzer:
 class TestMockEnvironmentSetup:
     """Test mock environment setup functionality."""
 
-    def test_create_mock_enrichment_handlers(self, tmp_path):
+    def test_create_mock_enrichment_handlers(self, tmp_path) -> None:
         """Should create all mock handlers."""
         handlers = setup_mock_enrichment_environment(tmp_path)
 
@@ -316,7 +316,7 @@ class TestMockEnvironmentSetup:
         assert isinstance(handlers["abuseipdb"], MockAbuseIPDBHandler)
         assert handlers["statistical_analyzer"] is None  # No DB connection
 
-    def test_setup_with_database(self, tmp_path):
+    def test_setup_with_database(self, tmp_path) -> None:
         """Should setup environment with database connection."""
         from unittest.mock import Mock
 
@@ -326,7 +326,7 @@ class TestMockEnvironmentSetup:
         assert handlers["statistical_analyzer"] is not None
         assert isinstance(handlers["statistical_analyzer"], MockStatisticalAnalyzer)
 
-    def test_mock_handlers_integration(self, tmp_path):
+    def test_mock_handlers_integration(self, tmp_path) -> None:
         """Mock handlers should work together in integration scenario."""
         handlers = setup_mock_enrichment_environment(tmp_path)
 

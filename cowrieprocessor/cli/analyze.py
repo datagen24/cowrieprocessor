@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, func
 
@@ -82,7 +82,7 @@ def _query_sessions_for_analysis(
             # Filter by sensor if source_files contains the sensor name
             query = query.filter(func.json_extract(SessionSummary.source_files, '$.sensor').like(f'%{sensor}%'))
 
-        return query.all()
+        return list(query.all())
 
 
 def snowshoe_analyze(args: argparse.Namespace) -> int:
@@ -475,7 +475,6 @@ def main(argv: Iterable[str] | None = None) -> int:
         return longtail_analyze(args)
     else:
         parser.error(f"Unknown command: {args.command}")
-        return 1
 
 
 def longtail_analyze(args: argparse.Namespace) -> int:
@@ -541,7 +540,7 @@ def longtail_analyze(args: argparse.Namespace) -> int:
             sensitivity_threshold=args.sensitivity_threshold,
             batch_size=args.batch_size,
             memory_limit_gb=memory_limit_gb,
-            memory_warning_threshold=memory_config["memory_warning_threshold"],
+            memory_warning_threshold=memory_config.get("memory_warning_threshold") or 0.8,
             enable_password_intelligence=bool(args.password_intelligence),
             enable_password_enrichment=bool(args.password_enrichment),
             max_enrichment_sessions=int(args.max_enrichment_sessions),
@@ -614,12 +613,14 @@ def _derive_vocab_path_from_config() -> Optional[Path]:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+            toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
-            import tomli as tomllib
+            import tomli
+            toml_loader = tomli
 
         with sensors_file.open("rb") as handle:
-            data = tomllib.load(handle)
+            data = toml_loader.load(handle)
 
         # Look for data path patterns in sensor configurations
         sensors = data.get("sensor", [])
@@ -664,12 +665,14 @@ def _load_memory_config_from_sensors() -> Dict[str, Optional[float]]:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+            toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
-            import tomli as tomllib
+            import tomli
+            toml_loader = tomli
 
         with sensors_file.open("rb") as handle:
-            data = tomllib.load(handle)
+            data = toml_loader.load(handle)
 
         # Get global configuration
         global_config = data.get("global", {})
@@ -1023,7 +1026,7 @@ def _run_batch_longtail_analysis(args: argparse.Namespace) -> int:
                 failed_batches += 1
         
         # Summary
-        logger.info(f"\nBatch processing complete:")
+        logger.info("\nBatch processing complete:")
         logger.info(f"  ✓ Successful: {successful_batches}")
         logger.info(f"  ✗ Failed: {failed_batches}")
         logger.info(f"  Total: {len(ranges_to_process)}")
@@ -1072,8 +1075,8 @@ def _parse_quarter(quarter_str: str) -> tuple[datetime, datetime]:
 def _parse_month(month_str: str) -> tuple[datetime, datetime]:
     """Parse month string (e.g., 2024-01) into date range."""
     try:
-        year, month = month_str.split('-')
-        year, month = int(year), int(month)
+        year_str, month_str = month_str.split('-')
+        year, month = int(year_str), int(month_str)
         
         start_date = datetime(year, month, 1, tzinfo=UTC)
         

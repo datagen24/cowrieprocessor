@@ -22,7 +22,7 @@ from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
 
 
 @pytest.fixture
-def test_db():
+def test_db() -> None:
     """Create a test database with SSH key intelligence schema."""
     engine = create_engine("sqlite:///:memory:", echo=False)
 
@@ -118,7 +118,7 @@ def sample_raw_events(test_db, sample_cowrie_events):
 class TestSSHKeyExtractionIntegration:
     """Test SSH key extraction and storage integration."""
 
-    def test_extract_and_store_ssh_keys(self, test_db, sample_raw_events):
+    def test_extract_and_store_ssh_keys(self, test_db, sample_raw_events) -> None:
         """Test extracting SSH keys from raw events and storing them."""
         extractor = SSHKeyExtractor()
 
@@ -175,7 +175,7 @@ class TestSSHKeyExtractionIntegration:
             assert key_record.key_hash is not None
             assert key_record.total_attempts > 0
 
-    def test_session_key_linking(self, test_db, sample_raw_events):
+    def test_session_key_linking(self, test_db, sample_raw_events) -> None:
         """Test linking SSH keys to sessions."""
         extractor = SSHKeyExtractor()
 
@@ -241,7 +241,7 @@ class TestSSHKeyExtractionIntegration:
 class TestSSHKeyAnalyticsIntegration:
     """Test SSH key analytics functionality."""
 
-    def test_campaign_detection(self, test_db):
+    def test_campaign_detection(self, test_db) -> None:
         """Test SSH key campaign detection."""
         # Create sample key records that should form a campaign
         key1 = SSHKeyIntelligence(
@@ -305,7 +305,7 @@ class TestSSHKeyAnalyticsIntegration:
         assert campaign.total_sessions >= 3
         assert campaign.confidence_score > 0.0
 
-    def test_key_timeline_analysis(self, test_db):
+    def test_key_timeline_analysis(self, test_db) -> None:
         """Test SSH key timeline analysis."""
         # Create a key record
         key = SSHKeyIntelligence(
@@ -349,7 +349,7 @@ class TestSSHKeyAnalyticsIntegration:
         assert timeline.unique_sessions == 3
         assert len(timeline.sessions) == 3
 
-    def test_related_keys_analysis(self, test_db):
+    def test_related_keys_analysis(self, test_db) -> None:
         """Test related keys analysis."""
         # Create two related keys
         key1 = SSHKeyIntelligence(
@@ -409,7 +409,7 @@ class TestSSHKeyAnalyticsIntegration:
         assert related.co_occurrence_count == 3
         assert related.association_strength > 0.0
 
-    def test_geographic_spread_analysis(self, test_db):
+    def test_geographic_spread_analysis(self, test_db) -> None:
         """Test geographic spread analysis."""
         # Create a key record
         key = SSHKeyIntelligence(
@@ -456,7 +456,7 @@ class TestSSHKeyAnalyticsIntegration:
 class TestSessionSummaryIntegration:
     """Test session summary integration with SSH key counts."""
 
-    def test_session_summary_ssh_key_counts(self, test_db):
+    def test_session_summary_ssh_key_counts(self, test_db) -> None:
         """Test that session summaries include SSH key counts."""
         # Create a session summary
         session_summary = SessionSummary(
@@ -490,7 +490,7 @@ class TestSessionSummaryIntegration:
 class TestEndToEndIntegration:
     """Test end-to-end SSH key enrichment pipeline."""
 
-    def test_full_enrichment_pipeline(self, test_db, sample_raw_events):
+    def test_full_enrichment_pipeline(self, test_db, sample_raw_events) -> None:
         """Test the complete SSH key enrichment pipeline."""
         extractor = SSHKeyExtractor()
 

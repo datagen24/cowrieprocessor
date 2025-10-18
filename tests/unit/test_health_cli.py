@@ -13,7 +13,7 @@ def _write_status(dir_path: Path, name: str, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_health_cli_json(tmp_path, capsys):
+def test_health_cli_json(tmp_path, capsys) -> None:
     """Health CLI should report OK for valid db and status files."""
     db_path = tmp_path / "db.sqlite"
     db_path.write_text("", encoding="utf-8")
@@ -39,7 +39,7 @@ def test_health_cli_json(tmp_path, capsys):
     assert output["status_files_ok"] is True
 
 
-def test_health_cli_missing_status(tmp_path, capsys):
+def test_health_cli_missing_status(tmp_path, capsys) -> None:
     """Health CLI should warn when status files are missing."""
     db_path = tmp_path / "db.sqlite"
     db_path.write_text("", encoding="utf-8")

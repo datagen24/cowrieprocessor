@@ -146,18 +146,53 @@ def _create_publisher(args: argparse.Namespace) -> Optional[ElasticsearchPublish
     if not (args.es_host or args.es_cloud_id):
         raise RuntimeError("Either --es-host or --es-cloud-id is required when publishing to Elasticsearch")
 
+    # Create Elasticsearch client
+    try:
+        from elasticsearch import Elasticsearch
+        
+        if args.es_cloud_id:
+            client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
+        else:
+            client = Elasticsearch(hosts=[args.es_host], verify_certs=not args.no_ssl_verify)
+    except ImportError:
+        raise RuntimeError("Elasticsearch client not available; install elasticsearch package")
+
     return ElasticsearchPublisher(
-        host=args.es_host,
-        cloud_id=args.es_cloud_id,
+        client=client,
         index_prefix=args.es_index_prefix,
         pipeline=args.es_pipeline,
-        verify_ssl=not args.no_ssl_verify,
+    )
+
+
+def _create_elasticsearch_publisher(args: argparse.Namespace) -> ElasticsearchPublisher:
+    """Create ElasticsearchPublisher instance from command line arguments."""
+    if not args.es_index_prefix:
+        raise RuntimeError("--es-index-prefix is required when publishing to Elasticsearch")
+
+    if not (args.es_host or args.es_cloud_id):
+        raise RuntimeError("Either --es-host or --es-cloud-id is required when publishing to Elasticsearch")
+
+    # Create Elasticsearch client
+    try:
+        from elasticsearch import Elasticsearch
+        
+        if args.es_cloud_id:
+            client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
+        else:
+            client = Elasticsearch(hosts=[args.es_host], verify_certs=not args.no_ssl_verify)
+    except ImportError:
+        raise RuntimeError("Elasticsearch client not available; install elasticsearch package")
+
+    return ElasticsearchPublisher(
+        client=client,
+        index_prefix=args.es_index_prefix,
+        pipeline=args.es_pipeline,
     )
 
 
 def _target_sensors(
     repository: ReportingRepository, mode: str, sensor: Optional[str], all_sensors: bool
-) -> List[Optional[str]]:
+) -> List[str]:
     """Determine target sensors for report generation.
 
     Args:
@@ -170,13 +205,13 @@ def _target_sensors(
         List of sensor names (None for aggregate)
     """
     if all_sensors:
-        sensor_list = repository.get_available_sensors()
+        sensor_list: List[str] = repository.sensors()
         if not sensor_list:
             raise ValueError("No sensors found in database")
         return sensor_list
     if sensor:
         return [sensor]
-    return [None]
+    return []
 
 
 def generate_ssh_key_report(args: argparse.Namespace) -> int:
@@ -385,23 +420,14 @@ def _generate_traditional_report(args: argparse.Namespace) -> int:
         reports = []
         for idx, context in enumerate(contexts):
             try:
-                report = builder.build_report(context)
+                report = builder.build(context)
                 reports.append(report)
                 metrics.reports_generated += 1
 
                 if args.publish:
-                    publisher = ElasticsearchPublisher(
-                        host=args.es_host,
-                        cloud_id=args.es_cloud_id,
-                        index_prefix=args.es_index_prefix,
-                        pipeline=args.es_pipeline,
-                        verify_ssl=not args.no_ssl_verify,
-                    )
-                    if publisher.can_publish():
-                        publisher.publish_report(report)
-                        metrics.published_reports += 1
-                    else:
-                        print("Warning: Elasticsearch credentials not available, skipping publish", file=sys.stderr)
+                    publisher = _create_elasticsearch_publisher(args)
+                    publisher.publish([report])
+                    metrics.published_reports += 1
 
             except Exception as e:
                 print(f"Failed to generate report for {context.sensor or 'aggregate'}: {e}", file=sys.stderr)
@@ -494,7 +520,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         parser.print_help()
         return 1
 
-    return args.func(args)
+    result: int = args.func(args)
+    return result
 
 
 def generate_longtail_report(args: argparse.Namespace) -> int:
@@ -644,7 +671,7 @@ def _get_period_dates(period: str) -> tuple[datetime, datetime]:
         raise ValueError(f"Unsupported period format: {period}")
 
 
-def _get_analysis_summary(engine, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+def _get_analysis_summary(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get analysis summary for a time period."""
     from sqlalchemy import text
     
@@ -674,7 +701,7 @@ def _get_analysis_summary(engine, start_date: datetime, end_date: datetime) -> D
         return dict(row._mapping) if row else {}
 
 
-def _get_top_threats(engine, start_date: datetime, end_date: datetime, limit: int) -> List[Dict[str, Any]]:
+def _get_top_threats(engine: Any, start_date: datetime, end_date: datetime, limit: int) -> List[Dict[str, Any]]:
     """Get top threats for a time period."""
     from sqlalchemy import text
     
@@ -706,7 +733,7 @@ def _get_top_threats(engine, start_date: datetime, end_date: datetime, limit: in
         return [dict(row._mapping) for row in result]
 
 
-def _get_vector_stats(engine, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
+def _get_vector_stats(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get vector statistics for a time period."""
     from sqlalchemy import text
     
@@ -733,7 +760,7 @@ def _get_vector_stats(engine, start_date: datetime, end_date: datetime) -> Dict[
         return dict(row._mapping) if row else {}
 
 
-def _get_trend_data(engine, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+def _get_trend_data(engine: Any, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
     """Get trend data for a time period."""
     from sqlalchemy import text
     

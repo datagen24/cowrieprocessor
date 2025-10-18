@@ -99,7 +99,8 @@ def _is_generated_column(connection: Connection, table_name: str, column_name: s
             if row[1] == column_name:  # Column name is in position 1
                 # In SQLite, generated columns have a non-null "hidden" value (position 5)
                 # Position 5 is "hidden" - 0 for regular columns, > 0 for generated columns
-                return row[5] > 0  # hidden column indicates generated column
+                hidden_value = row[5]
+                return bool(hidden_value > 0)  # hidden column indicates generated column
 
         return False
     except Exception:
@@ -265,7 +266,14 @@ def _upgrade_to_v4(connection: Connection) -> None:
     from .models import Files
 
     try:
-        Files.__table__.create(connection, checkfirst=True)
+        # Use MetaData.create_all() instead of Table.create()
+        from sqlalchemy import MetaData
+        metadata = MetaData()
+        # Cast to Table type since we know Files.__table__ is a Table
+        from sqlalchemy import Table
+        files_table = Files.__table__
+        assert isinstance(files_table, Table), "Files.__table__ should be a Table"
+        metadata.create_all(connection, tables=[files_table], checkfirst=True)
         logger.info("Successfully created files table")
     except Exception as e:
         logger.warning(f"Failed to create files table: {e}")

@@ -7,7 +7,7 @@ value while preventing accidental execution of dangerous commands.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 
 class CommandDefanger:
@@ -215,7 +215,7 @@ class CommandDefanger:
         ]
         self._suspicious_paths = [re.compile(re.escape(path), re.IGNORECASE) for path in self.SUSPICIOUS_PATHS]
 
-    def analyze_command(self, command: str) -> Dict[str, any]:
+    def analyze_command(self, command: str) -> Dict[str, Any]:
         """Analyze a command and determine its risk level and defanging strategy.
 
         Args:
@@ -489,7 +489,8 @@ def is_safe_command(command: str) -> bool:
 
     defanger = CommandDefanger()
     analysis = defanger.analyze_command(command)
-    return analysis['risk_level'] == 'safe'
+    risk_level: str = analysis.get('risk_level', 'unknown')
+    return risk_level == 'safe'
 
 
 def get_command_risk_score(command: str) -> int:

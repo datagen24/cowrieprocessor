@@ -41,14 +41,14 @@ class UnicodeSanitizer:
             Sanitized string with control characters removed or replaced
         """
         if not isinstance(text, str):
-            return text
+            return text  # type: ignore[unreachable]
 
         if not text:
             return text
 
         pattern = cls.STRICT_CONTROL_CHAR_PATTERN if strict else cls.CONTROL_CHAR_PATTERN
 
-        def replace_char(match):
+        def replace_char(match: re.Match[str]) -> str:
             char = match.group(0)
             if preserve_whitespace and char in cls.SAFE_WHITESPACE:
                 return char
@@ -81,7 +81,7 @@ class UnicodeSanitizer:
             Sanitized JSON string safe for PostgreSQL processing
         """
         if not isinstance(json_str, str):
-            return json_str
+            return json_str  # type: ignore[unreachable]
 
         # First, try to parse and re-serialize to validate JSON structure
         try:
@@ -220,7 +220,7 @@ class UnicodeSanitizer:
             True if text is safe for PostgreSQL JSON, False otherwise
         """
         if not isinstance(text, str):
-            return True
+            return True  # type: ignore[unreachable]
 
         # Check for the most problematic characters that cause PostgreSQL errors
         dangerous_chars = [
@@ -290,10 +290,11 @@ class UnicodeSanitizer:
             # Apply more aggressive sanitization
             parsed_payload = cls._sanitize_json_object(parsed_payload)
 
-        return parsed_payload
+        result: Dict[str, Any] = parsed_payload
+        return result
 
 
-def sanitize_unicode_string(text: str, **kwargs) -> str:
+def sanitize_unicode_string(text: str, **kwargs: Any) -> str:
     """Convenience function for Unicode string sanitization."""
     return UnicodeSanitizer.sanitize_unicode_string(text, **kwargs)
 

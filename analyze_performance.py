@@ -2,7 +2,7 @@
 """Analyze password enrichment performance bottlenecks."""
 
 
-def analyze_performance_bottlenecks():
+def analyze_performance_bottlenecks() -> None:
     """Analyze what's causing the 41.7 hours of extra overhead."""
     print("🔍 Password Enrichment Performance Analysis")
     print("=" * 60)

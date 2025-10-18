@@ -109,22 +109,24 @@ class ImprovedHybridProcessor:
                 yield buffer_start_offset, self._make_dlq_event("\n".join(buffer), "end_of_file_buffer")
                 self.stats["dlq_sent"] += 1
 
-    def _try_single_line_parse(self, line: str) -> Optional[dict]:
+    def _try_single_line_parse(self, line: str) -> Optional[dict[Any, Any]]:
         """Try to parse a single line as JSON."""
         try:
-            return json.loads(line)
+            result: dict[Any, Any] = json.loads(line)
+            return result
         except json.JSONDecodeError:
             return None
 
-    def _try_buffer_parse(self, buffer: List[str]) -> Optional[dict]:
+    def _try_buffer_parse(self, buffer: List[str]) -> Optional[dict[Any, Any]]:
         """Try to parse accumulated buffer as JSON."""
         try:
             content = "\n".join(buffer)
-            return json.loads(content)
+            result: dict[Any, Any] = json.loads(content)
+            return result
         except json.JSONDecodeError:
             return None
 
-    def _try_repair_buffer(self, buffer: List[str]) -> Optional[dict]:
+    def _try_repair_buffer(self, buffer: List[str]) -> Optional[dict[Any, Any]]:
         """Try to repair and parse buffer using various strategies."""
         content = "\n".join(buffer)
 
@@ -138,7 +140,7 @@ class ImprovedHybridProcessor:
 
         for attempt in repair_attempts:
             try:
-                result = json.loads(attempt)
+                result: dict[Any, Any] = json.loads(attempt)
                 # Basic validation - check if it looks like a Cowrie event
                 if self._is_likely_cowrie_event(result):
                     return result
@@ -185,7 +187,7 @@ class ImprovedHybridProcessor:
 
         return content
 
-    def _is_likely_cowrie_event(self, event: dict) -> bool:
+    def _is_likely_cowrie_event(self, event: dict | None) -> bool:
         """Check if parsed event looks like a Cowrie event."""
         if not isinstance(event, dict):
             return False
@@ -239,17 +241,37 @@ class RobustJSONIterator:
         self.encoding = encoding
         self.line_count = 0
         self.error_count = 0
+        self._file_handle: Optional[Any] = None
+        self._iterator: Optional[Iterator[str]] = None
 
     def __iter__(self) -> Iterator[str]:
         """Iterate through file lines with error recovery."""
         try:
-            with open(self.file_path, 'r', encoding=self.encoding, errors='replace') as f:
-                for line in f:
-                    self.line_count += 1
-                    yield line.rstrip('\n\r')
+            self._file_handle = open(self.file_path, 'r', encoding=self.encoding, errors='replace')
+            self._iterator = iter(self._file_handle)
+            return self
         except Exception as e:
-            print(f"Error reading file {self.file_path}: {e}")
+            print(f"Error opening file {self.file_path}: {e}")
             self.error_count += 1
+            return iter([])  # Return empty iterator on error
+
+    def __next__(self) -> str:
+        """Get next line from the file."""
+        if self._iterator is None:
+            raise StopIteration
+
+        try:
+            line = next(self._iterator)
+            self.line_count += 1
+            return line.rstrip('\n\r')
+        except StopIteration:
+            if self._file_handle:
+                self._file_handle.close()
+            raise
+        except Exception as e:
+            print(f"Error reading line from {self.file_path}: {e}")
+            self.error_count += 1
+            raise StopIteration
 
     def get_stats(self) -> dict:
         """Get reading statistics."""
@@ -274,7 +296,7 @@ def process_cowrie_file_hybrid(file_path: str) -> Iterator[Tuple[int, Any]]:
     yield from processor.process_lines(iterator)
 
 
-def main():
+def main() -> None:
     """CLI entry point for testing the improved hybrid processor."""
     import argparse
 

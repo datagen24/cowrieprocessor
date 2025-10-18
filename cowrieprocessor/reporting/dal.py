@@ -82,7 +82,11 @@ class ReportingRepository:
 
     def _get_dialect_name(self, session: Session) -> str:
         """Get the database dialect name from the session."""
-        return get_dialect_name_from_engine(session.bind)
+        engine = session.bind
+        if engine is None:
+            raise ValueError("Session has no bound engine")
+        from sqlalchemy.engine import Engine
+        return get_dialect_name_from_engine(engine)  # type: ignore[arg-type]
 
     def session_stats(self, start: datetime, end: datetime, sensor: Optional[str] = None) -> SessionStatistics:
         """Return aggregated session metrics for the requested window."""

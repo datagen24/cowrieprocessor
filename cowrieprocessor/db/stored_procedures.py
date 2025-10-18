@@ -352,12 +352,25 @@ class DLQStoredProcedures:
             {"limit": limit, "reason_filter": reason_filter},
         ).fetchone()
 
+        if result is None:
+            return {"processed": 0, "repaired": 0, "failed": 0, "skipped": 0}
+
         return {"processed": result[0], "repaired": result[1], "failed": result[2], "skipped": result[3]}
 
     @staticmethod
     def get_dlq_statistics_stored_proc(connection: Connection) -> Dict[str, Any]:
         """Get DLQ statistics using stored procedure."""
         result = connection.execute(text("SELECT * FROM get_dlq_statistics()")).fetchone()
+
+        if result is None:
+            return {
+                "total_events": 0,
+                "unresolved_events": 0,
+                "resolved_events": 0,
+                "top_reasons": [],
+                "oldest_unresolved": None,
+                "newest_unresolved": None,
+            }
 
         return {
             "total_events": result[0],
@@ -378,4 +391,7 @@ class DLQStoredProcedures:
             {"older_than_days": older_than_days},
         ).fetchone()
 
-        return result[0]
+        if result is None:
+            return 0
+        
+        return int(result[0])

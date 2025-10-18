@@ -25,7 +25,7 @@ from tests.fixtures.statistical_analysis import HoneypotStatisticalAnalyzer
 class TestEnrichmentCachePerformance:
     """Test cache performance under various scenarios."""
 
-    def test_cache_hit_performance(self, tmp_path):
+    def test_cache_hit_performance(self, tmp_path) -> None:
         """Test cache hit performance for repeated lookups."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -54,7 +54,7 @@ class TestEnrichmentCachePerformance:
         cache_file = cache_dir / "dshield_192.168.1.100.json"
         assert cache_file.exists()
 
-    def test_cache_miss_performance(self, tmp_path):
+    def test_cache_miss_performance(self, tmp_path) -> None:
         """Test cache miss performance for new lookups."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -77,7 +77,7 @@ class TestEnrichmentCachePerformance:
             assert total_time < 5.0  # Less than 5 seconds for 10 lookups
             assert mock_dshield.call_count == 10
 
-    def test_concurrent_cache_access_performance(self, tmp_path):
+    def test_concurrent_cache_access_performance(self, tmp_path) -> None:
         """Test cache performance under concurrent access."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -105,7 +105,7 @@ class TestEnrichmentCachePerformance:
             assert len(results) == 20
             assert mock_dshield.call_count == 20
 
-    def test_cache_ttl_performance(self, tmp_path):
+    def test_cache_ttl_performance(self, tmp_path) -> None:
         """Test cache TTL expiration performance."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -137,7 +137,7 @@ class TestEnrichmentCachePerformance:
 class TestEnrichmentTimeoutPerformance:
     """Test timeout handling performance."""
 
-    def test_timeout_enforcement(self, tmp_path):
+    def test_timeout_enforcement(self, tmp_path) -> None:
         """Test that timeouts are properly enforced."""
         from process_cowrie import safe_read_uh_data
 
@@ -154,7 +154,7 @@ class TestEnrichmentTimeoutPerformance:
             assert end_time - start_time < 2.0
             assert result == "TIMEOUT"
 
-    def test_timeout_with_cache_fallback(self, tmp_path):
+    def test_timeout_with_cache_fallback(self, tmp_path) -> None:
         """Test timeout handling with cache fallback."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -175,7 +175,7 @@ class TestEnrichmentTimeoutPerformance:
             # Should return timeout indicator
             assert result == "TIMEOUT"
 
-    def test_bulk_timeout_handling(self, tmp_path):
+    def test_bulk_timeout_handling(self, tmp_path) -> None:
         """Test timeout handling in bulk operations."""
         from process_cowrie import safe_read_uh_data
 
@@ -202,7 +202,7 @@ class TestEnrichmentTimeoutPerformance:
 class TestConcurrentEnrichmentPerformance:
     """Test concurrent enrichment processing performance."""
 
-    def test_concurrent_ip_enrichment(self, tmp_path):
+    def test_concurrent_ip_enrichment(self, tmp_path) -> None:
         """Test concurrent IP enrichment across multiple services."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -256,7 +256,7 @@ class TestConcurrentEnrichmentPerformance:
                 assert result["dshield"]["ip"]["asname"] == "AMAZON-02"
                 assert len(result["spur"]) == 18
 
-    def test_concurrent_file_enrichment(self, tmp_path):
+    def test_concurrent_file_enrichment(self, tmp_path) -> None:
         """Test concurrent file hash enrichment."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -294,7 +294,7 @@ class TestConcurrentEnrichmentPerformance:
 class TestMockHandlerPerformance:
     """Test mock handler performance."""
 
-    def test_mock_otx_performance(self, tmp_path):
+    def test_mock_otx_performance(self, tmp_path) -> None:
         """Test mock OTX handler performance."""
         handler = MockOTXHandler("test_key", tmp_path)
 
@@ -311,7 +311,7 @@ class TestMockHandlerPerformance:
         # Should complete quickly (mock operations)
         assert total_time < 2.0  # Less than 2 seconds for 100 lookups
 
-    def test_mock_abuseipdb_performance(self, tmp_path):
+    def test_mock_abuseipdb_performance(self, tmp_path) -> None:
         """Test mock AbuseIPDB handler performance."""
         handler = MockAbuseIPDBHandler("test_key", tmp_path)
 
@@ -329,7 +329,7 @@ class TestMockHandlerPerformance:
         # Should complete quickly (mock operations)
         assert total_time < 2.0  # Less than 2 seconds for 100 lookups
 
-    def test_statistical_analysis_performance(self):
+    def test_statistical_analysis_performance(self) -> None:
         """Test statistical analysis performance."""
         # Create mock database
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
@@ -416,7 +416,7 @@ class TestMockHandlerPerformance:
 class TestMemoryUsagePerformance:
     """Test memory usage during enrichment operations."""
 
-    def test_memory_usage_during_bulk_enrichment(self, tmp_path):
+    def test_memory_usage_during_bulk_enrichment(self, tmp_path) -> None:
         """Test memory usage during bulk enrichment operations."""
         import os
 
@@ -453,7 +453,7 @@ class TestMemoryUsagePerformance:
             # Memory increase should be reasonable
             assert memory_increase < 50 * 1024 * 1024  # Less than 50MB increase
 
-    def test_cache_memory_efficiency(self, tmp_path):
+    def test_cache_memory_efficiency(self, tmp_path) -> None:
         """Test that caching doesn't cause memory leaks."""
         import os
 
@@ -487,7 +487,7 @@ class TestMemoryUsagePerformance:
                     # Memory shouldn't grow unbounded
                     assert current_memory < 200 * 1024 * 1024  # Less than 200MB
 
-    def test_concurrent_memory_usage(self, tmp_path):
+    def test_concurrent_memory_usage(self, tmp_path) -> None:
         """Test memory usage during concurrent operations."""
         import os
 
@@ -536,7 +536,7 @@ class TestMemoryUsagePerformance:
 class TestEnrichmentThroughput:
     """Test enrichment throughput under various conditions."""
 
-    def test_sequential_throughput(self, tmp_path):
+    def test_sequential_throughput(self, tmp_path) -> None:
         """Test sequential enrichment throughput."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -566,7 +566,7 @@ class TestEnrichmentThroughput:
             assert throughput > 5.0  # At least 5 enrichments per second
             assert total_time < 30.0  # Less than 30 seconds for 100 enrichments
 
-    def test_cached_throughput(self, tmp_path):
+    def test_cached_throughput(self, tmp_path) -> None:
         """Test throughput when using cached data."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -592,7 +592,7 @@ class TestEnrichmentThroughput:
         assert total_time < 1.0  # Less than 1 second for 50 cache hits
 
     @pytest.mark.asyncio
-    async def test_async_enrichment_throughput(self, tmp_path):
+    async def test_async_enrichment_throughput(self, tmp_path) -> None:
         """Test async enrichment throughput."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()

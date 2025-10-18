@@ -577,6 +577,16 @@ class EnhancedDLQStoredProcedures:
             },
         ).fetchone()
 
+        if result is None:
+            return {
+                "processed": 0,
+                "repaired": 0,
+                "failed": 0,
+                "skipped": 0,
+                "circuit_breaker_triggered": False,
+                "processing_duration_ms": 0,
+            }
+
         return {
             "processed": result[0],
             "repaired": result[1],
@@ -590,6 +600,18 @@ class EnhancedDLQStoredProcedures:
     def get_dlq_health_stats(connection: Connection) -> Dict[str, Any]:
         """Get DLQ health statistics."""
         result = connection.execute(text("SELECT * FROM dlq_health")).fetchone()
+
+        if result is None:
+            return {
+                "pending_events": 0,
+                "processed_events": 0,
+                "avg_resolution_time_seconds": 0.0,
+                "oldest_unresolved_event": None,
+                "high_retry_events": 0,
+                "locked_events": 0,
+                "malicious_events": 0,
+                "high_priority_events": 0,
+            }
 
         return {
             "pending_events": result[0],
@@ -614,4 +636,7 @@ class EnhancedDLQStoredProcedures:
             {"older_than_days": older_than_days, "batch_size": batch_size},
         ).fetchone()
 
-        return result[0]
+        if result is None:
+            return 0
+        
+        return int(result[0])

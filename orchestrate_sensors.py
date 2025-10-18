@@ -200,7 +200,7 @@ def prepare_env_for_sensor(sensor_cfg: dict) -> Dict[str, str]:
     return env
 
 
-def main():
+def main() -> None:
     """CLI entrypoint for orchestrating sensors from TOML config."""
     ap = argparse.ArgumentParser(description="Run Cowrie processors for multiple sensors via TOML")
     ap.add_argument("--config", default="sensors.toml", help="Path to TOML configuration")

@@ -233,7 +233,8 @@ class SnowshoeDetector:
             for key in session_data.keys():
                 try:
                     ipaddress.ip_address(key)
-                    return key
+                    result: str = key
+                    return result
                 except ValueError:
                     continue
 

@@ -164,7 +164,6 @@ def main(argv: list[str] | None = None) -> int:
         start_ts = datetime.fromisoformat(args.start.replace("Z", "+00:00"))
     except ValueError as exc:
         parser.error(f"invalid --start value: {exc}")
-        return 2
 
     sensors = args.sensors or ["honeypot-a"]
     output_path = Path(args.output)

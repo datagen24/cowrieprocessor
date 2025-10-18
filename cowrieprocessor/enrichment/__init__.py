@@ -7,7 +7,7 @@ from .cache import EnrichmentCacheManager
 __all__ = ["EnrichmentCacheManager", "LegacyEnrichmentAdapter"]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     if name == "LegacyEnrichmentAdapter":
         from .legacy_adapter import LegacyEnrichmentAdapter as adapter
 

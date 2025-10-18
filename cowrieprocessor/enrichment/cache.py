@@ -187,8 +187,12 @@ class EnrichmentCacheManager:
         try:
             payload = cache_path.read_text(encoding="utf-8")
             data = json.loads(payload)
-            self.stats["hits"] += 1
-            return copy.deepcopy(data)
+            if isinstance(data, dict):
+                self.stats["hits"] += 1
+                return copy.deepcopy(data)
+            else:
+                self.stats["misses"] += 1
+                return None
         except (OSError, json.JSONDecodeError):
             self.stats["misses"] += 1
             return None

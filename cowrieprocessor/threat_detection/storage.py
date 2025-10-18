@@ -16,6 +16,7 @@ from ..db.models import (
     LongtailDetectionSession,
     SessionSummary,
 )
+from ..db.type_guards import get_enrichment_dict
 from .longtail import LongtailAnalysisResult
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,7 @@ def _serialize_for_json(obj: Any) -> Any:
         return obj
 
 
-def _check_pgvector_available(connection) -> bool:
+def _check_pgvector_available(connection: Any) -> bool:
     """Check if pgvector extension is available (PostgreSQL only).
 
     Args:
@@ -75,7 +76,7 @@ def _check_pgvector_available(connection) -> bool:
 
 def _store_command_vectors(
     db_session: Session,
-    analyzer,
+    analyzer: Any,
     sessions: List[SessionSummary],
     analysis_id: int,
 ) -> None:
@@ -106,7 +107,7 @@ def _store_command_vectors(
             logger.warning("command_vectorizer does not have transform method")
             return
             
-        logger.info(f"Analyzer has command_vectorizer with transform method")
+        logger.info("Analyzer has command_vectorizer with transform method")
 
         for session in sessions:
             # Get commands for this session
@@ -151,10 +152,11 @@ def _store_command_vectors(
 
                     # Extract source IP from session enrichment data
                     src_ip = None
-                    if session.enrichment and isinstance(session.enrichment, dict):
+                    enrichment_dict = get_enrichment_dict(session)
+                    if enrichment_dict:
                         # Try to get source IP from enrichment data
                         # Look for common patterns in enrichment structure
-                        for key, value in session.enrichment.items():
+                        for key, value in enrichment_dict.items():
                             if isinstance(value, dict):
                                 # Check if this looks like IP data
                                 for sub_key, sub_value in value.items():
@@ -247,7 +249,9 @@ def _create_detection_sessions_links(
 
         if links_to_create:
             # Bulk insert junction table entries
-            session.bulk_insert_mappings(LongtailDetectionSession, links_to_create)
+            from sqlalchemy import insert
+            stmt = insert(LongtailDetectionSession)
+            session.execute(stmt, links_to_create)
             logger.debug(f"Created {len(links_to_create)} detection-session links for detection {detection_id}")
 
     except Exception as e:
@@ -341,7 +345,7 @@ def store_longtail_analysis(
 
                 # Create session links
                 sessions_metadata = detection.get("sessions", [])
-                _create_detection_sessions_links(db_session, detection_record.id, sessions_metadata)
+                _create_detection_sessions_links(db_session, int(detection_record.id), sessions_metadata)
                 total_detections += 1
 
             # Store anomalous sequence detections
@@ -438,7 +442,7 @@ def store_longtail_analysis(
             logger.info(f"Checking vector storage conditions: analyzer={analyzer is not None}, sessions={sessions is not None if sessions else False}, vector_analysis_enabled={result.vector_analysis_enabled}")
             if analyzer and sessions and result.vector_analysis_enabled:
                 try:
-                    _store_command_vectors(db_session, analyzer, sessions, analysis_id)
+                    _store_command_vectors(db_session, analyzer, sessions, int(analysis_id))
                     result.pgvector_available = True
                     logger.info("Vector storage completed successfully")
                 except Exception as e:
@@ -450,7 +454,7 @@ def store_longtail_analysis(
                 db_session.commit()
                 logger.info("Committed vector storage transaction")
 
-            return analysis_id
+            return int(analysis_id)
 
     except Exception as e:
         logger.error(f"Failed to store longtail analysis: {e}")
@@ -557,7 +561,7 @@ def create_analysis_checkpoint(
         raise
 
 
-def compute_vocabulary_hash(analyzer) -> str:
+def compute_vocabulary_hash(analyzer: Any) -> str:
     """Compute hash of current vocabulary state for change detection.
 
     Args:

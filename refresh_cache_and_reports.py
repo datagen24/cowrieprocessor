@@ -19,13 +19,14 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
+from typing import Any, Optional
 
 import requests
 
 from secrets_resolver import is_reference, resolve_secret
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse CLI arguments for cache/report refresh."""
     ap = argparse.ArgumentParser(description="Refresh indicator cache and recent ES reports")
     ap.add_argument('--db', required=True, help='Path to central SQLite database')
@@ -70,7 +71,7 @@ def setup_db(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def ensure_indicator_table(conn: sqlite3.Connection):
+def ensure_indicator_table(conn: sqlite3.Connection) -> None:
     """Ensure indicator_cache table exists."""
     conn.execute(
         'CREATE TABLE IF NOT EXISTS indicator_cache('
@@ -82,7 +83,7 @@ def ensure_indicator_table(conn: sqlite3.Connection):
 class Refresher:
     """Service refresher for indicator cache with rate limiting and retries."""
 
-    def __init__(self, args, conn: sqlite3.Connection):
+    def __init__(self, args: argparse.Namespace, conn: sqlite3.Connection) -> None:
         """Initialize refresher with args and SQLite connection."""
         self.args = args
         self.conn = conn
@@ -92,7 +93,7 @@ class Refresher:
         self.spur = requests.Session()
         self.last_req = {'vt': 0.0, 'dshield': 0.0, 'urlhaus': 0.0, 'spur': 0.0}
 
-    def rate_limit(self, service: str):
+    def rate_limit(self, service: str) -> None:
         """Enforce per-service requests-per-minute limits."""
         now = time.time()
         per_min = getattr(self.args, f'rate_{service}')
@@ -104,13 +105,13 @@ class Refresher:
             time.sleep(min_interval - elapsed)
         self.last_req[service] = time.time()
 
-    def cache_get(self, service: str, key: str):
+    def cache_get(self, service: str, key: str) -> Optional[Any]:
         """Get cache row (last_fetched, data) for service/key."""
         cur = self.conn.cursor()
         cur.execute('SELECT last_fetched, data FROM indicator_cache WHERE service=? AND key=?', (service, key))
         return cur.fetchone()
 
-    def cache_upsert(self, service: str, key: str, data: str):
+    def cache_upsert(self, service: str, key: str, data: str) -> None:
         """Upsert cache row for service/key with data and current timestamp."""
         cur = self.conn.cursor()
         cur.execute(
@@ -120,7 +121,7 @@ class Refresher:
         )
         self.conn.commit()
 
-    def should_refresh_vt(self, key: str, row) -> bool:
+    def should_refresh_vt(self, key: str, row: Optional[Any]) -> bool:
         """Decide if VT record should be refreshed based on TTL and unknown state."""
         if not row:
             return True
@@ -133,17 +134,17 @@ class Refresher:
                 ttl = self.args.hash_unknown_ttl_hours * 3600
         except Exception:
             ttl = self.args.hash_unknown_ttl_hours * 3600
-        return (time.time() - last) >= ttl
+        return bool((time.time() - last) >= ttl)
 
-    def should_refresh_ip(self, row) -> bool:
+    def should_refresh_ip(self, row: Optional[Any]) -> bool:
         """Decide if IP-based record should be refreshed based on TTL."""
         if not row:
             return True
         last, _ = row
         ttl = self.args.ip_ttl_hours * 3600
-        return (time.time() - last) >= ttl
+        return bool((time.time() - last) >= ttl)
 
-    def refresh_vt(self, hash_: str):
+    def refresh_vt(self, hash_: str) -> None:
         """Refresh VT cache entry for a file hash."""
         if not self.args.vtapi:
             return
@@ -167,7 +168,7 @@ class Refresher:
             except Exception:
                 time.sleep(self.args.api_backoff * attempt)
 
-    def refresh_dshield(self, ip: str):
+    def refresh_dshield(self, ip: str) -> None:
         """Refresh DShield cache entry for an IP."""
         if not self.args.email:
             return
@@ -192,7 +193,7 @@ class Refresher:
             except Exception:
                 time.sleep(self.args.api_backoff * attempt)
 
-    def refresh_urlhaus(self, host: str):
+    def refresh_urlhaus(self, host: str) -> None:
         """Refresh URLhaus cache entry for a host/IP."""
         if not self.args.urlhausapi:
             return
@@ -217,7 +218,7 @@ class Refresher:
             except Exception:
                 time.sleep(self.args.api_backoff * attempt)
 
-    def refresh_spur(self, ip: str):
+    def refresh_spur(self, ip: str) -> None:
         """Refresh SPUR cache entry for an IP."""
         if not self.args.spurapi:
             return
@@ -238,7 +239,7 @@ class Refresher:
             except Exception:
                 time.sleep(self.args.api_backoff * attempt)
 
-    def seed_missing(self):
+    def seed_missing(self) -> None:
         """Seed cache with DB-observed hashes and IPs missing from cache."""
         # Seed missing VT hashes from files table
         cur = self.conn.cursor()
@@ -261,7 +262,7 @@ class Refresher:
             if not self.cache_get('spur_ip', ip):
                 self.refresh_spur(ip)
 
-    def refresh_stale(self):
+    def refresh_stale(self) -> None:
         """Refresh any cache entries that are stale by TTL."""
         # VT
         if self.args.refresh_indicators in ('all', 'vt'):
@@ -290,7 +291,7 @@ class Refresher:
                         self.refresh_spur(key)
 
 
-def refresh_reports(db_path: str, args):
+def refresh_reports(db_path: str, args: argparse.Namespace) -> None:
     """Rebuild recent daily/weekly/monthly reports within hot windows."""
     # Daily for last N days
     if args.refresh_reports in ('all', 'daily'):
@@ -360,7 +361,7 @@ def refresh_reports(db_path: str, args):
             )
 
 
-def main():
+def main() -> None:
     """Module entrypoint."""
     args = parse_args()
     # Secrets: allow environment fallbacks

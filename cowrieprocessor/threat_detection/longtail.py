@@ -1,4 +1,7 @@
-"""Longtail threat analysis for detecting rare, unusual, and emerging attack patterns."""
+"""Longtail threat analysis for detecting rare, unusual, and emerging attack patterns.
+
+Compatible with SQLAlchemy 2.0 patterns and uses type-safe ORM access.
+"""
 
 from __future__ import annotations
 
@@ -28,11 +31,12 @@ import numpy as np
 import psutil
 from sklearn.cluster import DBSCAN
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import create_engine_from_settings, create_session_maker
 from ..db.models import RawEvent, SessionSummary
+from ..db.type_guards import get_enrichment_dict, get_payload_dict_from_row
 from ..enrichment.cache import EnrichmentCacheManager
 from ..enrichment.hibp_client import HIBPPasswordEnricher
 from ..enrichment.password_extractor import PasswordExtractor
@@ -126,7 +130,8 @@ class CommandVectorizer:
         tfidf_matrix = self.vectorizer.fit_transform(command_sequences)
         self.is_fitted = True
         self._save_vectorizer()
-        return tfidf_matrix.toarray()
+        result: np.ndarray = tfidf_matrix.toarray()
+        return result
 
     def transform(self, command_sequences: List[str]) -> np.ndarray:
         """Transform command sequences using fitted vectorizer.
@@ -141,7 +146,8 @@ class CommandVectorizer:
             raise ValueError("Vectorizer must be fitted before transform")
 
         tfidf_matrix = self.vectorizer.transform(command_sequences)
-        return tfidf_matrix.toarray()
+        result: np.ndarray = tfidf_matrix.toarray()
+        return result
 
     def update_vocabulary(self, new_commands: List[str]) -> None:
         """Incrementally update vocabulary without full retrain."""
@@ -173,7 +179,8 @@ class CommandVectorizer:
         if not self.is_fitted:
             raise ValueError("Vectorizer must be fitted before getting feature names")
 
-        return self.vectorizer.get_feature_names_out().tolist()
+        result: List[str] = self.vectorizer.get_feature_names_out().tolist()
+        return result
 
 
 def run_longtail_analysis(
@@ -224,7 +231,7 @@ def run_longtail_analysis(
     else:
         # Calculate window start based on lookback days
         analysis_window_start = datetime.now(UTC) - timedelta(days=lookback_days)
-    
+
     if window_end is not None:
         # Use provided window end
         analysis_window_end = window_end
@@ -233,7 +240,8 @@ def run_longtail_analysis(
         analysis_window_end = datetime.now(UTC)
 
     with session_factory() as session:
-        sessions = session.query(SessionSummary).filter(SessionSummary.first_event_at >= analysis_window_start).all()
+        stmt = select(SessionSummary).where(SessionSummary.first_event_at >= analysis_window_start)
+        sessions = session.execute(stmt).scalars().all()
 
     if not sessions:
         logger.warning(f"No sessions found for analysis window ({lookback_days} days)")
@@ -252,7 +260,7 @@ def run_longtail_analysis(
         sensitivity_threshold=sensitivity_threshold,
     )
 
-    result = analyzer.analyze(sessions, lookback_days)
+    result = analyzer.analyze(list(sessions), lookback_days)
 
     # Store results if requested
     if store_results:
@@ -266,7 +274,7 @@ def run_longtail_analysis(
                 window_end=analysis_window_end,
                 lookback_days=lookback_days,
                 analyzer=analyzer,
-                sessions=sessions,
+                sessions=list(sessions),
             )
             logger.info(f"Stored longtail analysis with ID {analysis_id}")
         except Exception as e:
@@ -280,9 +288,9 @@ def run_longtail_analysis(
         with open(output_path, 'w') as f:
             json.dump(result.__dict__, f, indent=2, default=str)
         logger.info(f"Results written to {output_path}")
-    else:
-        # Return results for further processing
-        return result
+    
+    # Return results for further processing
+    return result
 
 
 class LongtailAnalyzer:
@@ -419,7 +427,7 @@ class LongtailAnalyzer:
 
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)
             resource.setrlimit(resource.RLIMIT_AS, (int(memory_limit_mb * 1024 * 1024), hard))
-            self._memory_warning_threshold = warning_threshold_mb
+            self._memory_warning_threshold = int(warning_threshold_mb)
         except Exception as e:
             logger.warning(f"Could not set memory limits: {e}, using default 8GB limit")
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)
@@ -547,8 +555,9 @@ class LongtailAnalyzer:
 
             for s in sessions:
                 stats = None
-                if isinstance(s.enrichment, dict):
-                    stats = s.enrichment.get("password_stats") or s.enrichment.get("passwords")
+                enrichment_dict = get_enrichment_dict(s)
+                if enrichment_dict:
+                    stats = enrichment_dict.get("password_stats") or enrichment_dict.get("passwords")
 
                 if isinstance(stats, dict) and stats.get("total_attempts", 0) > 0:
                     ta = int(stats.get("total_attempts", 0))
@@ -560,7 +569,7 @@ class LongtailAnalyzer:
                     breached_passwords += bp
                     max_prevalence = max(max_prevalence, pv)
                     if bp > 0:
-                        sessions_with_breached.append(s.session_id)
+                        sessions_with_breached.append(str(s.session_id))
                     nh = stats.get("novel_password_hashes") or []
                     if isinstance(nh, list):
                         novel_hashes.extend([str(h) for h in nh])
@@ -569,7 +578,7 @@ class LongtailAnalyzer:
                         self.enable_password_enrichment
                         and len(sessions_needing_enrichment) < self.max_enrichment_sessions
                     ):
-                        sessions_needing_enrichment.append(s.session_id)
+                        sessions_needing_enrichment.append(str(s.session_id))
 
             # Opportunistic enrichment for a limited set of sessions
             enriched_details: List[Dict[str, Any]] = []
@@ -597,13 +606,22 @@ class LongtailAnalyzer:
                         # Convert rows to lightweight RawEvent-like objects
                         events_by_session: Dict[str, List[RawEvent]] = {}
                         for row in result:
-                            # Minimal struct with attributes used by PasswordExtractor
-                            re = RawEvent()
-                            re.id = row.id
-                            re.session_id = row.session_id
-                            re.event_type = row.event_type
-                            re.event_timestamp = row.event_timestamp
-                            re.payload = row.payload
+                            # Create properly typed RawEvent with all required fields
+                            re = RawEvent(
+                                id=row.id,
+                                session_id=row.session_id,
+                                event_type=row.event_type,
+                                event_timestamp=row.event_timestamp,
+                                payload=row.payload,
+                                # Set required fields with defaults
+                                source="longtail-analysis",
+                                source_offset=0,
+                                source_inode="",
+                                source_generation=0,
+                                ingest_id="longtail-analysis",
+                                risk_score=0,
+                                quarantined=False,
+                            )
                             events_by_session.setdefault(row.session_id, []).append(re)
 
                     # Extract and check passwords with HIBP
@@ -679,7 +697,7 @@ class LongtailAnalyzer:
             }
 
     def benchmark_vector_dimensions(
-        self, test_sessions: List[SessionSummary], dimensions_to_test: List[int] = None
+        self, test_sessions: List[SessionSummary], dimensions_to_test: List[int] | None = None
     ) -> Dict[int, Dict[str, float]]:
         """Benchmark different vector dimensions for optimal performance.
 
@@ -764,8 +782,8 @@ class LongtailAnalyzer:
 
     @staticmethod
     def create_mock_sessions_with_commands(
-        normal_sequence: List[str] = None,
-        anomalous_sequence: List[str] = None,
+        normal_sequence: List[str] | None = None,
+        anomalous_sequence: List[str] | None = None,
         num_normal_sessions: int = 10,
         num_anomalous_sessions: int = 3,
     ) -> List[SessionSummary]:
@@ -830,7 +848,8 @@ class LongtailAnalyzer:
             )
 
             # Store commands as JSON for testing (normally this would be in database)
-            session.__dict__['commands'] = json.dumps(commands)
+            # Note: This is for testing only - in production, commands would be in database
+            setattr(session, 'commands', json.dumps(commands))
             sessions.append(session)
 
         # Create anomalous sessions
@@ -858,7 +877,8 @@ class LongtailAnalyzer:
             )
 
             # Store commands as JSON for testing
-            session.__dict__['commands'] = json.dumps(commands)
+            # Note: This is for testing only - in production, commands would be in database
+            setattr(session, 'commands', json.dumps(commands))
             sessions.append(session)
 
         logger.info(
@@ -877,32 +897,40 @@ class LongtailAnalyzer:
         """
         if session.first_event_at and session.last_event_at:
             duration = (session.last_event_at - session.first_event_at).total_seconds()
-            return max(0.0, duration)
+            result: float = max(0.0, duration)
+            return result
         return 0.0
 
     def _extract_ip_from_session(self, session: SessionSummary) -> Optional[str]:
-        """Extract IP address from session enrichment data or raw events."""
+        """Extract IP address from session enrichment data or raw events.
+
+        Args:
+            session: SessionSummary instance
+
+        Returns:
+            IP address string if found and valid, None otherwise
+        """
         try:
             # First try enrichment data
-            if session.enrichment and session.enrichment != 'null':
-                enrichment = session.enrichment
-                if isinstance(enrichment, dict) and "session" in enrichment:
-                    session_data = enrichment["session"]
-                    if isinstance(session_data, dict):
-                        for key in session_data.keys():
-                            try:
-                                ip_obj = ipaddress.ip_address(key)
-                                # Allow private IPs for longtail analysis since we want to detect internal threats too
-                                # Only reject loopback and link-local addresses
-                                if not (ip_obj.is_loopback or ip_obj.is_link_local):
-                                    return key
-                            except ValueError:
-                                continue
+            enrichment_dict = get_enrichment_dict(session)
+            if enrichment_dict and "session" in enrichment_dict:
+                session_data = enrichment_dict["session"]
+                if isinstance(session_data, dict):
+                    for key in session_data.keys():
+                        try:
+                            ip_obj = ipaddress.ip_address(key)
+                            # Allow private IPs for longtail analysis since we want to detect internal threats too
+                            # Only reject loopback and link-local addresses
+                            if not (ip_obj.is_loopback or ip_obj.is_link_local):
+                                result: str = key
+                                return result
+                        except ValueError:
+                            continue
 
             # Fallback: try to extract IP from raw events for this session
             try:
                 with self.session_factory() as db_session:
-                    result = db_session.execute(
+                    query_result = db_session.execute(
                         text("""
                         SELECT payload->>'src_ip' as src_ip
                         FROM raw_events 
@@ -913,12 +941,13 @@ class LongtailAnalyzer:
                         {"session_id": session.session_id},
                     )
 
-                    row = result.fetchone()
+                    row = query_result.fetchone()
                     if row and row.src_ip:
                         try:
                             ip_obj = ipaddress.ip_address(row.src_ip)
                             if not (ip_obj.is_loopback or ip_obj.is_link_local):
-                                return row.src_ip
+                                ip_result: str = row.src_ip
+                                return ip_result
                         except ValueError:
                             pass
             except Exception:
@@ -929,14 +958,21 @@ class LongtailAnalyzer:
             return None
 
     def _extract_asn_from_session(self, session: SessionSummary) -> Optional[str]:
-        """Extract ASN information from session enrichment data."""
+        """Extract ASN information from session enrichment data.
+
+        Args:
+            session: SessionSummary instance
+
+        Returns:
+            ASN string if found, None otherwise
+        """
         try:
-            if not session.enrichment:
+            enrichment_dict = get_enrichment_dict(session)
+            if not enrichment_dict:
                 return None
 
-            enrichment = session.enrichment
-            if isinstance(enrichment, dict) and "session" in enrichment:
-                session_data = enrichment["session"]
+            if "session" in enrichment_dict:
+                session_data = enrichment_dict["session"]
                 if isinstance(session_data, dict):
                     # Look for ASN information in the enrichment data
                     for ip_key, ip_data in session_data.items():
@@ -962,7 +998,7 @@ class LongtailAnalyzer:
         self._command_sequences = []
 
         # Extract all session IDs for batch query
-        session_ids = [session.session_id for session in sessions]
+        session_ids = [str(session.session_id) for session in sessions if session.session_id is not None]
 
         # Query commands for all sessions in batches
         commands_by_session = self._extract_commands_for_sessions(session_ids)
@@ -972,7 +1008,7 @@ class LongtailAnalyzer:
 
         for session in sessions:
             # Get commands for this session
-            commands = commands_by_session.get(session.session_id, [])
+            commands = commands_by_session.get(str(session.session_id), [])
 
             # Build command frequency and session mapping
             for command in commands:
@@ -982,17 +1018,18 @@ class LongtailAnalyzer:
                     # Track which sessions this command appears in
                     if cmd not in self._command_to_sessions:
                         self._command_to_sessions[cmd] = []
-                    if session.session_id not in self._command_to_sessions[cmd]:
-                        self._command_to_sessions[cmd].append(session.session_id)
+                    session_id_str = str(session.session_id) if session.session_id else ''
+                    if session_id_str not in self._command_to_sessions[cmd]:
+                        self._command_to_sessions[cmd].append(session_id_str)
 
             # Build session characteristics
             session_chars = {
-                'session_id': session.session_id,
-                'src_ip': ip_by_session.get(session.session_id),  # Use batched IP extraction
+                'session_id': str(session.session_id) if session.session_id else '',
+                'src_ip': ip_by_session.get(str(session.session_id)) if session.session_id else None,
                 'duration': self._calculate_session_duration(session),
                 'command_count': len(commands),
-                'login_attempts': session.login_attempts,
-                'file_operations': session.file_downloads,  # Use file_downloads instead
+                'login_attempts': int(session.login_attempts) if session.login_attempts else 0,
+                'file_operations': int(session.file_downloads) if session.file_downloads else 0,
                 'timestamp': session.first_event_at,  # Use first_event_at instead
             }
             self._session_characteristics.append(session_chars)
@@ -1055,9 +1092,9 @@ class LongtailAnalyzer:
                     for row in result:
                         try:
                             # Extract input from JSON payload safely
-                            payload = row.payload
-                            if isinstance(payload, dict) and 'input' in payload:
-                                command_raw = payload['input']
+                            payload_dict = get_payload_dict_from_row(row)
+                            if isinstance(payload_dict, dict) and 'input' in payload_dict:
+                                command_raw = payload_dict['input']
                                 if command_raw:
                                     # Clean Unicode control characters
                                     clean_command = ''.join(
@@ -1113,9 +1150,9 @@ class LongtailAnalyzer:
 
                 for row in result:
                     try:
-                        payload = row.payload
-                        if isinstance(payload, dict) and 'src_ip' in payload:
-                            src_ip = payload['src_ip']
+                        payload_dict = get_payload_dict_from_row(row)
+                        if isinstance(payload_dict, dict) and 'src_ip' in payload_dict:
+                            src_ip = payload_dict['src_ip']
                             if src_ip:
                                 try:
                                     ip_obj = ipaddress.ip_address(src_ip)
@@ -1181,8 +1218,8 @@ class LongtailAnalyzer:
                     }
                 )
 
-        # Sort by rarity (lowest frequency first)
-        rare_commands.sort(key=lambda x: int(x['frequency']))
+                # Sort by rarity (lowest frequency first)
+        rare_commands.sort(key=lambda x: int(x['frequency']) if isinstance(x['frequency'], (int, str)) else 0)
 
         return rare_commands
 
@@ -1242,12 +1279,12 @@ class LongtailAnalyzer:
                 return anomalous_sequences
             else:
                 # Fallback to simple frequency-based detection
-                sequence_freq: Dict[str, int] = {}
+                fallback_sequence_freq: Dict[str, int] = {}
                 for seq in self._command_sequences:
-                    sequence_freq[seq] = sequence_freq.get(seq, 0) + 1
+                    fallback_sequence_freq[seq] = fallback_sequence_freq.get(seq, 0) + 1
 
                 anomalous_sequences = []
-                for seq, freq in sequence_freq.items():
+                for seq, freq in fallback_sequence_freq.items():
                     if freq == 1:  # Unique sequences
                         anomalous_sequences.append(
                             {

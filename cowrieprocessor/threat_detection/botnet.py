@@ -3,6 +3,8 @@
 This module implements detection algorithms for coordinated botnet attacks,
 where multiple compromised machines execute similar commands using shared
 credentials, SSH keys, or other coordination mechanisms.
+
+Compatible with SQLAlchemy 2.0 patterns and uses type-safe ORM access.
 """
 
 from __future__ import annotations
@@ -20,6 +22,10 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ..db.models import CommandStat, RawEvent, SessionSummary
+from ..db.type_guards import (
+    get_enrichment_dict,
+    get_payload_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +154,7 @@ class BotnetCoordinatorDetector:
         raw_events: Optional[List[RawEvent]] = None,
     ) -> Dict[str, Any]:
         """Extract coordination-relevant data from sessions."""
-        ip_data = {}
+        ip_data: Dict[str, Any] = {}
         credential_data = defaultdict(list)  # credential_hash -> [ips]
         command_data = defaultdict(list)  # ip -> [commands]
 
@@ -176,8 +182,9 @@ class BotnetCoordinatorDetector:
                 ip_data[ip]["timestamps"].append(session.first_event_at)
 
             # Extract geographic data
-            if session.enrichment:
-                geo_data = self._extract_geographic_data(session.enrichment)
+            enrichment_dict = get_enrichment_dict(session)
+            if enrichment_dict:
+                geo_data = self._extract_geographic_data(enrichment_dict)
                 ip_data[ip]["countries"].update(geo_data.get("countries", []))
                 ip_data[ip]["asns"].update(geo_data.get("asns", []))
 
@@ -206,25 +213,31 @@ class BotnetCoordinatorDetector:
         }
 
     def _extract_ip_from_session(self, session: SessionSummary) -> Optional[str]:
-        """Extract IP address from session enrichment data."""
+        """Extract IP address from session enrichment data.
+
+        Args:
+            session: SessionSummary instance
+
+        Returns:
+            IP address string if found and valid, None otherwise
+        """
         try:
-            if not session.enrichment:
+            enrichment_dict = get_enrichment_dict(session)
+            if not enrichment_dict:
                 return None
 
-            enrichment = session.enrichment
-            if isinstance(enrichment, dict) and "session" in enrichment:
-                session_data = enrichment["session"]
-                if isinstance(session_data, dict):
-                    for key in session_data.keys():
-                        try:
-                            ip_obj = ipaddress.ip_address(key)
-                            # For botnet detection, allow private IPs since botnets often use
-                            # compromised internal networks
-                            # Only reject loopback and link-local addresses
-                            if not (ip_obj.is_loopback or ip_obj.is_link_local):
-                                return key
-                        except ValueError:
-                            continue
+            session_data = enrichment_dict.get("session")
+            if isinstance(session_data, dict):
+                for key in session_data.keys():
+                    try:
+                        ip_obj = ipaddress.ip_address(key)
+                        # For botnet detection, allow private IPs since botnets often use
+                        # compromised internal networks
+                        # Only reject loopback and link-local addresses
+                        if not (ip_obj.is_loopback or ip_obj.is_link_local):
+                            return str(key)
+                    except ValueError:
+                        continue
             return None
         except Exception:
             return None
@@ -256,19 +269,25 @@ class BotnetCoordinatorDetector:
         session: SessionSummary,
         raw_events: Optional[List[RawEvent]] = None,
     ) -> Optional[Dict[str, str]]:
-        """Extract credentials from session or raw events."""
+        """Extract credentials from session or raw events.
+
+        Args:
+            session: SessionSummary instance
+            raw_events: Optional list of raw events to search
+
+        Returns:
+            Dict with username/password if found, None otherwise
+        """
         # Try to extract from raw events first
         if raw_events:
             for event in raw_events:
-                if (
-                    event.session_id == session.session_id
-                    and event.event_type == "cowrie.login.success"
-                    and event.payload
-                ):
-                    username = event.payload.get("username")
-                    password = event.payload.get("password")
-                    if username and password:
-                        return {"username": username, "password": password}
+                if event.session_id == session.session_id and event.event_type == "cowrie.login.success":
+                    payload_dict = get_payload_dict(event)
+                    if payload_dict:
+                        username = payload_dict.get("username")
+                        password = payload_dict.get("password")
+                        if username and password:
+                            return {"username": username, "password": password}
 
         # Fallback: try to extract from session enrichment or other sources
         # This would need to be implemented based on how credentials are stored
@@ -285,26 +304,33 @@ class BotnetCoordinatorDetector:
         command_stats: Optional[List[CommandStat]] = None,
         raw_events: Optional[List[RawEvent]] = None,
     ) -> List[str]:
-        """Extract command sequences from session, command stats, or raw events."""
+        """Extract command sequences from session, command stats, or raw events.
+
+        Args:
+            session: SessionSummary instance
+            command_stats: Optional list of command statistics
+            raw_events: Optional list of raw events
+
+        Returns:
+            List of command strings
+        """
         commands = []
 
         # Try to extract from command stats first
         if command_stats:
             for cmd_stat in command_stats:
                 if cmd_stat.session_id == session.session_id:
-                    commands.append(cmd_stat.command_normalized)
+                    commands.append(str(cmd_stat.command_normalized))
 
         # Try to extract from raw events
         if raw_events and not commands:
             for event in raw_events:
-                if (
-                    event.session_id == session.session_id
-                    and event.event_type == "cowrie.command.input"
-                    and event.payload
-                ):
-                    command = event.payload.get("input")
-                    if command:
-                        commands.append(command)
+                if event.session_id == session.session_id and event.event_type == "cowrie.command.input":
+                    payload_dict = get_payload_dict(event)
+                    if payload_dict:
+                        command = payload_dict.get("input")
+                        if command:
+                            commands.append(str(command))
 
         return commands
 
@@ -477,8 +503,8 @@ class BotnetCoordinatorDetector:
         # Collect geographic data
         all_countries = set()
         all_asns = set()
-        country_counts = Counter()
-        asn_counts = Counter()
+        country_counts: Counter[str] = Counter()
+        asn_counts: Counter[str] = Counter()
 
         for data in ip_data.values():
             all_countries.update(data["countries"])
@@ -534,7 +560,7 @@ class BotnetCoordinatorDetector:
         geographic_score = geographic_analysis["clustering_score"]
 
         # Calculate weighted composite score
-        composite_score = (
+        composite_score: float = (
             weights["credential"] * credential_score
             + weights["command"] * command_score
             + weights["timing"] * timing_score
