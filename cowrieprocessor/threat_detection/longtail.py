@@ -187,6 +187,8 @@ def run_longtail_analysis(
     sensitivity_threshold: float = 0.95,
     output_path: Optional[str] = None,
     store_results: bool = False,
+    window_start: Optional[datetime] = None,
+    window_end: Optional[datetime] = None,
 ) -> LongtailAnalysisResult:
     """Run longtail analysis on Cowrie data (core processor integration).
 
@@ -204,6 +206,8 @@ def run_longtail_analysis(
         sensitivity_threshold: Overall detection sensitivity
         output_path: Optional file path to write results
         store_results: Whether to store results in database
+        window_start: Optional start time for analysis window (overrides lookback_days)
+        window_end: Optional end time for analysis window (defaults to now)
 
     Returns:
         LongtailAnalysisResult with analysis findings
@@ -214,10 +218,22 @@ def run_longtail_analysis(
     session_factory = create_session_maker(engine)
 
     # Get sessions for analysis
-    window_start = datetime.now(UTC) - timedelta(days=lookback_days)
+    if window_start is not None:
+        # Use provided window start
+        analysis_window_start = window_start
+    else:
+        # Calculate window start based on lookback days
+        analysis_window_start = datetime.now(UTC) - timedelta(days=lookback_days)
+    
+    if window_end is not None:
+        # Use provided window end
+        analysis_window_end = window_end
+    else:
+        # Use current time as window end
+        analysis_window_end = datetime.now(UTC)
 
     with session_factory() as session:
-        sessions = session.query(SessionSummary).filter(SessionSummary.first_event_at >= window_start).all()
+        sessions = session.query(SessionSummary).filter(SessionSummary.first_event_at >= analysis_window_start).all()
 
     if not sessions:
         logger.warning(f"No sessions found for analysis window ({lookback_days} days)")
@@ -237,6 +253,25 @@ def run_longtail_analysis(
     )
 
     result = analyzer.analyze(sessions, lookback_days)
+
+    # Store results if requested
+    if store_results:
+        from .storage import store_longtail_analysis
+
+        try:
+            analysis_id = store_longtail_analysis(
+                session_factory=session_factory,
+                result=result,
+                window_start=analysis_window_start,
+                window_end=analysis_window_end,
+                lookback_days=lookback_days,
+                analyzer=analyzer,
+                sessions=sessions,
+            )
+            logger.info(f"Stored longtail analysis with ID {analysis_id}")
+        except Exception as e:
+            logger.error(f"Failed to store longtail analysis: {e}")
+            # Continue execution even if storage fails
 
     # Output results
     if output_path:
@@ -333,7 +368,7 @@ class LongtailAnalyzer:
 
         # Performance optimizations
         self._command_cache: Dict[str, Dict[str, List[str]]] = {}
-        self._memory_warning_threshold = 1.5 * 1024  # Default 1.5GB warning threshold
+        self._memory_warning_threshold = 6 * 1024  # Default 6GB warning threshold
 
     def analyze(self, sessions: List[SessionSummary], lookback_days: int) -> LongtailAnalysisResult:
         """Perform longtail analysis on sessions with resource monitoring.
@@ -364,14 +399,17 @@ class LongtailAnalyzer:
             else:
                 # Auto-detect based on system memory
                 total_memory_gb = psutil.virtual_memory().total / (1024**3)
-                if total_memory_gb >= 64:  # High-memory system (64GB+)
-                    memory_limit_mb = 8 * 1024  # 8GB
+                if total_memory_gb >= 100:  # Very high-memory system (100GB+)
+                    memory_limit_mb = 32 * 1024  # 32GB
+                    warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
+                elif total_memory_gb >= 64:  # High-memory system (64-100GB)
+                    memory_limit_mb = 16 * 1024  # 16GB
                     warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
                 elif total_memory_gb >= 16:  # Medium-memory system (16-64GB)
-                    memory_limit_mb = 4 * 1024  # 4GB
+                    memory_limit_mb = 8 * 1024  # 8GB
                     warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
                 else:  # Low-memory system (<16GB)
-                    memory_limit_mb = 2 * 1024  # 2GB
+                    memory_limit_mb = 4 * 1024  # 4GB
                     warning_threshold_mb = memory_limit_mb * self.memory_warning_threshold_fraction
 
                 logger.info(
@@ -383,10 +421,10 @@ class LongtailAnalyzer:
             resource.setrlimit(resource.RLIMIT_AS, (int(memory_limit_mb * 1024 * 1024), hard))
             self._memory_warning_threshold = warning_threshold_mb
         except Exception as e:
-            logger.warning(f"Could not set memory limits: {e}, using default 2GB limit")
+            logger.warning(f"Could not set memory limits: {e}, using default 8GB limit")
             soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-            resource.setrlimit(resource.RLIMIT_AS, (2 * 1024 * 1024 * 1024, hard))
-            self._memory_warning_threshold = 1.5 * 1024
+            resource.setrlimit(resource.RLIMIT_AS, (8 * 1024 * 1024 * 1024, hard))
+            self._memory_warning_threshold = 6 * 1024  # 6GB warning threshold
 
         start_time = time.perf_counter()
 
