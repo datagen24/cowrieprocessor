@@ -11,11 +11,11 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
-from sqlalchemy import text
+from sqlalchemy import Engine, Table, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..db import CURRENT_SCHEMA_VERSION, Files, apply_migrations
 from ..db.engine import create_engine_from_settings
@@ -54,17 +54,17 @@ class CowrieDatabase:
             db_url: Database connection URL (SQLite or PostgreSQL)
         """
         self.db_url = db_url
-        self._engine = None
-        self._session_maker = None
+        self._engine: Optional[Engine] = None
+        self._session_maker: Optional[sessionmaker[Session]] = None
 
-    def _get_engine(self):
+    def _get_engine(self) -> Engine:
         """Get or create SQLAlchemy engine."""
         if self._engine is None:
             settings = DatabaseSettings(url=self.db_url)
             self._engine = create_engine_from_settings(settings)
         return self._engine
 
-    def _get_session(self):
+    def _get_session(self) -> Session:
         """Get or create session maker."""
         if self._session_maker is None:
             self._session_maker = sessionmaker(bind=self._get_engine(), future=True)
@@ -484,7 +484,7 @@ class CowrieDatabase:
                 with sqlite3.connect(backup_path) as conn:
                     cursor = conn.execute("PRAGMA integrity_check")
                     result = cursor.fetchone()
-                    return result and result[0] == 'ok'
+                    return result is not None and result[0] == 'ok'
             elif self._is_postgresql():
                 # PostgreSQL backup verification (check if file exists and is not empty)
                 backup_file = Path(backup_path)
@@ -558,7 +558,11 @@ class CowrieDatabase:
                     try:
                         # Page integrity (SQLite specific)
                         cursor = conn.execute(text("PRAGMA page_count"))
-                        page_count = cursor.fetchone()[0]
+                        result = cursor.fetchone()
+                        if result is not None:
+                            page_count = result[0]
+                        else:
+                            page_count = 0
 
                         bad_pages = []
                         for page_num in range(1, page_count + 1):
@@ -649,11 +653,13 @@ class CowrieDatabase:
         Returns:
             Backfill result with statistics
         """
-        result = {
+        result: Dict[str, Any] = {
             'events_processed': 0,
             'files_inserted': 0,
             'errors': 0,
             'batches_processed': 0,
+            'message': '',  # Add message field
+            'error': '',  # Add error field
         }
 
         try:
@@ -670,7 +676,7 @@ class CowrieDatabase:
 
             # Query for file download events using JSON abstraction
             # Handle binary data gracefully by using safer JSON operators and separate connections
-            events = []
+            events: list[Any] = []
 
             # Primary query attempt - use a more restrictive approach to avoid binary data
             try:
@@ -871,18 +877,21 @@ class CowrieDatabase:
                     file_dicts.append(file_dict)
 
                 # Use database-specific conflict resolution
+                files_table = Files.__table__
+                assert isinstance(files_table, Table), "Files.__table__ should be a Table"
+
                 if dialect_name == "sqlite":
                     # SQLite syntax
-                    stmt = sqlite_insert(Files.__table__).values(file_dicts)
-                    stmt = stmt.on_conflict_do_nothing()
+                    sqlite_stmt = sqlite_insert(files_table).values(file_dicts)
+                    sqlite_stmt = sqlite_stmt.on_conflict_do_nothing()
+                    result = conn.execute(sqlite_stmt)
                 else:
                     # PostgreSQL syntax
                     from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
-                    stmt = postgres_insert(Files.__table__).values(file_dicts)
-                    stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
-
-                result = conn.execute(stmt)
+                    postgres_stmt = postgres_insert(files_table).values(file_dicts)
+                    postgres_stmt = postgres_stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
+                    result = conn.execute(postgres_stmt)
                 return int(result.rowcount or 0)
 
         except Exception as e:
@@ -894,7 +903,7 @@ class CowrieDatabase:
         batch_size: int = 1000,
         limit: Optional[int] = None,
         dry_run: bool = False,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[SanitizationMetrics], None]] = None,
     ) -> Dict[str, Any]:
         """Sanitize Unicode control characters in existing database records.
 
@@ -907,13 +916,15 @@ class CowrieDatabase:
         Returns:
             Sanitization result with statistics
         """
-        result = {
+        result: Dict[str, Any] = {
             'records_processed': 0,
             'records_updated': 0,
             'records_skipped': 0,
             'errors': 0,
             'batches_processed': 0,
             'dry_run': dry_run,
+            'message': '',  # Add message field
+            'error': '',  # Add error field
         }
 
         try:
@@ -1206,7 +1217,7 @@ class CowrieDatabase:
                 total_records = 0
                 valid_json_count = 0
                 invalid_json_count = 0
-                malformed_samples = []
+                malformed_samples: list[Any] = []
 
                 if dialect_name == "postgresql":
                     # For PostgreSQL, we sampled by ID so each payload counts as 1
@@ -1263,6 +1274,12 @@ class CowrieDatabase:
                         text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload = ''")
                     ).scalar()
                 total_raw_events = conn.execute(text("SELECT COUNT(*) FROM raw_events")).scalar()
+                
+                # Handle None values from scalar()
+                if total_raw_events is None:
+                    total_raw_events = 0
+                if empty_payloads is None:
+                    empty_payloads = 0
 
                 analysis_result = {
                     'sample_size': sample_size,
@@ -1350,15 +1367,23 @@ class CowrieDatabase:
                 """)
                 ).fetchone()
 
+                if result is not None:
+                    total_count = result[0]
+                    has_session_id = result[1]
+                    has_event_type = result[2]
+                    has_event_timestamp = result[3]
+                else:
+                    total_count = has_session_id = has_event_type = has_event_timestamp = 0
+
                 missing_analysis = {
-                    'total': result[0],
-                    'missing_session_id': result[0] - result[1],
-                    'missing_event_type': result[0] - result[2],
-                    'missing_event_timestamp': result[0] - result[3],
+                    'total': total_count,
+                    'missing_session_id': total_count - has_session_id,
+                    'missing_event_type': total_count - has_event_type,
+                    'missing_event_timestamp': total_count - has_event_timestamp,
                     'missing_percentages': {
-                        'session_id': ((result[0] - result[1]) / result[0] * 100) if result[0] > 0 else 0,
-                        'event_type': ((result[0] - result[2]) / result[0] * 100) if result[0] > 0 else 0,
-                        'event_timestamp': ((result[0] - result[3]) / result[0] * 100) if result[0] > 0 else 0,
+                        'session_id': ((total_count - has_session_id) / total_count * 100) if total_count > 0 else 0,
+                        'event_type': ((total_count - has_event_type) / total_count * 100) if total_count > 0 else 0,
+                        'event_timestamp': ((total_count - has_event_timestamp) / total_count * 100) if total_count > 0 else 0,
                     },
                 }
 
@@ -1524,7 +1549,7 @@ class CowrieDatabase:
                     payload_not_empty = "AND payload IS NOT NULL AND payload != ''"
 
                 try:
-                    result = conn.execute(
+                    count_result = conn.execute(
                         text(f"""
                         SELECT COUNT(*) as total_missing
                         FROM raw_events
@@ -1533,11 +1558,11 @@ class CowrieDatabase:
                     """)
                     ).fetchone()
 
-                    total_missing = result[0] if result else 0
+                    total_missing = count_result[0] if count_result else 0
                 except Exception:
                     # If we can't count due to binary data issues, fall back to a simpler query
                     logger.warning("Using fallback count query due to binary data in JSON payload")
-                    result = conn.execute(
+                    count_result = conn.execute(
                         text(f"""
                         SELECT COUNT(*) as total_missing
                         FROM raw_events
@@ -1546,7 +1571,7 @@ class CowrieDatabase:
                     """)
                     ).fetchone()
 
-                    total_missing = result[0] if result else 0
+                    total_missing = count_result[0] if count_result else 0
                 logger.info(f"Found {total_missing} records with missing fields in non-generated columns")
 
                 if total_missing == 0:
@@ -1577,7 +1602,7 @@ class CowrieDatabase:
                     # PostgreSQL bulk updates using JSON operators - handle binary data gracefully
                     if not session_id_generated and not dry_run:
                         try:
-                            result = conn.execute(
+                            update_result = conn.execute(
                                 text("""
                                 UPDATE raw_events
                                 SET session_id = payload->>'session'
@@ -1586,7 +1611,7 @@ class CowrieDatabase:
                                   AND (payload->'session') IS NOT NULL
                             """)
                             )
-                            session_id_updated = result.rowcount or 0
+                            session_id_updated = update_result.rowcount or 0
                         except Exception:
                             # If we can't process due to binary data, skip this field
                             logger.warning("Skipping session_id updates due to binary data in JSON payload")
@@ -1805,7 +1830,11 @@ class CowrieDatabase:
                     GROUP BY enrichment_status
                 """)
                 for row in conn.execute(status_query):
-                    result['enrichment_status'][row.enrichment_status] = row.count
+                    # Access row attributes safely
+                    enrichment_status = getattr(row, 'enrichment_status', None)
+                    count = getattr(row, 'count', 0)
+                    if enrichment_status is not None:
+                        result['enrichment_status'][enrichment_status] = count
 
                 # Malicious files - handle PostgreSQL boolean comparison
                 if self._is_postgresql():
@@ -1998,7 +2027,7 @@ class CowrieDatabase:
                     # Convert to list of dicts for PostgreSQL insert
                     records = []
                     for row in batch_data:
-                        record = {}
+                        record: dict[str, Any] = {}
                         for i, col_name in enumerate(column_names):
                             # Handle None values and type conversion
                             value = row[i]
@@ -2056,7 +2085,7 @@ class CowrieDatabase:
         """Validate the migration by comparing record counts."""
         logger.info("🔍 Validating migration...")
 
-        validation = {
+        validation: Dict[str, Any] = {
             'source_counts': {},
             'target_counts': {},
             'mismatches': [],
@@ -2186,7 +2215,7 @@ class CowrieDatabase:
 
             missing_tables = []
             for table in required_tables:
-                if not self._table_exists(engine, table):
+                if not self._table_exists(table):
                     missing_tables.append(table)
 
             if missing_tables:
@@ -2208,7 +2237,7 @@ class CowrieDatabase:
                     if has_pgvector:
                         pgvector_tables = ["command_sequence_vectors", "behavioral_vectors"]
                         for table in pgvector_tables:
-                            if not self._table_exists(engine, table):
+                            if not self._table_exists(table):
                                 logger.warning(f"⚠️  pgvector table {table} not found")
                     else:
                         logger.info("ℹ️  pgvector extension not available - vector analysis disabled")

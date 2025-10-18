@@ -212,7 +212,10 @@ def test_enhanced_procedures(engine: Engine) -> None:
         # Test circuit breaker
         print("Testing circuit breaker...")
         breaker_check = connection.execute(text("SELECT check_circuit_breaker('test_breaker')")).fetchone()
-        print(f"Circuit breaker check: {breaker_check[0]}")
+        if breaker_check is not None:
+            print(f"Circuit breaker check: {breaker_check[0]}")
+        else:
+            print("Circuit breaker check: No result")
 
         # Test health view
         print("Testing health view...")
@@ -228,10 +231,13 @@ def test_enhanced_procedures(engine: Engine) -> None:
         """),
             {"content": test_content},
         ).fetchone()
-        print(f"Repair test: {repair_result[0]}")
+        if repair_result is not None:
+            print(f"Repair test: {repair_result[0]}")
+        else:
+            print("Repair test: No result")
 
 
-def main() -> None:
+def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Enhanced PostgreSQL DLQ Processing")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -267,7 +273,7 @@ def main() -> None:
 
     if not args.command:
         parser.print_help()
-        return
+        return 0
 
     # Get database connection
     db_settings = load_database_settings()

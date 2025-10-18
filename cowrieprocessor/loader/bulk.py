@@ -12,10 +12,24 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Mapping, MutableMapping, Optional, Protocol, Sequence, Set, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Protocol,
+    Sequence,
+    Set,
+    TextIO,
+    cast,
+)
 
 from dateutil import parser as date_parser
-from sqlalchemy import Table, func, select
+from sqlalchemy import Engine, Table, func, select
 from sqlalchemy.dialects import sqlite as sqlite_dialect
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -162,7 +176,7 @@ class BulkLoader:
 
     def __init__(
         self,
-        engine,
+        engine: Engine,
         config: Optional[BulkLoaderConfig] = None,
         *,
         enrichment_service: Optional[SessionEnricher] = None,
@@ -783,7 +797,7 @@ class BulkLoader:
         logger.debug(f"Processing {file_type} file: {path}")
 
         opener = self._resolve_opener(path)
-        with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+        with opener(str(path)) as handle:
             if self.config.hybrid_json:
                 # Use improved hybrid processor
                 from .improved_hybrid import ImprovedHybridProcessor
@@ -795,7 +809,7 @@ class BulkLoader:
             else:
                 yield from self._iter_line_by_line(handle)
 
-    def _iter_hybrid_json(self, handle) -> Iterator[tuple[int, Any]]:
+    def _iter_hybrid_json(self, handle: TextIO) -> Iterator[tuple[int, Any]]:
         """Iterate through JSON that may contain both single-line and multiline objects."""
         accumulated_lines: list[str] = []
         start_offset = 0
@@ -893,6 +907,7 @@ class BulkLoader:
 
     def _bulk_insert_dead_letters(self, session: Session, dead_letter_records: List[JsonDict]) -> int:
         """Bulk insert dead letter events into the DLQ table."""
+        from sqlalchemy import insert
         from sqlalchemy.exc import IntegrityError
 
         from ..db import DeadLetterEvent
@@ -900,9 +915,9 @@ class BulkLoader:
         if not dead_letter_records:
             return 0
 
-        table = DeadLetterEvent.__table__
         try:
-            result = session.execute(table.insert(), dead_letter_records)
+            stmt = insert(DeadLetterEvent)
+            result = session.execute(stmt, dead_letter_records)
             return int(result.rowcount or 0)
         except IntegrityError:
             session.rollback()
@@ -910,14 +925,15 @@ class BulkLoader:
             inserted = 0
             for record in dead_letter_records:
                 try:
-                    session.execute(table.insert().values(**record))
+                    stmt = insert(DeadLetterEvent).values(**record)
+                    session.execute(stmt)
                     inserted += 1
                 except IntegrityError:
                     # Skip duplicates
                     pass
             return inserted
 
-    def _iter_line_by_line(self, handle) -> Iterator[tuple[int, Any]]:
+    def _iter_line_by_line(self, handle: TextIO) -> Iterator[tuple[int, Any]]:
         """Iterate through JSON lines, one object per line."""
         for offset, line in enumerate(handle):
             stripped = line.strip()
@@ -936,7 +952,7 @@ class BulkLoader:
                 continue
             yield offset, payload
 
-    def _iter_multiline_json(self, handle) -> Iterator[tuple[int, Any]]:
+    def _iter_multiline_json(self, handle: TextIO) -> Iterator[tuple[int, Any]]:
         """Iterate through potentially multiline JSON objects."""
         accumulated_lines: list[str] = []
         start_offset = 0
@@ -987,12 +1003,12 @@ class BulkLoader:
                 logger.debug(f"Final multiline JSON parsing failed at offset {start_offset}: {e}")
                 yield start_offset, self._make_dead_letter_event(combined_content)
 
-    def _resolve_opener(self, path: Path):
+    def _resolve_opener(self, path: Path) -> Callable[[str], TextIO]:
         if path.suffix == ".gz":
-            return gzip.open
+            return lambda p: gzip.open(p, "rt")
         if path.suffix == ".bz2":
-            return bz2.open
-        return open
+            return lambda p: bz2.open(p, "rt")
+        return lambda p: open(p, "rt")
 
     def _parse_timestamp(self, raw: Any) -> Optional[datetime]:
         if not raw:

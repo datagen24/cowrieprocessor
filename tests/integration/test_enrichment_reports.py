@@ -11,7 +11,7 @@ import pytest
 
 
 @pytest.fixture
-def test_database_with_enrichment():
+def test_database_with_enrichment() -> None:
     """Create test database with enrichment data for report testing."""
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
         db_path = Path(tmp.name)
@@ -181,7 +181,7 @@ def test_database_with_enrichment():
 class TestEnrichmentInSessionReports:
     """Test that enrichment data appears in session reports."""
 
-    def test_session_report_includes_dshield_data(self, test_database_with_enrichment):
+    def test_session_report_includes_dshield_data(self, test_database_with_enrichment) -> None:
         """Test that DShield data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -209,7 +209,7 @@ class TestEnrichmentInSessionReports:
         assert "US" in report_content
         assert "DShield" in report_content or "ASN" in report_content
 
-    def test_session_report_includes_spur_data(self, test_database_with_enrichment):
+    def test_session_report_includes_spur_data(self, test_database_with_enrichment) -> None:
         """Test that SPUR data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -241,7 +241,7 @@ class TestEnrichmentInSessionReports:
         assert "Amazon.com" in report_content
         assert "DATACENTER" in report_content
 
-    def test_session_report_includes_urlhaus_data(self, test_database_with_enrichment):
+    def test_session_report_includes_urlhaus_data(self, test_database_with_enrichment) -> None:
         """Test that URLHaus data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -267,7 +267,7 @@ class TestEnrichmentInSessionReports:
         assert "malware" in report_content
         assert "trojan" in report_content
 
-    def test_multiple_sessions_enrichment_consistency(self, test_database_with_enrichment):
+    def test_multiple_sessions_enrichment_consistency(self, test_database_with_enrichment) -> None:
         """Test that enrichment data is consistent across multiple sessions."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -312,7 +312,7 @@ class TestEnrichmentInSessionReports:
 class TestEnrichmentInFileReports:
     """Test that enrichment data appears in file reports."""
 
-    def test_file_report_includes_vt_data(self, test_database_with_enrichment):
+    def test_file_report_includes_vt_data(self, test_database_with_enrichment) -> None:
         """Test that VirusTotal data appears in file reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -343,7 +343,7 @@ class TestEnrichmentInFileReports:
             assert file_data["vt_classification"] in report_content
             assert str(file_data["vt_malicious"]) in report_content
 
-    def test_file_report_enrichment_metadata(self, test_database_with_enrichment):
+    def test_file_report_enrichment_metadata(self, test_database_with_enrichment) -> None:
         """Test that file report includes comprehensive enrichment metadata."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -381,7 +381,7 @@ class TestEnrichmentInFileReports:
 class TestReportEnrichmentIntegration:
     """Test integration of enrichment data in full reports."""
 
-    def test_daily_report_includes_enrichment_summary(self, test_database_with_enrichment):
+    def test_daily_report_includes_enrichment_summary(self, test_database_with_enrichment) -> None:
         """Test that daily reports include enrichment summaries."""
         # Mock the report generation process
         conn = sqlite3.connect(test_database_with_enrichment)
@@ -411,7 +411,7 @@ class TestReportEnrichmentIntegration:
         assert "malicious_files" in str(summary)
         assert "unique_asns" in str(summary)
 
-    def test_abnormal_activity_report_enrichment_flags(self, test_database_with_enrichment):
+    def test_abnormal_activity_report_enrichment_flags(self, test_database_with_enrichment) -> None:
         """Test that abnormal activity reports flag suspicious enrichment data."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -445,7 +445,7 @@ class TestReportEnrichmentIntegration:
 class TestEnrichmentReportFormatting:
     """Test formatting of enrichment data in reports."""
 
-    def test_enrichment_data_formatting_consistency(self, test_database_with_enrichment):
+    def test_enrichment_data_formatting_consistency(self, test_database_with_enrichment) -> None:
         """Test that enrichment data is formatted consistently in reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -477,7 +477,7 @@ class TestEnrichmentReportFormatting:
             if spur_data[1]:  # Organization
                 assert spur_data[1] in report_content
 
-    def test_enrichment_tags_parsing_and_display(self, test_database_with_enrichment):
+    def test_enrichment_tags_parsing_and_display(self, test_database_with_enrichment) -> None:
         """Test that URLHaus tags are properly parsed and displayed."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -497,7 +497,7 @@ class TestEnrichmentReportFormatting:
             formatted_tags = self._format_urlhaus_tags(tags)
             assert "malware" in formatted_tags or "trojan" in formatted_tags or "botnet" in formatted_tags
 
-    def test_vt_classification_display(self, test_database_with_enrichment):
+    def test_vt_classification_display(self, test_database_with_enrichment) -> None:
         """Test that VT classifications are displayed appropriately."""
         conn = sqlite3.connect(test_database_with_enrichment)
 

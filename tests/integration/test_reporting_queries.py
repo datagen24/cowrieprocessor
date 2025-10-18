@@ -19,7 +19,7 @@ from cowrieprocessor.settings import DatabaseSettings
 class TestReportingQueries:
     """Test reporting queries with JSON abstraction layer."""
 
-    def test_session_stats_with_json_abstraction(self):
+    def test_session_stats_with_json_abstraction(self) -> None:
         """Test session statistics using JSON abstraction layer."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -134,7 +134,7 @@ class TestReportingQueries:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_top_commands_with_json_abstraction(self):
+    def test_top_commands_with_json_abstraction(self) -> None:
         """Test top commands query using JSON abstraction layer."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -216,7 +216,7 @@ class TestReportingQueries:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_top_file_downloads_with_json_abstraction(self):
+    def test_top_file_downloads_with_json_abstraction(self) -> None:
         """Test top file downloads query using JSON abstraction layer."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -298,7 +298,7 @@ class TestReportingQueries:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_reporting_queries_without_sensor_filter(self):
+    def test_reporting_queries_without_sensor_filter(self) -> None:
         """Test reporting queries without sensor filter."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -375,7 +375,7 @@ class TestReportingQueries:
 class TestReportingIntegration:
     """Integration tests for reporting system."""
 
-    def test_full_reporting_workflow(self):
+    def test_full_reporting_workflow(self) -> None:
         """Test complete reporting workflow with JSON abstraction."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name

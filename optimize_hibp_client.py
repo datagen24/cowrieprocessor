@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 
-def improve_hibp_client():
+def improve_hibp_client() -> None:
     """Add retry logic and better error handling to HIBP client."""
     # Create a patch for the HIBP client's check_password method
     patch_code = '''

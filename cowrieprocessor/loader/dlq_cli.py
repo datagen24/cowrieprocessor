@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 from ..db.engine import create_engine_from_settings, create_session_maker
 from ..db.models import DeadLetterEvent, RawEvent
@@ -36,7 +36,7 @@ def analyze_dlq_patterns(db_path: Optional[str] = None) -> None:
     print("\n--- Common Issues ---")
     if patterns['common_issues']:
         # Analyze common issues
-        issue_counts = {}
+        issue_counts: dict[str, int] = {}
         for issue in patterns['common_issues']:
             strategy = issue.get('suggested_strategy', 'unknown')
             issue_counts[strategy] = issue_counts.get(strategy, 0) + 1
@@ -96,7 +96,7 @@ def validate_cowrie_events(db_path: Optional[str] = None, limit: Optional[int] =
 
         events = query.all()
 
-        validation_stats = {
+        validation_stats: dict[str, Any] = {
             "total": len(events),
             "valid": 0,
             "invalid": 0,
@@ -105,8 +105,10 @@ def validate_cowrie_events(db_path: Optional[str] = None, limit: Optional[int] =
 
         for event in events:
             payload = event.payload
-            if isinstance(payload, dict):
-                is_valid, errors = validator.validate_event(payload)
+            # Handle SQLAlchemy Column type - use getattr to avoid type issues
+            payload_data = getattr(event, 'payload', None)
+            if hasattr(payload_data, 'items') and callable(getattr(payload_data, 'items')):
+                is_valid, errors = validator.validate_event(payload_data)  # type: ignore[arg-type]
 
                 if is_valid:
                     validation_stats["valid"] += 1
@@ -182,15 +184,16 @@ def export_dlq_events(
     session_factory = create_session_maker(engine)
 
     with session_factory() as session:
-        query = session.query(DeadLetterEvent).filter(not DeadLetterEvent.resolved)
+        from sqlalchemy import select
+        stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
 
         if reason_filter:
-            query = query.filter(DeadLetterEvent.reason == reason_filter)
+            stmt = stmt.where(DeadLetterEvent.reason == reason_filter)
 
         if limit:
-            query = query.limit(limit)
+            stmt = stmt.limit(limit)
 
-        dlq_events = query.all()
+        dlq_events = session.execute(stmt).scalars().all()
 
         export_data = []
         for event in dlq_events:

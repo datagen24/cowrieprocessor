@@ -22,12 +22,14 @@ def _load_sensors_config() -> dict[str, str] | None:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+            toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
-            import tomli as tomllib
+            import tomli
+            toml_loader = tomli
 
         with sensors_file.open("rb") as handle:
-            data = tomllib.load(handle)
+            data = toml_loader.load(handle)
 
         # Check for global database configuration
         global_config = data.get("global", {})

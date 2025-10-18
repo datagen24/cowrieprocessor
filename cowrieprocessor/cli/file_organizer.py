@@ -8,7 +8,7 @@ import argparse
 import logging
 import shutil
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from ..utils.file_type_detector import FileTypeDetector
 
@@ -26,7 +26,13 @@ def organize_files(source_directory: Path, dry_run: bool = True, move_files: boo
     Returns:
         Dictionary mapping file types to lists of file paths
     """
-    results = {'iptables_files': [], 'cowrie_files': [], 'webhoneypot_files': [], 'unknown_files': [], 'errors': []}
+    results: Dict[str, List[Any]] = {
+        'iptables_files': [], 
+        'cowrie_files': [], 
+        'webhoneypot_files': [], 
+        'unknown_files': [], 
+        'errors': []
+    }
 
     # Find all files recursively
     for file_path in source_directory.rglob('*'):
@@ -96,7 +102,7 @@ def _get_target_directory(file_path: Path, target_type: str) -> Path:
     return file_path.parent / 'NSM' / target_type
 
 
-def main():
+def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(description="Organize files by content type")
     parser.add_argument('source', help="Source directory to scan")
@@ -147,14 +153,14 @@ def main():
 
     if results['unknown_files']:
         print(f"Found {len(results['unknown_files'])} unknown files:")
-        for file_path, file_type, reason in results['unknown_files']:
-            print(f"  {file_path} (type: {file_type}, reason: {reason})")
+        for file_path, file_type, reason in results['unknown_files']:  # type: ignore
+            print(f"  {file_path} (type: {file_type}, reason: {reason})")  # type: ignore[has-type]
         print()
 
     if results['errors']:
         print(f"Encountered {len(results['errors'])} errors:")
-        for file_path, error in results['errors']:
-            print(f"  {file_path}: {error}")
+        for file_path, error in results['errors']:  # type: ignore
+            print(f"  {file_path}: {error}")  # type: ignore[has-type]
         print()
 
     total_moved = len(results['iptables_files']) + len(results['cowrie_files']) + len(results['webhoneypot_files'])

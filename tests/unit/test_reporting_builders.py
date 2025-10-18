@@ -73,7 +73,7 @@ def _prepare_repository(tmp_path):
     return ReportingRepository(factory)
 
 
-def test_daily_report_builder(tmp_path):
+def test_daily_report_builder(tmp_path) -> None:
     """Daily report builder returns expected payload."""
     repo = _prepare_repository(tmp_path)
     builder = DailyReportBuilder(repo, top_n=5)

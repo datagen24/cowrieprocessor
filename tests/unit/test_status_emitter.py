@@ -9,7 +9,7 @@ from cowrieprocessor.loader.bulk import BulkLoaderMetrics, LoaderCheckpoint
 from cowrieprocessor.status_emitter import StatusEmitter
 
 
-def test_status_emitter_writes_metrics_and_checkpoint(tmp_path):
+def test_status_emitter_writes_metrics_and_checkpoint(tmp_path) -> None:
     """Status emitter should persist metrics, checkpoints, and DLQ data."""
     status_dir = tmp_path / "status"
     emitter = StatusEmitter("delta", status_dir=status_dir)

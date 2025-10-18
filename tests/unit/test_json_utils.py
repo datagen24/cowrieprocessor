@@ -34,7 +34,7 @@ class JSONTestModel(Base):
 class TestJSONAccessor:
     """Test cases for JSONAccessor class."""
 
-    def test_get_field_sqlite(self):
+    def test_get_field_sqlite(self) -> None:
         """Test JSON field extraction for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.get_field(column, "src_ip", "sqlite")
@@ -44,7 +44,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries, so we check the function type
         assert hasattr(result, 'clause_expr')  # Check it's a function call
 
-    def test_get_field_postgresql(self):
+    def test_get_field_postgresql(self) -> None:
         """Test JSON field extraction for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.get_field(column, "src_ip", "postgresql")
@@ -54,7 +54,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries, so field names are in parameters
         assert hasattr(result, 'left')  # Check it's a binary expression
 
-    def test_get_nested_field_sqlite(self):
+    def test_get_nested_field_sqlite(self) -> None:
         """Test nested JSON field extraction for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.get_nested_field(column, "user.profile.name", "sqlite")
@@ -64,7 +64,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries, so field names are in parameters
         assert hasattr(result, 'clause_expr')  # Check it's a function call
 
-    def test_get_nested_field_postgresql(self):
+    def test_get_nested_field_postgresql(self) -> None:
         """Test nested JSON field extraction for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.get_nested_field(column, "user.profile.name", "postgresql")
@@ -74,7 +74,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries, so field names are in parameters
         assert hasattr(result, 'left')  # Check it's a binary expression
 
-    def test_field_exists_sqlite(self):
+    def test_field_exists_sqlite(self) -> None:
         """Test field existence check for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_exists(column, "src_ip", "sqlite")
@@ -83,7 +83,7 @@ class TestJSONAccessor:
         assert "json_extract" in str(result)
         assert "IS NOT NULL" in str(result)
 
-    def test_field_exists_postgresql(self):
+    def test_field_exists_postgresql(self) -> None:
         """Test field existence check for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_exists(column, "src_ip", "postgresql")
@@ -92,7 +92,7 @@ class TestJSONAccessor:
         assert "->>" in str(result)
         assert "IS NOT NULL" in str(result)
 
-    def test_field_not_empty_sqlite(self):
+    def test_field_not_empty_sqlite(self) -> None:
         """Test field not empty check for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_not_empty(column, "src_ip", "sqlite")
@@ -102,7 +102,7 @@ class TestJSONAccessor:
         assert "IS NOT NULL" in str(result)
         assert "!=" in str(result)
 
-    def test_field_not_empty_postgresql(self):
+    def test_field_not_empty_postgresql(self) -> None:
         """Test field not empty check for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_not_empty(column, "src_ip", "postgresql")
@@ -112,7 +112,7 @@ class TestJSONAccessor:
         assert "IS NOT NULL" in str(result)
         assert "!=" in str(result)
 
-    def test_field_equals_sqlite(self):
+    def test_field_equals_sqlite(self) -> None:
         """Test field equality check for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_equals(column, "eventid", "cowrie.session.connect", "sqlite")
@@ -122,7 +122,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries
         # SQLAlchemy uses parameterized queries
 
-    def test_field_equals_postgresql(self):
+    def test_field_equals_postgresql(self) -> None:
         """Test field equality check for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_equals(column, "eventid", "cowrie.session.connect", "postgresql")
@@ -132,7 +132,7 @@ class TestJSONAccessor:
         # SQLAlchemy uses parameterized queries
         # SQLAlchemy uses parameterized queries
 
-    def test_field_like_sqlite(self):
+    def test_field_like_sqlite(self) -> None:
         """Test field LIKE check for SQLite."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_like(column, "eventid", "%command%", "sqlite")
@@ -142,7 +142,7 @@ class TestJSONAccessor:
         assert "LIKE" in str(result)
         # SQLAlchemy uses parameterized queries
 
-    def test_field_like_postgresql(self):
+    def test_field_like_postgresql(self) -> None:
         """Test field LIKE check for PostgreSQL."""
         column = JSONTestModel.payload
         result = JSONAccessor.field_like(column, "eventid", "%command%", "postgresql")
@@ -156,7 +156,7 @@ class TestJSONAccessor:
 class TestConvenienceFunctions:
     """Test cases for convenience functions."""
 
-    def test_json_field_sqlite(self):
+    def test_json_field_sqlite(self) -> None:
         """Test json_field convenience function for SQLite."""
         column = JSONTestModel.payload
         result = json_field(column, "src_ip", "sqlite")
@@ -164,7 +164,7 @@ class TestConvenienceFunctions:
         assert "json_extract" in str(result)
         # SQLAlchemy uses parameterized queries
 
-    def test_json_field_postgresql(self):
+    def test_json_field_postgresql(self) -> None:
         """Test json_field convenience function for PostgreSQL."""
         column = JSONTestModel.payload
         result = json_field(column, "src_ip", "postgresql")
@@ -172,7 +172,7 @@ class TestConvenienceFunctions:
         assert "->>" in str(result)
         # SQLAlchemy uses parameterized queries
 
-    def test_json_field_exists_sqlite(self):
+    def test_json_field_exists_sqlite(self) -> None:
         """Test json_field_exists convenience function for SQLite."""
         column = JSONTestModel.payload
         result = json_field_exists(column, "src_ip", "sqlite")
@@ -180,7 +180,7 @@ class TestConvenienceFunctions:
         assert "json_extract" in str(result)
         assert "IS NOT NULL" in str(result)
 
-    def test_json_field_exists_postgresql(self):
+    def test_json_field_exists_postgresql(self) -> None:
         """Test json_field_exists convenience function for PostgreSQL."""
         column = JSONTestModel.payload
         result = json_field_exists(column, "src_ip", "postgresql")
@@ -188,7 +188,7 @@ class TestConvenienceFunctions:
         assert "->>" in str(result)
         assert "IS NOT NULL" in str(result)
 
-    def test_json_field_not_empty_sqlite(self):
+    def test_json_field_not_empty_sqlite(self) -> None:
         """Test json_field_not_empty convenience function for SQLite."""
         column = JSONTestModel.payload
         result = json_field_not_empty(column, "src_ip", "sqlite")
@@ -197,7 +197,7 @@ class TestConvenienceFunctions:
         assert "IS NOT NULL" in str(result)
         assert "!=" in str(result)
 
-    def test_json_field_not_empty_postgresql(self):
+    def test_json_field_not_empty_postgresql(self) -> None:
         """Test json_field_not_empty convenience function for PostgreSQL."""
         column = JSONTestModel.payload
         result = json_field_not_empty(column, "src_ip", "postgresql")
@@ -206,7 +206,7 @@ class TestConvenienceFunctions:
         assert "IS NOT NULL" in str(result)
         assert "!=" in str(result)
 
-    def test_json_field_equals_sqlite(self):
+    def test_json_field_equals_sqlite(self) -> None:
         """Test json_field_equals convenience function for SQLite."""
         column = JSONTestModel.payload
         result = json_field_equals(column, "eventid", "cowrie.session.connect", "sqlite")
@@ -215,7 +215,7 @@ class TestConvenienceFunctions:
         # SQLAlchemy uses parameterized queries
         # SQLAlchemy uses parameterized queries
 
-    def test_json_field_equals_postgresql(self):
+    def test_json_field_equals_postgresql(self) -> None:
         """Test json_field_equals convenience function for PostgreSQL."""
         column = JSONTestModel.payload
         result = json_field_equals(column, "eventid", "cowrie.session.connect", "postgresql")
@@ -224,7 +224,7 @@ class TestConvenienceFunctions:
         # SQLAlchemy uses parameterized queries
         # SQLAlchemy uses parameterized queries
 
-    def test_json_field_like_sqlite(self):
+    def test_json_field_like_sqlite(self) -> None:
         """Test json_field_like convenience function for SQLite."""
         column = JSONTestModel.payload
         result = json_field_like(column, "eventid", "%command%", "sqlite")
@@ -233,7 +233,7 @@ class TestConvenienceFunctions:
         assert "LIKE" in str(result)
         # SQLAlchemy uses parameterized queries
 
-    def test_json_field_like_postgresql(self):
+    def test_json_field_like_postgresql(self) -> None:
         """Test json_field_like convenience function for PostgreSQL."""
         column = JSONTestModel.payload
         result = json_field_like(column, "eventid", "%command%", "postgresql")
@@ -246,7 +246,7 @@ class TestConvenienceFunctions:
 class TestDialectDetection:
     """Test cases for dialect detection functions."""
 
-    def test_get_dialect_name_sqlite(self):
+    def test_get_dialect_name_sqlite(self) -> None:
         """Test dialect name detection for SQLite."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -262,7 +262,7 @@ class TestDialectDetection:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_get_dialect_name_postgresql(self):
+    def test_get_dialect_name_postgresql(self) -> None:
         """Test dialect name detection for PostgreSQL."""
         # This test would require a PostgreSQL connection
         # For now, we'll just test the function logic with a mock engine
@@ -282,7 +282,7 @@ class TestDialectDetection:
 class TestIntegration:
     """Integration tests for JSON operations."""
 
-    def test_json_operations_with_sqlite(self):
+    def test_json_operations_with_sqlite(self) -> None:
         """Test JSON operations with actual SQLite database."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name
@@ -342,7 +342,7 @@ class TestIntegration:
         finally:
             Path(db_path).unlink(missing_ok=True)
 
-    def test_json_operations_with_empty_fields(self):
+    def test_json_operations_with_empty_fields(self) -> None:
         """Test JSON operations with empty/null fields."""
         with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp_file:
             db_path = tmp_file.name

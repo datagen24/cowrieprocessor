@@ -5,6 +5,7 @@ import json
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 
 def _render_status(name: str, data: dict) -> None:
@@ -114,7 +115,7 @@ def _render_status(name: str, data: dict) -> None:
         print(f"  Sessions: {sessions_processed}/{total_sessions}")
 
 
-def monitor_progress():
+def monitor_progress() -> None:
     """Monitor database size and status file changes."""
     db_path = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
     status_dir = Path("/mnt/dshield/data/logs/status")
@@ -123,7 +124,7 @@ def monitor_progress():
     print("Press Ctrl+C to stop")
 
     last_db_size = 0
-    last_status = {}
+    last_status: dict[str, Any] = {}
 
     try:
         while True:

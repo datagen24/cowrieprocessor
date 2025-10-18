@@ -20,7 +20,7 @@ from tests.fixtures.enrichment_fixtures import (
 
 
 @pytest.fixture
-def test_database():
+def test_database() -> None:
     """Create temporary test database with required schema."""
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
         db_path = Path(tmp.name)
@@ -91,7 +91,7 @@ def mock_enrichment_handlers():
 class TestSessionEnrichmentIntegration:
     """Test complete session enrichment workflows."""
 
-    def test_session_enrichment_with_all_services(self, test_database, mock_enrichment_handlers):
+    def test_session_enrichment_with_all_services(self, test_database, mock_enrichment_handlers) -> None:
         """Test session enrichment with all external services."""
         # Create test session data
         session_data = {
@@ -146,7 +146,7 @@ class TestSessionEnrichmentIntegration:
             assert len(spur_result) == 18
             assert spur_result[0] == "16509"  # ASN number
 
-    def test_file_enrichment_integration(self, test_database, mock_enrichment_handlers):
+    def test_file_enrichment_integration(self, test_database, mock_enrichment_handlers) -> None:
         """Test file enrichment integration during processing."""
         # Create test file data
         file_data = {
@@ -194,7 +194,7 @@ class TestSessionEnrichmentIntegration:
                 # Verify VT handler was configured to be called
                 assert mock_enrichment_handlers['vt'].called is False  # Not called directly
 
-    def test_enrichment_failure_graceful_handling(self, test_database):
+    def test_enrichment_failure_graceful_handling(self, test_database) -> None:
         """Test that enrichment failures don't break the main processing flow."""
         # Create test data
         session_data = {
@@ -252,7 +252,7 @@ class TestSessionEnrichmentIntegration:
 class TestEnrichmentMetadataInReports:
     """Test that enrichment metadata appears in generated reports."""
 
-    def test_session_report_includes_enrichment_data(self, test_database):
+    def test_session_report_includes_enrichment_data(self, test_database) -> None:
         """Test that session reports include enrichment metadata."""
         # Insert session with enrichment data
         conn = sqlite3.connect(test_database)
@@ -293,7 +293,7 @@ class TestEnrichmentMetadataInReports:
         assert "DATACENTER" in session["spur_data"]
         assert "malware" in session["urlhaus_tags"]
 
-    def test_file_report_includes_vt_enrichment(self, test_database):
+    def test_file_report_includes_vt_enrichment(self, test_database) -> None:
         """Test that file reports include VirusTotal enrichment data."""
         # Insert file with VT enrichment data
         conn = sqlite3.connect(test_database)
@@ -337,7 +337,7 @@ class TestEnrichmentMetadataInReports:
 class TestConcurrentEnrichmentProcessing:
     """Test concurrent enrichment processing scenarios."""
 
-    def test_multiple_sessions_enrichment(self, test_database, mock_enrichment_handlers):
+    def test_multiple_sessions_enrichment(self, test_database, mock_enrichment_handlers) -> None:
         """Test enriching multiple sessions concurrently."""
         import threading
 
@@ -402,7 +402,7 @@ class TestConcurrentEnrichmentProcessing:
             assert result["dshield"]["ip"]["asname"] == "AMAZON-02"
             assert len(result["spur"]) == 18
 
-    def test_enrichment_rate_limiting_simulation(self, test_database):
+    def test_enrichment_rate_limiting_simulation(self, test_database) -> None:
         """Test behavior under rate limiting conditions."""
         session_data = {
             "session": "rate_limit_test",
@@ -455,7 +455,7 @@ class TestConcurrentEnrichmentProcessing:
 class TestEnrichmentDataConsistency:
     """Test consistency of enrichment data across different scenarios."""
 
-    def test_enrichment_data_persistence_across_calls(self, test_database, tmp_path):
+    def test_enrichment_data_persistence_across_calls(self, test_database, tmp_path) -> None:
         """Test that enrichment data is consistently cached and retrieved."""
         # Create cache directory
         cache_dir = tmp_path / "cache"
@@ -476,7 +476,7 @@ class TestEnrichmentDataConsistency:
         # Results should be identical
         assert result1 == result2
 
-    def test_enrichment_data_isolation_between_ips(self, test_database, tmp_path):
+    def test_enrichment_data_isolation_between_ips(self, test_database, tmp_path) -> None:
         """Test that different IPs get separate enrichment data."""
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
@@ -499,7 +499,7 @@ class TestEnrichmentDataConsistency:
 class TestEnrichmentErrorRecovery:
     """Test error recovery and resilience in enrichment workflows."""
 
-    def test_partial_enrichment_failure_recovery(self, test_database):
+    def test_partial_enrichment_failure_recovery(self, test_database) -> None:
         """Test recovery when some enrichment services fail."""
         session_data = {
             "session": "partial_failure_test",
@@ -543,7 +543,7 @@ class TestEnrichmentErrorRecovery:
             spur_result = read_spur_data("192.168.1.175", "test-key")
             assert spur_result == [""] * 18
 
-    def test_complete_enrichment_failure_recovery(self, test_database):
+    def test_complete_enrichment_failure_recovery(self, test_database) -> None:
         """Test recovery when all enrichment services fail."""
         session_data = {
             "session": "complete_failure_test",
@@ -595,7 +595,7 @@ class TestEnrichmentErrorRecovery:
 class TestEnrichmentPerformanceScenarios:
     """Test enrichment performance under various load conditions."""
 
-    def test_bulk_enrichment_performance(self, test_database):
+    def test_bulk_enrichment_performance(self, test_database) -> None:
         """Test enrichment performance with many sessions."""
         # Create many test sessions
         sessions = []

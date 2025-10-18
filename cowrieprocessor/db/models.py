@@ -23,7 +23,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.sql.elements import Case
+from sqlalchemy.sql.elements import Case, ColumnElement
 
 from .base import Base
 from .json_utils import get_dialect_name_from_engine
@@ -137,7 +137,7 @@ class RawEvent(Base):
 
         if dialect_name == "postgresql":
             # PostgreSQL: cast JSON string to TIMESTAMP WITH TIME ZONE
-            json_timestamp = func.cast(
+            json_timestamp: ColumnElement[Any] = func.cast(
                 func.json_extract(cls.payload, "$.timestamp"), postgresql.TIMESTAMP(timezone=True)
             )
         else:
@@ -384,6 +384,41 @@ class LongtailDetection(Base):
         Index("ix_longtail_detections_session", "session_id"),
         Index("ix_longtail_detections_timestamp", "timestamp"),
         Index("ix_longtail_detections_created", "created_at"),  # Follow snowshoe pattern
+    )
+
+
+class LongtailDetectionSession(Base):
+    """Junction table linking longtail detections to sessions for Many-to-Many relationships."""
+
+    __tablename__ = "longtail_detection_sessions"
+
+    detection_id = Column(Integer, ForeignKey("longtail_detections.id", ondelete="CASCADE"), primary_key=True)
+    session_id = Column(String(64), ForeignKey("session_summaries.session_id", ondelete="CASCADE"), primary_key=True)
+
+    __table_args__ = (
+        Index("ix_longtail_detection_sessions_detection", "detection_id"),
+        Index("ix_longtail_detection_sessions_session", "session_id"),
+    )
+
+
+class LongtailAnalysisCheckpoint(Base):
+    """Track analysis checkpoints for incremental processing and performance optimization."""
+
+    __tablename__ = "longtail_analysis_checkpoints"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    checkpoint_date = Column(Date, nullable=False, unique=True)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    window_end = Column(DateTime(timezone=True), nullable=False)
+    sessions_analyzed = Column(Integer, nullable=False)
+    vocabulary_hash = Column(String(64), nullable=False)
+    last_analysis_id = Column(Integer, ForeignKey("longtail_analysis.id"), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_longtail_checkpoints_date", "checkpoint_date"),
+        Index("ix_longtail_checkpoints_window", "window_start", "window_end"),
+        Index("ix_longtail_checkpoints_analysis", "last_analysis_id"),
     )
 
 

@@ -16,9 +16,11 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 from cowrieprocessor.db import apply_migrations
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
+from cowrieprocessor.db.settings import DatabaseSettings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -56,12 +58,12 @@ def check_prerequisites() -> bool:
         return False
 
 
-def validate_database_features(db_url: str) -> dict[str, any]:
+def validate_database_features(db_url: str) -> dict[str, Any]:
     """Validate database features for longtail analysis."""
     logger.info(f"Validating database features for: {db_url}")
 
     try:
-        engine = create_engine_from_settings(db_url)
+        engine = create_engine_from_settings(DatabaseSettings(url=db_url))
         features = detect_database_features(engine)
 
         logger.info(f"Database type: {features['database_type']}")
@@ -90,12 +92,12 @@ def validate_database_features(db_url: str) -> dict[str, any]:
         }
 
 
-def run_database_migration(db_url: str, dry_run: bool = False) -> dict[str, any]:
+def run_database_migration(db_url: str, dry_run: bool = False) -> dict[str, Any]:
     """Run database migration for longtail analysis."""
     logger.info(f"Running database migration (dry_run={dry_run})...")
 
     try:
-        engine = create_engine_from_settings(db_url)
+        engine = create_engine_from_settings(DatabaseSettings(url=db_url))
 
         if dry_run:
             logger.info("🔍 DRY RUN: Would apply v9 migration")
@@ -122,7 +124,7 @@ def run_database_migration(db_url: str, dry_run: bool = False) -> dict[str, any]
         }
 
 
-def run_deployment_validation(db_url: str) -> dict[str, any]:
+def run_deployment_validation(db_url: str) -> dict[str, Any]:
     """Run comprehensive deployment validation."""
     logger.info("Running deployment validation...")
 
