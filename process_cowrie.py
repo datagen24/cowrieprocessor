@@ -1810,9 +1810,9 @@ def print_session_info(
                             )
                             + "\n"
                         )
-                        if (datetime.datetime.now() - datetime.datetime.fromtimestamp(
-                            int(vt_first_submission)
-                        )).days <= 5:
+                        if (
+                            datetime.datetime.now() - datetime.datetime.fromtimestamp(int(vt_first_submission))
+                        ).days <= 5:
                             abnormal_attacks.add(session)
                             vt_recent_submissions.add(session)
                     attackstring += "{:>30s}  {:<6d}".format("VT Malicious Hits", (vt_malicious or 0)) + "\n"

@@ -149,7 +149,7 @@ def _create_publisher(args: argparse.Namespace) -> Optional[ElasticsearchPublish
     # Create Elasticsearch client
     try:
         from elasticsearch import Elasticsearch
-        
+
         if args.es_cloud_id:
             client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
         else:
@@ -175,7 +175,7 @@ def _create_elasticsearch_publisher(args: argparse.Namespace) -> ElasticsearchPu
     # Create Elasticsearch client
     try:
         from elasticsearch import Elasticsearch
-        
+
         if args.es_cloud_id:
             client = Elasticsearch(cloud_id=args.es_cloud_id, verify_certs=not args.no_ssl_verify)
         else:
@@ -190,9 +190,7 @@ def _create_elasticsearch_publisher(args: argparse.Namespace) -> ElasticsearchPu
     )
 
 
-def _target_sensors(
-    repository: ReportingRepository, mode: str, sensor: Optional[str], all_sensors: bool
-) -> List[str]:
+def _target_sensors(repository: ReportingRepository, mode: str, sensor: Optional[str], all_sensors: bool) -> List[str]:
     """Determine target sensors for report generation.
 
     Args:
@@ -504,7 +502,9 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     # Longtail analysis reports
     longtail_parser = subparsers.add_parser('longtail', help='Generate longtail threat analysis reports')
-    longtail_parser.add_argument("period", help="Time period: last-day, last-week, last-month, last-quarter, last-year, Q12024, 2024-01")
+    longtail_parser.add_argument(
+        "period", help="Time period: last-day, last-week, last-month, last-quarter, last-year, Q12024, 2024-01"
+    )
     longtail_parser.add_argument("--format", choices=["json", "table", "text"], default="text", help="Output format")
     longtail_parser.add_argument("--threats", action="store_true", help="Show top threats")
     longtail_parser.add_argument("--vectors", action="store_true", help="Show vector statistics")
@@ -526,42 +526,42 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 def generate_longtail_report(args: argparse.Namespace) -> int:
     """Generate longtail threat analysis reports.
-    
+
     Args:
         args: Parsed command line arguments
-        
+
     Returns:
         Exit code (0 for success)
     """
     try:
         # Get date range
         start_date, end_date = _get_period_dates(args.period)
-        
+
         # Setup database
         settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
-        
+
         # Get analysis summary
         summary = _get_analysis_summary(engine, start_date, end_date)
-        
+
         # Prepare output data
         if args.format == "json":
             output_data = {
                 "period": args.period,
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "summary": summary
+                "summary": summary,
             }
-            
+
             if args.threats:
                 output_data["top_threats"] = _get_top_threats(engine, start_date, end_date, args.limit)
-            
+
             if args.vectors:
                 output_data["vector_stats"] = _get_vector_stats(engine, start_date, end_date)
-            
+
             if args.trends:
                 output_data["trends"] = _get_trend_data(engine, start_date, end_date)
-            
+
             output_text = json.dumps(output_data, indent=2, default=str)
         else:
             # Text/table format
@@ -569,7 +569,7 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
             output_lines.append(f"📊 LONGTAIL ANALYSIS REPORT - {args.period.upper()}")
             output_lines.append(f"📅 Period: {start_date.date()} to {end_date.date()}")
             output_lines.append("")
-            
+
             # Summary
             output_lines.append("📈 SUMMARY")
             output_lines.append(f"  Total Analyses: {summary.get('total_analyses', 0) or 0}")
@@ -580,7 +580,7 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
             output_lines.append(f"  Avg Confidence: {summary.get('avg_confidence', 0) or 0:.3f}")
             output_lines.append(f"  Total Events Analyzed: {summary.get('total_events_analyzed', 0) or 0:,}")
             output_lines.append("")
-            
+
             # Top threats
             if args.threats:
                 threats = _get_top_threats(engine, start_date, end_date, args.limit)
@@ -588,9 +588,11 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
                     output_lines.append("🚨 TOP THREATS")
                     for i, threat in enumerate(threats, 1):
                         output_lines.append(f"  {i:2d}. {threat['command'][:60]}...")
-                        output_lines.append(f"      Count: {threat['detection_count']}, Confidence: {threat['avg_confidence']:.3f}, Sessions: {threat['unique_sessions']}")
+                        output_lines.append(
+                            f"      Count: {threat['detection_count']}, Confidence: {threat['avg_confidence']:.3f}, Sessions: {threat['unique_sessions']}"
+                        )
                     output_lines.append("")
-            
+
             # Vector stats
             if args.vectors:
                 vector_stats = _get_vector_stats(engine, start_date, end_date)
@@ -601,18 +603,20 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
                     output_lines.append(f"  Unique Analyses: {vector_stats.get('unique_analyses', 0)}")
                     output_lines.append(f"  Avg Vector Dimensions: {vector_stats.get('avg_vector_dimensions', 0):.1f}")
                     output_lines.append("")
-            
+
             # Trends
             if args.trends:
                 trends = _get_trend_data(engine, start_date, end_date)
                 if trends:
                     output_lines.append("📊 DAILY TRENDS")
                     for trend in trends[-7:]:  # Show last 7 days
-                        output_lines.append(f"  {trend['day'].date()}: {trend['analyses_count']} analyses, {trend['rare_commands']} rare commands, {trend['outlier_sessions']} outliers")
+                        output_lines.append(
+                            f"  {trend['day'].date()}: {trend['analyses_count']} analyses, {trend['rare_commands']} rare commands, {trend['outlier_sessions']} outliers"
+                        )
                     output_lines.append("")
-            
+
             output_text = "\n".join(output_lines)
-        
+
         # Output results
         if args.output:
             with open(args.output, 'w') as f:
@@ -620,9 +624,9 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
             print(f"Report written to {args.output}")
         else:
             print(output_text)
-        
+
         return 0
-        
+
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -631,7 +635,7 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
 def _get_period_dates(period: str) -> tuple[datetime, datetime]:
     """Get start and end dates for common time periods."""
     now = datetime.now(UTC)
-    
+
     if period == "last-day":
         start = now - timedelta(days=1)
         return start, now
@@ -674,7 +678,7 @@ def _get_period_dates(period: str) -> tuple[datetime, datetime]:
 def _get_analysis_summary(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get analysis summary for a time period."""
     from sqlalchemy import text
-    
+
     query = """
         SELECT 
             COUNT(*) as total_analyses,
@@ -691,12 +695,9 @@ def _get_analysis_summary(engine: Any, start_date: datetime, end_date: datetime)
         WHERE window_start >= :start_date 
           AND window_end <= :end_date
     """
-    
+
     with engine.connect() as conn:
-        result = conn.execute(text(query), {
-            "start_date": start_date,
-            "end_date": end_date
-        })
+        result = conn.execute(text(query), {"start_date": start_date, "end_date": end_date})
         row = result.fetchone()
         return dict(row._mapping) if row else {}
 
@@ -704,7 +705,7 @@ def _get_analysis_summary(engine: Any, start_date: datetime, end_date: datetime)
 def _get_top_threats(engine: Any, start_date: datetime, end_date: datetime, limit: int) -> List[Dict[str, Any]]:
     """Get top threats for a time period."""
     from sqlalchemy import text
-    
+
     query = """
         SELECT 
             ld.detection_data->>'command' as command,
@@ -723,20 +724,16 @@ def _get_top_threats(engine: Any, start_date: datetime, end_date: datetime, limi
         ORDER BY detection_count DESC, avg_severity DESC
         LIMIT :limit
     """
-    
+
     with engine.connect() as conn:
-        result = conn.execute(text(query), {
-            "start_date": start_date,
-            "end_date": end_date,
-            "limit": limit
-        })
+        result = conn.execute(text(query), {"start_date": start_date, "end_date": end_date, "limit": limit})
         return [dict(row._mapping) for row in result]
 
 
 def _get_vector_stats(engine: Any, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get vector statistics for a time period."""
     from sqlalchemy import text
-    
+
     query = """
         SELECT 
             COUNT(*) as total_vectors,
@@ -750,12 +747,9 @@ def _get_vector_stats(engine: Any, start_date: datetime, end_date: datetime) -> 
           AND timestamp >= :start_date
           AND timestamp <= :end_date
     """
-    
+
     with engine.connect() as conn:
-        result = conn.execute(text(query), {
-            "start_date": start_date,
-            "end_date": end_date
-        })
+        result = conn.execute(text(query), {"start_date": start_date, "end_date": end_date})
         row = result.fetchone()
         return dict(row._mapping) if row else {}
 
@@ -763,7 +757,7 @@ def _get_vector_stats(engine: Any, start_date: datetime, end_date: datetime) -> 
 def _get_trend_data(engine: Any, start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
     """Get trend data for a time period."""
     from sqlalchemy import text
-    
+
     query = """
         SELECT 
             DATE_TRUNC('day', window_start) as day,
@@ -778,12 +772,9 @@ def _get_trend_data(engine: Any, start_date: datetime, end_date: datetime) -> Li
         GROUP BY DATE_TRUNC('day', window_start)
         ORDER BY day
     """
-    
+
     with engine.connect() as conn:
-        result = conn.execute(text(query), {
-            "start_date": start_date,
-            "end_date": end_date
-        })
+        result = conn.execute(text(query), {"start_date": start_date, "end_date": end_date})
         return [dict(row._mapping) for row in result]
 
 

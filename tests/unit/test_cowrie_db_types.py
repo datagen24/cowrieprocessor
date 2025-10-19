@@ -11,7 +11,7 @@ class TestCowrieDatabaseTypes:
     def test_database_initialization_types(self):
         """Test that database initialization has correct types."""
         db = CowrieDatabase("sqlite:///test.db")
-        
+
         # Test that attributes have correct types
         assert isinstance(db.db_url, str)
         assert db._engine is None
@@ -22,10 +22,10 @@ class TestCowrieDatabaseTypes:
         with patch('cowrieprocessor.cli.cowrie_db.create_engine_from_settings') as mock_create:
             mock_engine = Mock()
             mock_create.return_value = mock_engine
-            
+
             db = CowrieDatabase("sqlite:///test.db")
             engine = db._get_engine()
-            
+
             assert engine is mock_engine
             mock_create.assert_called_once()
 
@@ -36,14 +36,14 @@ class TestCowrieDatabaseTypes:
             mock_sessionmaker_instance = Mock()
             mock_sessionmaker_instance.return_value = mock_session
             mock_sessionmaker.return_value = mock_sessionmaker_instance
-            
+
             with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
                 mock_engine = Mock()
                 mock_get_engine.return_value = mock_engine
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 session = db._get_session()
-                
+
                 assert session is mock_session
                 mock_sessionmaker.assert_called_once_with(bind=mock_engine, future=True)
 
@@ -51,10 +51,10 @@ class TestCowrieDatabaseTypes:
         """Test database type detection methods."""
         sqlite_db = CowrieDatabase("sqlite:///test.db")
         postgres_db = CowrieDatabase("postgresql://user:pass@host/db")
-        
+
         assert sqlite_db._is_sqlite() is True
         assert sqlite_db._is_postgresql() is False
-        
+
         assert postgres_db._is_sqlite() is False
         assert postgres_db._is_postgresql() is True
 
@@ -65,13 +65,13 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 mock_connection.execute.return_value.fetchone.return_value = ("test_table",)
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db._table_exists("test_table")
-                
+
                 assert isinstance(result, bool)
                 assert result is True
 
@@ -82,20 +82,20 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 mock_connection.execute.return_value.fetchone.return_value = None
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db._table_exists("nonexistent_table")
-                
+
                 assert isinstance(result, bool)
                 assert result is False
 
     def test_sanitization_metrics_types(self):
         """Test SanitizationMetrics dataclass types."""
         metrics = SanitizationMetrics()
-        
+
         assert isinstance(metrics.records_processed, int)
         assert isinstance(metrics.records_updated, int)
         assert isinstance(metrics.records_skipped, int)
@@ -115,9 +115,9 @@ class TestCowrieDatabaseTypes:
             batches_processed=5,
             duration_seconds=10.5,
             dry_run=False,
-            ingest_id="test-123"
+            ingest_id="test-123",
         )
-        
+
         assert metrics.records_processed == 100
         assert metrics.records_updated == 50
         assert metrics.records_skipped == 25
@@ -134,10 +134,10 @@ class TestCowrieDatabaseTypes:
                 with patch.object(CowrieDatabase, 'get_schema_version', return_value=0):
                     with patch('cowrieprocessor.cli.cowrie_db.apply_migrations') as mock_apply:
                         mock_apply.return_value = 9
-                        
+
                         db = CowrieDatabase("sqlite:///test.db")
                         result = db.migrate()
-                        
+
                         assert isinstance(result, dict)
                         assert 'current_version' in result
                         assert 'target_version' in result
@@ -153,10 +153,9 @@ class TestCowrieDatabaseTypes:
         with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
             with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=False):
                 with patch.object(CowrieDatabase, 'get_schema_version', return_value=5):
-                    
                     db = CowrieDatabase("sqlite:///test.db")
                     result = db.migrate(dry_run=True)
-                    
+
                     assert isinstance(result, dict)
                     assert result['dry_run'] is True
                     assert 'migrations_applied' in result
@@ -169,22 +168,22 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, 'get_schema_version', return_value=9):
                 with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                     with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=True):
                         with patch('cowrieprocessor.cli.cowrie_db.Path.stat') as mock_stat:
                             mock_stat.return_value.st_size = 1024 * 1024  # 1MB
-                            
+
                             mock_connection.execute.return_value.fetchall.return_value = [
                                 ("raw_events", 1000),
                                 ("session_summaries", 500),
-                                ("files", 200)
+                                ("files", 200),
                             ]
-                            
+
                             db = CowrieDatabase("sqlite:///test.db")
                             result = db.validate_schema()
-                            
+
                             assert isinstance(result, dict)
                             assert 'is_valid' in result
                             assert 'schema_version' in result
@@ -202,11 +201,11 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db.optimize()
-                
+
                 assert isinstance(result, dict)
                 assert 'operations_performed' in result
                 assert 'reclaimed_mb' in result
@@ -220,15 +219,15 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=True):
                     with patch('cowrieprocessor.cli.cowrie_db.shutil.copy2') as mock_copy:
                         mock_copy.return_value = "/path/to/backup.db"
-                        
+
                         db = CowrieDatabase("sqlite:///test.db")
                         result = db.create_backup()
-                        
+
                         assert isinstance(result, str)
                         assert result == "/path/to/backup.db"
 
@@ -239,13 +238,13 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 mock_connection.execute.return_value.fetchone.return_value = ("ok",)
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db.check_integrity()
-                
+
                 assert isinstance(result, dict)
                 assert 'quick_check' in result
                 assert 'foreign_keys' in result
@@ -262,19 +261,19 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 # Mock the various queries
                 mock_connection.execute.return_value.scalar_one.return_value = 1000
                 mock_connection.execute.return_value.fetchall.return_value = [
                     ("pending", 500),
                     ("completed", 300),
-                    ("failed", 200)
+                    ("failed", 200),
                 ]
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db.get_files_table_stats()
-                
+
                 assert isinstance(result, dict)
                 assert 'total_files' in result
                 assert 'enrichment_status' in result
@@ -290,14 +289,14 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_table_exists', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.get_dialect_name_from_engine', return_value="sqlite"):
                     mock_connection.execute.return_value.fetchall.return_value = []
-                    
+
                     db = CowrieDatabase("sqlite:///test.db")
                     result = db.backfill_files_table(batch_size=100, limit=1000)
-                    
+
                     assert isinstance(result, dict)
                     assert 'events_processed' in result
                     assert 'files_inserted' in result
@@ -313,14 +312,14 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch('cowrieprocessor.cli.cowrie_db.get_dialect_name_from_engine', return_value="sqlite"):
                 mock_connection.execute.return_value.fetchall.return_value = []
                 mock_connection.execute.return_value.scalar_one.return_value = 1000
-                
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db.analyze_data_quality(sample_size=100)
-                
+
                 assert isinstance(result, dict)
                 assert 'database_overview' in result
                 assert 'json_analysis' in result
@@ -340,17 +339,13 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_repair_missing_fields') as mock_repair:
-                mock_repair.return_value = {
-                    'records_processed': 100,
-                    'fields_backfilled': 50,
-                    'errors': 0
-                }
-                
+                mock_repair.return_value = {'records_processed': 100, 'fields_backfilled': 50, 'errors': 0}
+
                 db = CowrieDatabase("sqlite:///test.db")
                 result = db.repair_data_quality(batch_size=1000, dry_run=True)
-                
+
                 assert isinstance(result, dict)
                 assert 'dry_run' in result
                 assert 'missing_fields' in result
@@ -366,33 +361,30 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.create_engine_from_settings') as mock_create:
                     mock_postgres_engine = Mock()
                     mock_create.return_value = mock_postgres_engine
-                    
+
                     with patch.object(CowrieDatabase, '_perform_data_migration') as mock_migrate:
                         mock_migrate.return_value = {
                             'total_records_migrated': 1000,
                             'tables_migrated': ['raw_events', 'session_summaries'],
-                            'errors': 0
+                            'errors': 0,
                         }
-                        
+
                         with patch.object(CowrieDatabase, '_validate_migration') as mock_validate:
-                            mock_validate.return_value = {
-                                'is_valid': True,
-                                'mismatches': []
-                            }
-                            
+                            mock_validate.return_value = {'is_valid': True, 'mismatches': []}
+
                             db = CowrieDatabase("sqlite:///test.db")
                             result = db.migrate_to_postgresql(
                                 postgres_url="postgresql://user:pass@host/db",
                                 batch_size=1000,
                                 validate_only=False,
-                                skip_schema=False
+                                skip_schema=False,
                             )
-                            
+
                             assert isinstance(result, dict)
                             assert 'success' in result
                             assert 'total_records_migrated' in result
@@ -412,14 +404,14 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, 'get_schema_version', return_value=8):
                 with patch('cowrieprocessor.cli.cowrie_db._upgrade_to_v9') as mock_upgrade:
                     mock_upgrade.return_value = None
-                    
+
                     db = CowrieDatabase("sqlite:///test.db")
                     result = db.longtail_migrate(dry_run=False)
-                    
+
                     assert isinstance(result, dict)
                     assert 'success' in result
                     assert 'message' in result
@@ -433,14 +425,14 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, 'get_schema_version', return_value=9):
                 with patch('cowrieprocessor.cli.cowrie_db._downgrade_from_v9') as mock_downgrade:
                     mock_downgrade.return_value = None
-                    
+
                     db = CowrieDatabase("sqlite:///test.db")
                     result = db.longtail_rollback()
-                    
+
                     assert isinstance(result, dict)
                     assert 'success' in result
                     assert 'message' in result
@@ -454,15 +446,15 @@ class TestCowrieDatabaseTypes:
             mock_connection = Mock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
-            
+
             with patch.object(CowrieDatabase, '_table_exists', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.has_pgvector', return_value=True):
                     with patch('cowrieprocessor.cli.cowrie_db.detect_database_features') as mock_features:
                         mock_features.return_value = {'pgvector': True}
-                        
+
                         db = CowrieDatabase("sqlite:///test.db")
                         result = db.validate_longtail_schema()
-                        
+
                         assert isinstance(result, dict)
                         assert 'success' in result
                         assert 'message' in result
@@ -477,12 +469,12 @@ class TestSQLAlchemy20Compatibility:
         """Test that no deprecated session.query() patterns are used."""
         # This test ensures we're not using deprecated SQLAlchemy 1.x patterns
         import os
-        
+
         # Read the cowrie_db.py file
         cowrie_db_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cowrieprocessor', 'cli', 'cowrie_db.py')
         with open(cowrie_db_path, 'r') as f:
             content = f.read()
-        
+
         # Check for deprecated patterns (exclude test files)
         lines = content.split('\n')
         for i, line in enumerate(lines, 1):
@@ -495,12 +487,12 @@ class TestSQLAlchemy20Compatibility:
         """Test that proper SQLAlchemy 2.0 insert patterns are used."""
         # This test ensures we're using proper SQLAlchemy 2.0 insert patterns
         import os
-        
+
         # Read the cowrie_db.py file
         cowrie_db_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cowrieprocessor', 'cli', 'cowrie_db.py')
         with open(cowrie_db_path, 'r') as f:
             content = f.read()
-        
+
         # Check for proper insert patterns
         assert 'sqlite_insert(' in content, "Should use sqlite_insert for SQLite"
         assert 'postgres_insert(' in content, "Should use postgres_insert for PostgreSQL"
@@ -509,12 +501,12 @@ class TestSQLAlchemy20Compatibility:
         """Test that proper type annotations are used."""
         # This test ensures we're using proper type annotations
         import os
-        
+
         # Read the cowrie_db.py file
         cowrie_db_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cowrieprocessor', 'cli', 'cowrie_db.py')
         with open(cowrie_db_path, 'r') as f:
             content = f.read()
-        
+
         # Check for proper type annotations
         assert 'from typing import' in content, "Should import typing module"
         assert 'Dict[str, Any]' in content, "Should use proper dict type annotations"
@@ -525,13 +517,15 @@ class TestSQLAlchemy20Compatibility:
         """Test that proper SQLAlchemy 2.0 imports are used."""
         # This test ensures we're using proper SQLAlchemy 2.0 imports
         import os
-        
+
         # Read the cowrie_db.py file
         cowrie_db_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cowrieprocessor', 'cli', 'cowrie_db.py')
         with open(cowrie_db_path, 'r') as f:
             content = f.read()
-        
+
         # Check for proper imports
         assert 'from sqlalchemy import Engine, Table, text' in content, "Should import Engine and Table"
         assert 'from sqlalchemy.orm import Session, sessionmaker' in content, "Should import Session and sessionmaker"
-        assert 'from sqlalchemy.dialects.sqlite import insert as sqlite_insert' in content, "Should import sqlite_insert"
+        assert 'from sqlalchemy.dialects.sqlite import insert as sqlite_insert' in content, (
+            "Should import sqlite_insert"
+        )

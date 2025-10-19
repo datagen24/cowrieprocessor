@@ -638,5 +638,5 @@ class EnhancedDLQStoredProcedures:
 
         if result is None:
             return 0
-        
+
         return int(result[0])

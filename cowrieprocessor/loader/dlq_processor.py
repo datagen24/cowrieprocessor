@@ -317,7 +317,7 @@ class EventStitcher:
 
                 # Try to parse the repaired content
                 event = json.loads(sanitized_content)
-                
+
                 # Type guard to ensure event is a dict
                 if not isinstance(event, dict):
                     continue
@@ -735,7 +735,9 @@ class DLQProcessor:
 
         return None
 
-    def _insert_repaired_event(self, session: Session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]) -> bool:
+    def _insert_repaired_event(
+        self, session: Session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]
+    ) -> bool:
         """Insert repaired event into raw_events table with duplicate handling."""
         try:
             from sqlalchemy.dialects.postgresql import insert

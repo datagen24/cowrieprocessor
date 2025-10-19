@@ -77,7 +77,7 @@ def _check_database(db_url: Optional[str]) -> tuple[bool, str]:
         return False, f"database error: {exc}"
     except Exception as exc:
         return False, f"connection error: {exc}"
-    
+
     # Fallback return (should not be reached)
     return False, "unexpected database configuration"
 

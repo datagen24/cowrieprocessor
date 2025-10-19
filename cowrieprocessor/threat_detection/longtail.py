@@ -288,7 +288,7 @@ def run_longtail_analysis(
         with open(output_path, 'w') as f:
             json.dump(result.__dict__, f, indent=2, default=str)
         logger.info(f"Results written to {output_path}")
-    
+
     # Return results for further processing
     return result
 

@@ -185,6 +185,7 @@ def export_dlq_events(
 
     with session_factory() as session:
         from sqlalchemy import select
+
         stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
 
         if reason_filter:
