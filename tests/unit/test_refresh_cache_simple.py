@@ -1,16 +1,13 @@
 """Simple unit tests for refresh_cache_and_reports.py type safety."""
 
-from unittest.mock import Mock, patch
 import os
 
-import pytest
-
 from refresh_cache_and_reports import (
-    parse_args,
-    ensure_indicator_table,
     Refresher,
-    refresh_reports,
+    ensure_indicator_table,
     main,
+    parse_args,
+    refresh_reports,
 )
 
 
@@ -25,7 +22,7 @@ class TestRefreshCacheSimple:
             refresh_reports,
             main,
         ]
-        
+
         for func in functions:
             assert callable(func), f"Function {func.__name__} is not callable"
 
@@ -41,7 +38,7 @@ class TestRefreshCacheSimple:
             refresh_reports,
             main,
         ]
-        
+
         for func in functions:
             assert hasattr(func, '__annotations__'), f"Function {func.__name__} has no type annotations"
             assert len(func.__annotations__) > 0, f"Function {func.__name__} has empty type annotations"
@@ -62,7 +59,7 @@ class TestRefreshCacheSimple:
             Refresher.seed_missing,
             Refresher.refresh_stale,
         ]
-        
+
         for method in methods:
             assert hasattr(method, '__annotations__'), f"Method {method.__name__} has no type annotations"
             assert len(method.__annotations__) > 0, f"Method {method.__name__} has empty type annotations"
@@ -72,10 +69,10 @@ class TestRefreshCacheSimple:
         # Read the source file and check for deprecated patterns
         current_dir = os.path.dirname(os.path.abspath(__file__))
         source_file = os.path.join(current_dir, '..', '..', 'refresh_cache_and_reports.py')
-        
+
         with open(source_file, 'r') as f:
             content = f.read()
-        
+
         # Check that no deprecated patterns are used
         assert 'session.query(' not in content, "Found deprecated session.query() pattern"
         assert '.query(' not in content, "Found deprecated .query() pattern"
@@ -85,10 +82,10 @@ class TestRefreshCacheSimple:
         # Read the source file and check for proper imports
         current_dir = os.path.dirname(os.path.abspath(__file__))
         source_file = os.path.join(current_dir, '..', '..', 'refresh_cache_and_reports.py')
-        
+
         with open(source_file, 'r') as f:
             content = f.read()
-        
+
         # Check that proper imports are used
         assert 'from typing import' in content, "Should import from typing"
         assert 'Any' in content, "Should import Any type"

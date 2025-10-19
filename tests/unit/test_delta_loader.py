@@ -147,3 +147,102 @@ def test_delta_loader_records_dead_letters(tmp_path) -> None:
     assert status_file.exists()
     data = json.loads(status_file.read_text(encoding="utf-8"))
     assert data.get("dead_letter", {}).get("total") == 1
+
+
+# ============================================================================
+# Error Path Tests (Phase 1.5 - High ROI Only)
+# ============================================================================
+
+
+def test_delta_loader_handles_empty_checkpoint_file(tmp_path) -> None:
+    """Test delta loader handles missing/empty checkpoint files.
+
+    Given: An empty checkpoint file
+    When: Delta loader processes events
+    Then: No events processed, no errors raised
+    """
+    # Create empty checkpoint file
+    checkpoint_file = tmp_path / "empty_checkpoint.json"
+    checkpoint_file.write_text("")
+
+    source = tmp_path / "test.json"
+    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+
+    config = DeltaLoaderConfig(
+        source_path=source,
+        checkpoint_path=checkpoint_file,
+        db_settings=DatabaseSettings(url="sqlite:///:memory:"),
+        batch_size=100,
+    )
+
+    loader = DeltaLoader(config)
+    result = loader.load()
+
+    # Should complete successfully with no events processed
+    assert result.events_processed == 0
+    assert result.errors == 0
+
+
+def test_delta_loader_handles_corrupted_checkpoint(tmp_path) -> None:
+    """Test delta loader handles corrupted checkpoint data.
+
+    Given: A checkpoint file with invalid JSON
+    When: Delta loader processes events
+    Then: Checkpoint error is handled gracefully
+    """
+    # Create corrupted checkpoint file
+    checkpoint_file = tmp_path / "corrupted_checkpoint.json"
+    checkpoint_file.write_text('{"invalid": json}')
+
+    source = tmp_path / "test.json"
+    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+
+    config = DeltaLoaderConfig(
+        source_path=source,
+        checkpoint_path=checkpoint_file,
+        db_settings=DatabaseSettings(url="sqlite:///:memory:"),
+        batch_size=100,
+    )
+
+    loader = DeltaLoader(config)
+    result = loader.load()
+
+    # Should handle corrupted checkpoint gracefully
+    assert result.errors >= 1  # Should have at least one checkpoint parsing error
+
+
+def test_delta_loader_rolls_back_on_database_error(tmp_path) -> None:
+    """Test delta loader rolls back transaction on database errors.
+
+    Given: A database that fails during transaction
+    When: Delta loader processes events
+    Then: Transaction is rolled back and error is raised
+    """
+    from unittest.mock import Mock, patch
+
+    import pytest
+    from sqlalchemy.exc import OperationalError
+
+    source = tmp_path / "test.json"
+    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+
+    # Mock database session to raise error during commit
+    with patch('cowrieprocessor.db.create_engine_from_settings') as mock_create_engine:
+        mock_engine = Mock()
+        mock_session = Mock()
+        mock_session.commit.side_effect = OperationalError("database is locked", None, None)
+        mock_engine.begin.return_value.__enter__.return_value = mock_session
+        mock_create_engine.return_value = mock_engine
+
+        config = DeltaLoaderConfig(
+            source_path=source,
+            checkpoint_path=tmp_path / "checkpoint.json",
+            db_settings=DatabaseSettings(url="sqlite:///:memory:"),
+            batch_size=100,
+        )
+
+        loader = DeltaLoader(config)
+
+        # Should raise OperationalError when database fails
+        with pytest.raises(OperationalError, match="database is locked"):
+            loader.load()

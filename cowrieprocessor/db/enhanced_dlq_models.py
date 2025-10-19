@@ -69,7 +69,9 @@ class EnhancedDeadLetterEvent(Base):
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     last_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Constraints
@@ -89,7 +91,7 @@ class EnhancedDeadLetterEvent(Base):
         if not self.processing_lock or not self.lock_expires_at:
             return False
         return datetime.now(timezone.utc) < self.lock_expires_at
-    
+
     @is_locked.expression
     @classmethod
     def _is_locked_expression(cls) -> ColumnElement[bool]:
@@ -231,7 +233,9 @@ class DLQCircuitBreakerState(Base):
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     __table_args__ = (
         Index('ix_circuit_breaker_state', 'state'),

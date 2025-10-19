@@ -1274,7 +1274,7 @@ class CowrieDatabase:
                         text("SELECT COUNT(*) FROM raw_events WHERE payload IS NULL OR payload = ''")
                     ).scalar()
                 total_raw_events = conn.execute(text("SELECT COUNT(*) FROM raw_events")).scalar()
-                
+
                 # Handle None values from scalar()
                 if total_raw_events is None:
                     total_raw_events = 0
@@ -1383,7 +1383,9 @@ class CowrieDatabase:
                     'missing_percentages': {
                         'session_id': ((total_count - has_session_id) / total_count * 100) if total_count > 0 else 0,
                         'event_type': ((total_count - has_event_type) / total_count * 100) if total_count > 0 else 0,
-                        'event_timestamp': ((total_count - has_event_timestamp) / total_count * 100) if total_count > 0 else 0,
+                        'event_timestamp': ((total_count - has_event_timestamp) / total_count * 100)
+                        if total_count > 0
+                        else 0,
                     },
                 }
 

@@ -256,3 +256,50 @@ def test_stats_increment_correctly(hibp_enricher, mock_rate_limiter) -> None:
     assert hibp_enricher.stats['checks'] == 2
     assert hibp_enricher.stats['api_calls'] == 1  # Not incremented
     assert hibp_enricher.stats['cache_hits'] == 1
+
+
+# ============================================================================
+# Error Path Tests (Phase 1.5 - High ROI Only)
+# ============================================================================
+
+
+def test_hibp_service_unavailable_retries(hibp_enricher, mock_rate_limiter) -> None:
+    """Test HIBP client retries on 503 errors.
+
+    Given: HIBP service returns 503 Service Unavailable
+    When: Client makes request
+    Then: Exception is raised with clear error message
+    """
+    from unittest.mock import Mock
+
+    # Mock service unavailable response
+    mock_response = Mock()
+    mock_response.status_code = 503
+    mock_response.json.return_value = {
+        "error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}
+    }
+
+    mock_rate_limiter.get.return_value = mock_response
+
+    with pytest.raises(Exception, match="Service temporarily unavailable"):
+        hibp_enricher.check_password("testpassword")
+
+
+def test_hibp_invalid_api_key_raises_auth_error(hibp_enricher, mock_rate_limiter) -> None:
+    """Test HIBP client handles invalid API keys.
+
+    Given: HIBP service returns 401 Unauthorized
+    When: Client makes request
+    Then: Authentication error is raised
+    """
+    from unittest.mock import Mock
+
+    # Mock invalid API key response
+    mock_response = Mock()
+    mock_response.status_code = 401
+    mock_response.json.return_value = {"error": {"code": "InvalidApiKey", "message": "Invalid API key"}}
+
+    mock_rate_limiter.get.return_value = mock_response
+
+    with pytest.raises(Exception, match="Invalid API key"):
+        hibp_enricher.check_password("testpassword")

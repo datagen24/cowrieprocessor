@@ -268,9 +268,11 @@ def _upgrade_to_v4(connection: Connection) -> None:
     try:
         # Use MetaData.create_all() instead of Table.create()
         from sqlalchemy import MetaData
+
         metadata = MetaData()
         # Cast to Table type since we know Files.__table__ is a Table
         from sqlalchemy import Table
+
         files_table = Files.__table__
         assert isinstance(files_table, Table), "Files.__table__ should be a Table"
         metadata.create_all(connection, tables=[files_table], checkfirst=True)
@@ -682,29 +684,57 @@ def _upgrade_to_v8(connection: Connection) -> None:
     """
     logger.info("Starting snowshoe detection schema migration (v8)")
 
-    # Create snowshoe_detections table
-    _safe_execute_sql(
-        connection,
-        """
-        CREATE TABLE IF NOT EXISTS snowshoe_detections (
-            id INTEGER PRIMARY KEY,
-            detection_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-            window_start TIMESTAMP WITH TIME ZONE NOT NULL,
-            window_end TIMESTAMP WITH TIME ZONE NOT NULL,
-            confidence_score VARCHAR(10) NOT NULL,
-            unique_ips INTEGER NOT NULL,
-            single_attempt_ips INTEGER NOT NULL,
-            geographic_spread VARCHAR(10) NOT NULL,
-            indicators JSON NOT NULL,
-            is_likely_snowshoe BOOLEAN NOT NULL DEFAULT FALSE,
-            coordinated_timing BOOLEAN NOT NULL DEFAULT FALSE,
-            recommendation TEXT,
-            analysis_metadata JSON,
-            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    dialect_name = connection.dialect.name
+
+    # Create snowshoe_detections table with database-specific syntax
+    if dialect_name == "postgresql":
+        # PostgreSQL syntax with TIMESTAMP WITH TIME ZONE and JSON
+        _safe_execute_sql(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS snowshoe_detections (
+                id INTEGER PRIMARY KEY,
+                detection_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                window_start TIMESTAMP WITH TIME ZONE NOT NULL,
+                window_end TIMESTAMP WITH TIME ZONE NOT NULL,
+                confidence_score VARCHAR(10) NOT NULL,
+                unique_ips INTEGER NOT NULL,
+                single_attempt_ips INTEGER NOT NULL,
+                geographic_spread VARCHAR(10) NOT NULL,
+                indicators JSON NOT NULL,
+                is_likely_snowshoe BOOLEAN NOT NULL DEFAULT FALSE,
+                coordinated_timing BOOLEAN NOT NULL DEFAULT FALSE,
+                recommendation TEXT,
+                analysis_metadata JSON,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+            )
+            """,
+            "Create snowshoe_detections table (PostgreSQL)",
         )
-        """,
-        "Create snowshoe_detections table",
-    )
+    else:
+        # SQLite syntax with TEXT for timestamps and JSON, INTEGER for booleans
+        _safe_execute_sql(
+            connection,
+            """
+            CREATE TABLE IF NOT EXISTS snowshoe_detections (
+                id INTEGER PRIMARY KEY,
+                detection_time TEXT NOT NULL,
+                window_start TEXT NOT NULL,
+                window_end TEXT NOT NULL,
+                confidence_score VARCHAR(10) NOT NULL,
+                unique_ips INTEGER NOT NULL,
+                single_attempt_ips INTEGER NOT NULL,
+                geographic_spread VARCHAR(10) NOT NULL,
+                indicators TEXT NOT NULL,
+                is_likely_snowshoe INTEGER NOT NULL DEFAULT 0,
+                coordinated_timing INTEGER NOT NULL DEFAULT 0,
+                recommendation TEXT,
+                analysis_metadata TEXT,
+                created_at TEXT NOT NULL
+            )
+            """,
+            "Create snowshoe_detections table (SQLite)",
+        )
 
     # Create indexes for snowshoe_detections table
     indexes = [
@@ -1793,19 +1823,19 @@ def _upgrade_to_v13(connection: Connection) -> None:
 def _upgrade_to_v14(connection: Connection) -> None:
     """Upgrade to v14 schema by adding analysis_id to vector tables."""
     dialect_name = connection.dialect.name
-    
+
     # Only apply to PostgreSQL databases (vector tables only exist on PostgreSQL with pgvector)
     if dialect_name != 'postgresql':
         logger.info("Skipping v14 migration (vector tables only exist on PostgreSQL)")
         return
-    
+
     # Check if vector tables exist
     if not _table_exists(connection, 'command_sequence_vectors'):
         logger.info("Vector tables do not exist, skipping v14 migration")
         return
-    
+
     logger.info("Upgrading to v14: Adding analysis_id to vector tables...")
-    
+
     # Add analysis_id column to command_sequence_vectors
     if not _column_exists(connection, 'command_sequence_vectors', 'analysis_id'):
         if not _safe_execute_sql(
@@ -1817,7 +1847,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
             "Add analysis_id column to command_sequence_vectors",
         ):
             raise Exception("Failed to add analysis_id column to command_sequence_vectors")
-        
+
         # Create index for analysis_id lookups
         if not _safe_execute_sql(
             connection,
@@ -1830,7 +1860,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
             logger.warning("Failed to create index on command_sequence_vectors.analysis_id")
     else:
         logger.info("analysis_id column already exists in command_sequence_vectors")
-    
+
     # Add analysis_id column to behavioral_vectors
     if not _column_exists(connection, 'behavioral_vectors', 'analysis_id'):
         if not _safe_execute_sql(
@@ -1842,7 +1872,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
             "Add analysis_id column to behavioral_vectors",
         ):
             raise Exception("Failed to add analysis_id column to behavioral_vectors")
-        
+
         # Create index for analysis_id lookups
         if not _safe_execute_sql(
             connection,
@@ -1855,7 +1885,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
             logger.warning("Failed to create index on behavioral_vectors.analysis_id")
     else:
         logger.info("analysis_id column already exists in behavioral_vectors")
-    
+
     logger.info("Vector table analysis_id migration (v14) completed successfully")
 
 

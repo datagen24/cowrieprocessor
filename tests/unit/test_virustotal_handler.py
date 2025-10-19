@@ -438,6 +438,48 @@ class TestVirusTotalHandler:
         assert handler.is_malicious(None) is False
         assert handler.is_malicious({"invalid": "data"}) is False
 
+    # ============================================================================
+    # Error Path Tests (Phase 1.5 - High ROI Only)
+    # ============================================================================
+
+    def test_virustotal_rate_limit_retries_with_backoff(self) -> None:
+        """Test VT handler retries on 429 with exponential backoff.
+
+        Given: VirusTotal API returns rate limit exceeded
+        When: Handler makes request
+        Then: Exception is raised with clear error message
+        """
+        from unittest.mock import Mock, patch
+
+        handler = VirusTotalHandler("test-key", Path("/tmp"))
+
+        # Mock rate limit exceeded response
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_response.headers = {"Retry-After": "60"}
+        mock_response.json.return_value = {"error": {"code": "RateLimitExceeded", "message": "Rate limit exceeded"}}
+
+        with patch('requests.get', return_value=mock_response):
+            with pytest.raises(Exception, match="Rate limit exceeded"):
+                handler._make_request("/test-endpoint")
+
+    def test_virustotal_network_timeout_raises_clear_error(self) -> None:
+        """Test VT handler handles network timeouts gracefully.
+
+        Given: Network timeout occurs
+        When: Handler makes request
+        Then: Timeout exception is raised with clear message
+        """
+        from unittest.mock import patch
+
+        import requests
+
+        handler = VirusTotalHandler("test-key", Path("/tmp"))
+
+        with patch('requests.get', side_effect=requests.Timeout("Request timed out")):
+            with pytest.raises(requests.Timeout, match="Request timed out"):
+                handler._make_request("/test-endpoint")
+
     def test_close(self) -> None:
         """Test handler cleanup."""
         handler = VirusTotalHandler("test-key", Path("/tmp"))

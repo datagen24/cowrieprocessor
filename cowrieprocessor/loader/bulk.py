@@ -769,7 +769,7 @@ class BulkLoader:
             "quarantined": processed.quarantined,
             "session_id": processed.session_id,
             "event_type": processed.event_type,
-            "event_timestamp": processed.event_timestamp.isoformat() if processed.event_timestamp else None,
+            "event_timestamp": processed.event_timestamp,
         }
 
     def _payload_hash(self, payload: Mapping[str, Any]) -> str:
@@ -918,7 +918,12 @@ class BulkLoader:
         try:
             stmt = insert(DeadLetterEvent)
             result = session.execute(stmt, dead_letter_records)
-            return int(result.rowcount or 0)
+            # SQLAlchemy 2.0 compatibility: IteratorResult doesn't have rowcount
+            if hasattr(result, 'rowcount'):
+                return int(result.rowcount or 0)
+            else:
+                # For IteratorResult, count the number of records inserted
+                return len(dead_letter_records)
         except IntegrityError:
             session.rollback()
             # Fall back to individual inserts if bulk insert fails

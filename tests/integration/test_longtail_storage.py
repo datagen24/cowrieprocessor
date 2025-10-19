@@ -394,7 +394,3 @@ class TestLongtailIntegration:
 
             detections = session.query(LongtailDetection).all()
             assert len(detections) >= 0  # May be 0 if no detections found
-
-
-
-
