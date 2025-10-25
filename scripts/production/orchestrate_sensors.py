@@ -35,20 +35,22 @@ def load_config(path: Path) -> dict:
         return tomllib.load(f)
 
 
-def build_loader_cmd(db: str, sensor_cfg: dict, overrides: dict, mode: str = "delta") -> list:
+def build_loader_cmd(
+    db: str, sensor_cfg: dict, overrides: dict, mode: str = "delta", config_path: Path | None = None
+) -> list:
     """Build a cowrie-loader command for a sensor configuration (NEW).
 
-    Note: Secrets are provided to the subprocess via environment variables,
-    not CLI flags, to avoid exposure in process lists or logs.
-
-    Note: cowrie-loader auto-detects sensor names from JSON payload field,
-    but uses --ingest-id for tracking this specific ingestion run.
+    Note: Uses --sensor to load configuration from sensors.toml, which provides:
+    - logpath (file paths)
+    - db (database connection - NO SECRETS ON COMMAND LINE!)
+    - API keys (vtapi, email, urlhausapi, spurapi)
 
     Args:
-        db: Database connection string (sqlite:////path or postgresql://...)
+        db: Database connection string (UNUSED - read from sensors.toml for security)
         sensor_cfg: Sensor configuration from TOML
         overrides: Command-line overrides
         mode: 'delta' (incremental) or 'bulk' (initial load)
+        config_path: Path to sensors.toml (optional, defaults to auto-detection)
 
     Returns:
         Command list suitable for subprocess execution
@@ -56,39 +58,27 @@ def build_loader_cmd(db: str, sensor_cfg: dict, overrides: dict, mode: str = "de
     # Use uv run to execute the CLI command
     cmd = ["uv", "run", "cowrie-loader", mode]
 
-    # Log path glob pattern
-    logpath = Path(sensor_cfg["logpath"])
-    cmd.append(f"{logpath}/*.json*")  # Support .json, .json.gz, .json.bz2
+    # Use --sensor to load all configuration from sensors.toml
+    # This provides: logpath, database connection, and API keys
+    # WITHOUT exposing secrets on the command line!
+    cmd += ["--sensor", sensor_cfg["name"]]
 
-    # Database connection (ensure proper URI format)
-    if db.startswith(("postgresql://", "sqlite://")):
-        cmd += ["--db", db]
-    elif db.startswith("/") or db.startswith("./") or db.startswith("../"):
-        # Convert relative/absolute paths to sqlite URI
-        cmd += ["--db", f"sqlite:///{os.path.abspath(db)}"]
-    else:
-        # Assume relative path
-        cmd += ["--db", f"sqlite:///{os.path.abspath(db)}"]
-
-    # Ingest ID for tracking (uses sensor name)
-    # Note: Sensor name is auto-extracted from JSON payload's "sensor" field
-    cmd += ["--ingest-id", sensor_cfg["name"]]
+    # Specify config path if provided
+    if config_path:
+        cmd += ["--config", str(config_path)]
 
     # Status directory (for progress monitoring)
     status_dir = overrides.get("status_dir", "/mnt/dshield/data/logs/status")
     cmd += ["--status-dir", str(status_dir)]
 
-    # Note: cowrie-loader does not have --last-days filtering
-    # It processes all files matching the glob pattern
-    # File filtering by date should be done by the caller if needed
+    # Note: --ingest-id defaults to sensor name when --sensor is used
 
     # Skip enrichment flag
     if overrides.get("skip_enrich"):
         cmd += ["--skip-enrich"]
 
-    # Note: --buffer-bytes not supported by cowrie-loader CLI
-    # Note: API keys are passed via environment variables (see prepare_env_for_sensor)
-    # to avoid exposure in process lists
+    # Note: Database connection, logpath, and API keys are ALL loaded from sensors.toml
+    # This prevents exposure of secrets in process lists or command history
 
     return cmd
 
@@ -398,15 +388,16 @@ def main() -> None:
                 print(msg, file=sys.stderr)
                 staging_dir = None
 
-        # Build environment with secrets and command without secret flags
-        extra_env = prepare_env_for_sensor(sensor_cfg)
-
         # Choose command builder based on mode
         if use_legacy:
+            # Legacy mode: build environment with secrets for process_cowrie.py
+            extra_env = prepare_env_for_sensor(sensor_cfg)
             cmd = build_cmd(processor, db, sensor_cfg, overrides)
         else:
+            # NEW mode: cowrie-loader reads secrets from sensors.toml (secure!)
+            extra_env = {}  # No environment variables needed
             loader_mode = "bulk" if args.bulk_load else "delta"
-            cmd = build_loader_cmd(db, sensor_cfg, overrides, mode=loader_mode)
+            cmd = build_loader_cmd(db, sensor_cfg, overrides, mode=loader_mode, config_path=Path(args.config))
 
         status_path = log_dir / 'status' / f"{sensor_cfg['name']}.json"
         rc = run_with_retries(
