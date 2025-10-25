@@ -241,9 +241,7 @@ def test_safe_execute_sql_executes_valid_sql(tmp_path: Path) -> None:
     """
     engine = _make_engine(tmp_path)
     with begin_connection(engine) as conn:
-        result = _safe_execute_sql(
-            conn, "CREATE TABLE test_table (id INTEGER PRIMARY KEY)", "Create test table"
-        )
+        result = _safe_execute_sql(conn, "CREATE TABLE test_table (id INTEGER PRIMARY KEY)", "Create test table")
         assert result is True
         assert _table_exists(conn, "test_table") is True
 

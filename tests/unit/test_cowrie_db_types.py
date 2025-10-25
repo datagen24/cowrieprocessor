@@ -1,6 +1,6 @@
 """Unit tests for cowrie_db.py type safety and SQLAlchemy 2.0 compatibility."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from cowrieprocessor.cli.cowrie_db import CowrieDatabase, SanitizationMetrics
 
@@ -20,7 +20,7 @@ class TestCowrieDatabaseTypes:
     def test_get_engine_return_type(self):
         """Test that _get_engine returns proper Engine type."""
         with patch('cowrieprocessor.cli.cowrie_db.create_engine_from_settings') as mock_create:
-            mock_engine = Mock()
+            mock_engine = MagicMock()
             mock_create.return_value = mock_engine
 
             db = CowrieDatabase("sqlite:///test.db")
@@ -38,7 +38,7 @@ class TestCowrieDatabaseTypes:
             mock_sessionmaker.return_value = mock_sessionmaker_instance
 
             with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-                mock_engine = Mock()
+                mock_engine = MagicMock()
                 mock_get_engine.return_value = mock_engine
 
                 db = CowrieDatabase("sqlite:///test.db")
@@ -61,8 +61,8 @@ class TestCowrieDatabaseTypes:
     def test_table_exists_return_type(self):
         """Test that _table_exists returns proper bool type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -78,8 +78,8 @@ class TestCowrieDatabaseTypes:
     def test_table_exists_not_found(self):
         """Test _table_exists returns False for non-existent table."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -164,8 +164,8 @@ class TestCowrieDatabaseTypes:
     def test_validate_schema_return_type(self):
         """Test that validate_schema method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -197,8 +197,8 @@ class TestCowrieDatabaseTypes:
     def test_optimize_return_type(self):
         """Test that optimize method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -215,8 +215,8 @@ class TestCowrieDatabaseTypes:
     def test_create_backup_return_type(self):
         """Test that create_backup method returns proper str type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -234,8 +234,8 @@ class TestCowrieDatabaseTypes:
     def test_check_integrity_return_type(self):
         """Test that check_integrity method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -257,8 +257,8 @@ class TestCowrieDatabaseTypes:
     def test_files_table_stats_return_type(self):
         """Test that get_files_table_stats method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -285,8 +285,8 @@ class TestCowrieDatabaseTypes:
     def test_backfill_files_table_return_type(self):
         """Test that backfill_files_table method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -308,8 +308,8 @@ class TestCowrieDatabaseTypes:
     def test_analyze_data_quality_return_type(self):
         """Test that analyze_data_quality method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -335,8 +335,8 @@ class TestCowrieDatabaseTypes:
     def test_repair_data_quality_return_type(self):
         """Test that repair_data_quality method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -357,8 +357,8 @@ class TestCowrieDatabaseTypes:
     def test_migrate_to_postgresql_return_type(self):
         """Test that migrate_to_postgresql method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -400,8 +400,8 @@ class TestCowrieDatabaseTypes:
     def test_longtail_migrate_return_type(self):
         """Test that longtail_migrate method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -421,8 +421,8 @@ class TestCowrieDatabaseTypes:
     def test_longtail_rollback_return_type(self):
         """Test that longtail_rollback method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
@@ -442,8 +442,8 @@ class TestCowrieDatabaseTypes:
     def test_validate_longtail_schema_return_type(self):
         """Test that validate_longtail_schema method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = Mock()
-            mock_connection = Mock()
+            mock_engine = MagicMock()
+            mock_connection = MagicMock()
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 

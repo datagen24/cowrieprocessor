@@ -8,15 +8,8 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-try:
-    from cowrieprocessor.enrichment import EnrichmentCacheManager
-    from enrichment_handlers import EnrichmentService
-except ModuleNotFoundError:  # pragma: no cover - package execution path
-    project_root = Path(__file__).resolve().parents[2]
-    if str(project_root) not in sys.path:
-        sys.path.append(str(project_root))
-    from cowrieprocessor.enrichment import EnrichmentCacheManager
-    from enrichment_handlers import EnrichmentService
+from cowrieprocessor.enrichment import EnrichmentCacheManager
+from cowrieprocessor.enrichment.handlers import EnrichmentService
 
 from ..db import apply_migrations, create_engine_from_settings
 from ..loader import (

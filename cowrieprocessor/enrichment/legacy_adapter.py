@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from enrichment_handlers import _SPUR_EMPTY_PAYLOAD, EnrichmentService
+from cowrieprocessor.enrichment.handlers import _SPUR_EMPTY_PAYLOAD, EnrichmentService
 
 from .cache import EnrichmentCacheManager
 

@@ -782,154 +782,141 @@ class TestRealCodeExecution:
 # Phase 1 Day 2: Real CLI Execution Tests (Comprehensive Coverage)
 # ============================================================================
 
+
 class TestRealCLIExecution:
     """Test actual CLI execution scenarios for comprehensive coverage."""
 
-    def test_ingest_cli_bulk_mode_processes_directory(
-        self, db_session: Session, tmp_path: Path
-    ) -> None:
+    def test_ingest_cli_bulk_mode_processes_directory(self, db_session: Session, tmp_path: Path) -> None:
         """Test CLI bulk mode processes entire directory of logs.
-        
+
         Given: A directory with multiple Cowrie log files
         When: CLI invoked with --bulk flag
         Then: All files processed and events inserted into database
-        
+
         Args:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
         from unittest.mock import patch
         import sys
-        
+
         # Create test log directory
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
-        
+
         # Create sample log files
         for i in range(3):
             log_file = log_dir / f"cowrie_{i}.json"
             log_file.write_text(
                 '{"eventid": "cowrie.login.success", "session": "abc123", "timestamp": "2024-01-01T00:00:00Z"}\n'
             )
-        
+
         # Mock the run_bulk_loader to avoid actual file processing
         with patch('cowrieprocessor.cli.ingest.run_bulk_loader') as mock_bulk:
             mock_bulk.return_value = None
-            
+
             # Execute real CLI (mock only sys.argv)
-            with patch.object(
-                sys, 
-                'argv', 
-                ['ingest', 'bulk', str(log_dir)]
-            ):
+            with patch.object(sys, 'argv', ['ingest', 'bulk', str(log_dir)]):
                 try:
                     main()
                 except SystemExit:
                     pass  # Expected behavior
-        
+
         # Verify bulk loader was called
         mock_bulk.assert_called_once()
 
-    def test_ingest_cli_delta_mode_uses_checkpoint(
-        self, db_session: Session, tmp_path: Path
-    ) -> None:
+    def test_ingest_cli_delta_mode_uses_checkpoint(self, db_session: Session, tmp_path: Path) -> None:
         """Test CLI delta mode uses checkpoint for incremental loading.
-        
+
         Given: A log file and checkpoint file
         When: CLI invoked with --delta flag
         Then: Delta loader is called with checkpoint
-        
+
         Args:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
         from unittest.mock import patch
         import sys
-        
+
         log_file = tmp_path / "cowrie.json"
         checkpoint_file = tmp_path / "checkpoint.json"
-        
+
         # Create log file
         log_file.write_text('{"eventid": "cowrie.login.success", "timestamp": "2024-01-01T00:00:00Z"}\n')
-        
+
         # Create checkpoint file
         checkpoint_file.write_text('{"last_seq": 2}')
-        
+
         # Mock the run_delta_loader
         with patch('cowrieprocessor.cli.ingest.run_delta_loader') as mock_delta:
             mock_delta.return_value = None
-            
+
             # Execute delta mode (delta mode doesn't use --checkpoint flag)
-            with patch.object(
-                sys,
-                'argv',
-                ['ingest', 'delta', str(log_file)]
-            ):
+            with patch.object(sys, 'argv', ['ingest', 'delta', str(log_file)]):
                 try:
                     main()
                 except SystemExit:
                     pass  # Expected behavior
-        
+
         # Verify delta loader was called
         mock_delta.assert_called_once()
 
     def test_ingest_cli_invalid_args_exits_with_error(self) -> None:
         """Test CLI exits with error on invalid arguments.
-        
+
         Given: Invalid CLI arguments
         When: CLI invoked
         Then: Exits with non-zero code
         """
         from unittest.mock import patch
         import sys
-        
+
         with patch.object(sys, 'argv', ['ingest', 'invalid_command']):
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code != 0
 
-    def test_ingest_cli_enrichment_flag_enables_service(
-        self, db_session: Session, tmp_path: Path
-    ) -> None:
+    def test_ingest_cli_enrichment_flag_enables_service(self, db_session: Session, tmp_path: Path) -> None:
         """Test --skip-enrich flag disables enrichment service.
-        
+
         Given: Log file and --skip-enrich flag
         When: CLI invoked
         Then: Enrichment service is not instantiated
-        
+
         Args:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
         from unittest.mock import patch
         import sys
-        
+
         log_file = tmp_path / "cowrie.json"
         log_file.write_text('{"eventid": "cowrie.login.success", "timestamp": "2024-01-01T00:00:00Z"}\n')
-        
+
         # Mock the run_bulk_loader
         with patch('cowrieprocessor.cli.ingest.run_bulk_loader') as mock_bulk:
             mock_bulk.return_value = None
-            
+
             with patch.object(sys, 'argv', ['ingest', 'bulk', str(log_file), '--skip-enrich']):
                 try:
                     main()
                 except SystemExit:
                     pass  # Expected behavior
-        
+
         # Verify bulk loader was called
         mock_bulk.assert_called_once()
 
     def test_ingest_cli_handles_help_flag(self) -> None:
         """Test CLI shows help when --help flag is used.
-        
+
         Given: --help flag
         When: CLI invoked
         Then: Shows help and exits with code 0
         """
         from unittest.mock import patch
         import sys
-        
+
         with patch.object(sys, 'argv', ['ingest', '--help']):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -937,14 +924,14 @@ class TestRealCLIExecution:
 
     def test_ingest_cli_handles_missing_required_args(self) -> None:
         """Test CLI exits with error when required arguments are missing.
-        
+
         Given: Missing required mode argument
         When: CLI invoked
         Then: Shows usage and exits with error code 2
         """
         from unittest.mock import patch
         import sys
-        
+
         with patch.object(sys, 'argv', ['ingest']):  # Missing mode argument
             with pytest.raises(SystemExit) as exc_info:
                 main()

@@ -47,7 +47,7 @@ autodoc_default_options = {
     'member-order': 'bysource',
     'special-members': '__init__',
     'undoc-members': True,
-    'exclude-members': '__weakref__'
+    'exclude-members': '__weakref__',
 }
 autodoc_typehints = 'description'
 autodoc_typehints_format = 'short'
@@ -78,7 +78,7 @@ html_theme_options = {
     'collapse_navigation': False,
     'sticky_navigation': True,
     'includehidden': True,
-    'titles_only': False
+    'titles_only': False,
 }
 
 # -- Options for intersphinx extension ---------------------------------------

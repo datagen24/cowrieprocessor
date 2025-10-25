@@ -742,6 +742,17 @@ class DLQProcessor:
         try:
             from sqlalchemy.dialects.postgresql import insert
 
+            # Parse timestamp string to datetime object for SQLite compatibility
+            timestamp_str = repaired_event.get("timestamp")
+            event_timestamp = None
+            if timestamp_str:
+                try:
+                    # Handle both ISO format with Z and with timezone offset
+                    event_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    # If parsing fails, leave as None
+                    pass
+
             # Create raw event record data
             event_data = {
                 "ingest_id": dlq_event.ingest_id,
@@ -754,7 +765,7 @@ class DLQProcessor:
                 "quarantined": False,  # Repaired events are no longer quarantined
                 "session_id": repaired_event.get("session"),
                 "event_type": repaired_event.get("eventid"),
-                "event_timestamp": repaired_event.get("timestamp"),
+                "event_timestamp": event_timestamp,
             }
 
             # Use PostgreSQL UPSERT (ON CONFLICT DO UPDATE)
@@ -798,11 +809,9 @@ class DLQProcessor:
                     existing_event.quarantined = False  # type: ignore[assignment]
                     existing_event.session_id = repaired_event.get("session")  # type: ignore[assignment]
                     existing_event.event_type = repaired_event.get("eventid")  # type: ignore[assignment]
-                    existing_event.event_timestamp = repaired_event.get("timestamp")  # type: ignore[assignment]
+                    existing_event.event_timestamp = event_timestamp  # type: ignore[assignment]
                     # Update the ingest timestamp to reflect the repair
-                    from datetime import datetime
-
-                    existing_event.ingest_at = datetime.utcnow()  # type: ignore[assignment]
+                    existing_event.ingest_at = datetime.now(timezone.utc)  # type: ignore[assignment]
                     return True
 
                 # Create new raw event record
@@ -816,7 +825,7 @@ class DLQProcessor:
                     quarantined=False,  # Repaired events are no longer quarantined
                     session_id=repaired_event.get("session"),
                     event_type=repaired_event.get("eventid"),
-                    event_timestamp=repaired_event.get("timestamp"),
+                    event_timestamp=event_timestamp,
                 )
 
                 session.add(raw_event)

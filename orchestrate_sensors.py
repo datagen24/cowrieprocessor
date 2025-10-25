@@ -23,7 +23,7 @@ if sys.version_info >= (3, 11):  # Python 3.11+ includes tomllib
 else:  # pragma: no cover - exercised on older Python
     import tomli as tomllib
 
-from secrets_resolver import set_env_if_ref
+from cowrieprocessor.utils.secrets import set_env_if_ref
 
 
 def load_config(path: Path) -> dict:
