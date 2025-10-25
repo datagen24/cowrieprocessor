@@ -34,7 +34,7 @@ class TestCowrieDatabase:
                 )
             """)
             conn.execute("""
-                INSERT INTO schema_state (key, value) VALUES ('schema_version', '2')
+                INSERT INTO schema_state (key, value) VALUES ('schema_version', '14')
             """)
             conn.execute("""
                 CREATE TABLE session_summaries (
@@ -89,7 +89,7 @@ class TestCowrieDatabase:
         """Test getting schema version from database."""
         db = CowrieDatabase(temp_db)
         version = db.get_schema_version()
-        assert version == 2
+        assert version == 14
 
     def test_get_schema_version_empty_db(self) -> None:
         """Test getting schema version from non-existent database."""
@@ -103,8 +103,8 @@ class TestCowrieDatabase:
         result = db.validate_schema()
 
         assert result['is_valid'] is True
-        assert result['schema_version'] == 2
-        assert result['expected_version'] == 2  # From migrations.py
+        assert result['schema_version'] == 14
+        assert result['expected_version'] == 14  # From migrations.py CURRENT_SCHEMA_VERSION
         assert result['session_count'] == 1
         assert result['command_count'] == 1  # One command_stats record in test setup
         assert result['file_count'] == 1  # One session with file_downloads = 2
@@ -116,9 +116,9 @@ class TestCowrieDatabase:
         result = db.migrate(dry_run=True)
 
         assert result['dry_run'] is True
-        assert result['current_version'] == 2
-        assert result['target_version'] == 2  # Already at latest
-        assert result['message'] == "Database already at version 2"
+        assert result['current_version'] == 14
+        assert result['target_version'] == 14  # Already at latest (CURRENT_SCHEMA_VERSION)
+        assert result['message'] == "Database already at version 14"
 
     def test_create_backup(self, temp_db) -> None:
         """Test database backup creation."""
@@ -137,7 +137,9 @@ class TestCowrieDatabase:
     def test_create_backup_custom_path(self, temp_db) -> None:
         """Test backup creation with custom path."""
         db = CowrieDatabase(temp_db)
-        custom_path = str(temp_db.parent / "custom_backup.db")
+        # Extract path from sqlite:/// URL
+        db_file_path = Path(temp_db.replace("sqlite:///", ""))
+        custom_path = str(db_file_path.parent / "custom_backup.db")
         backup_path = db.create_backup(custom_path)
 
         assert backup_path == custom_path
@@ -215,7 +217,7 @@ class TestCowrieDatabaseCLI:
                 )
             """)
             conn.execute("""
-                INSERT INTO schema_state (key, value) VALUES ('schema_version', '2')
+                INSERT INTO schema_state (key, value) VALUES ('schema_version', '14')
             """)
 
         db_url = f"sqlite:///{db_path}"
@@ -231,10 +233,10 @@ class TestCowrieDatabaseCLI:
         # Mock the database
         mock_db = Mock()
         mock_db.migrate.return_value = {
-            'current_version': 2,
-            'target_version': 2,
-            'final_version': 2,
-            'message': 'Database already at version 2',
+            'current_version': 14,
+            'target_version': 14,
+            'final_version': 14,
+            'message': 'Database already at version 14',
         }
         mock_db_class.return_value = mock_db
 
@@ -247,7 +249,7 @@ class TestCowrieDatabaseCLI:
             main()
 
         captured = capsys.readouterr()
-        assert '✓ Migrated database to schema version 2' in captured.out
+        assert '✓ Migrated database to schema version 14' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
     def test_check_command(self, mock_db_class, temp_db, capsys) -> None:
@@ -256,8 +258,8 @@ class TestCowrieDatabaseCLI:
         mock_db = Mock()
         mock_db.validate_schema.return_value = {
             'is_valid': True,
-            'schema_version': 2,
-            'expected_version': 2,
+            'schema_version': 14,
+            'expected_version': 14,
             'database_size_mb': 10.5,
             'session_count': 100,
             'command_count': 500,
@@ -277,7 +279,7 @@ class TestCowrieDatabaseCLI:
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert 'Database schema is current (v2)' in captured.out
+        assert 'Database schema is current (v14)' in captured.out
         assert 'Database size: 10.5 MB' in captured.out
         assert 'Total sessions: 100' in captured.out
 
