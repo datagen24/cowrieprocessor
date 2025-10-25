@@ -228,7 +228,10 @@ Examples:
 
 def _load_sensors_config() -> dict[str, str] | None:
     """Load database configuration from sensors.toml if available."""
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         return None
 

@@ -622,8 +622,10 @@ def _load_database_settings_from_sensors(db_path: Optional[str] = None) -> Datab
         # Use explicit database path
         return load_database_settings(config={"url": f"sqlite:///{db_path}"})
 
-    # Try to load from sensors.toml
-    sensors_file = Path("sensors.toml")
+    # Try to load from sensors.toml (config/ directory first, then current directory)
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if sensors_file.exists():
         try:
             # Try tomllib first (Python 3.11+)
