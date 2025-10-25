@@ -452,5 +452,410 @@ class TestEnrichmentServiceEnrich:
         assert result["enrichment"]["virustotal"] is None
 
 
+class TestCacheIO:
+    """Test cache I/O helper functions."""
+
+    def test_read_text_success(self, tmp_path: Path) -> None:
+        """Test reading text from existing file."""
+        from cowrieprocessor.enrichment.handlers import _read_text
+
+        test_file = tmp_path / "test.txt"
+        test_file.write_text("test content", encoding="utf-8")
+
+        result = _read_text(test_file)
+        assert result == "test content"
+
+    def test_read_text_not_found(self, tmp_path: Path) -> None:
+        """Test reading from non-existent file returns None."""
+        from cowrieprocessor.enrichment.handlers import _read_text
+
+        result = _read_text(tmp_path / "nonexistent.txt")
+        assert result is None
+
+    def test_write_text_success(self, tmp_path: Path) -> None:
+        """Test writing text to file."""
+        from cowrieprocessor.enrichment.handlers import _write_text
+
+        test_file = tmp_path / "nested" / "dir" / "test.txt"
+        _write_text(test_file, "test content")
+
+        assert test_file.exists()
+        assert test_file.read_text(encoding="utf-8") == "test content"
+        assert test_file.parent.exists()  # Parent dirs created
+
+
+class TestRateLimitedSessionFactory:
+    """Test rate-limited session factory."""
+
+    def test_create_rate_limited_session_factory(self, tmp_path: Path) -> None:
+        """Test creating rate-limited session for a service."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+            enable_rate_limiting=True,
+        )
+
+        session = service._create_rate_limited_session_factory("dshield")
+
+        from cowrieprocessor.enrichment.rate_limiting import RateLimitedSession
+        assert isinstance(session, RateLimitedSession)
+        assert session in service._active_sessions
+
+
+class TestIteratorMethods:
+    """Test iterator and extraction methods."""
+
+    def test_iter_session_enrichments(self, tmp_path: Path) -> None:
+        """Test iterating over session enrichments."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        # _iter_session_enrichments expects a "session" key with per-IP mappings
+        enrichment = {
+            "session": {
+                "192.168.1.1": {"dshield": {"ip": {"count": 10}}},
+                "192.168.1.2": {"urlhaus": "malware"},
+                "192.168.1.3": {"spur": ["AS12345", "Test Org"]},
+            }
+        }
+
+        results = list(service._iter_session_enrichments(enrichment))
+        assert len(results) == 3
+        assert results[0]["dshield"]["ip"]["count"] == 10
+        assert results[1]["urlhaus"] == "malware"
+        assert results[2]["spur"][0] == "AS12345"
+
+    def test_iter_vt_payloads_mapping(self, tmp_path: Path) -> None:
+        """Test iterating VT payloads from mapping structure."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        payload = {
+            "data": {
+                "attributes": {
+                    "last_analysis_stats": {"malicious": 5}
+                }
+            }
+        }
+
+        results = list(service._iter_vt_payloads(payload))
+        assert len(results) == 1
+        assert results[0] == payload
+
+    def test_iter_vt_payloads_nested(self, tmp_path: Path) -> None:
+        """Test iterating VT payloads from nested structure."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        payload = {
+            "file1": {
+                "data": {"attributes": {}}
+            },
+            "file2": {
+                "data": {"attributes": {}}
+            }
+        }
+
+        results = list(service._iter_vt_payloads(payload))
+        assert len(results) == 2
+
+    def test_iter_vt_payloads_list(self, tmp_path: Path) -> None:
+        """Test iterating VT payloads from list structure."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        payload = [
+            {"data": {"attributes": {}}},
+            {"data": {"attributes": {}}}
+        ]
+
+        results = list(service._iter_vt_payloads(payload))
+        assert len(results) == 2
+
+    def test_extract_vt_stats(self) -> None:
+        """Test extracting VT stats from payload."""
+        payload = {
+            "data": {
+                "attributes": {
+                    "last_analysis_stats": {
+                        "malicious": 5,
+                        "harmless": 60,
+                        "suspicious": 1
+                    }
+                }
+            }
+        }
+
+        stats = EnrichmentService._extract_vt_stats(payload)
+        assert stats["malicious"] == 5
+        assert stats["harmless"] == 60
+        assert stats["suspicious"] == 1
+
+
+class TestSessionCleanup:
+    """Test session cleanup and resource management."""
+
+    def test_close_with_active_sessions(self, tmp_path: Path) -> None:
+        """Test cleanup of active sessions on close."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+            enable_rate_limiting=True,
+        )
+
+        # Create some sessions
+        session1 = service._create_rate_limited_session_factory("dshield")
+        session2 = service._create_rate_limited_session_factory("urlhaus")
+
+        assert len(service._active_sessions) == 2
+
+        # Close should cleanup sessions
+        service.close()
+
+        # VT handler should be closed
+        assert service.vt_handler is not None
+
+
+class TestVTPayloadMethods:
+    """Test VirusTotal payload loading and fetching."""
+
+    def test_load_vt_payload_from_cache(self, tmp_path: Path) -> None:
+        """Test loading VT payload from cache."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        # Create cached VT response (cache_dir/file_hash, no prefix or extension)
+        vt_cache_file = tmp_path / "abc123"
+        cached_data = {"data": {"attributes": {"last_analysis_stats": {"malicious": 5}}}}
+        vt_cache_file.write_text(json.dumps(cached_data), encoding="utf-8")
+
+        result = service._load_vt_payload("abc123")
+        assert result == cached_data
+
+    def test_load_vt_payload_cache_miss(self, tmp_path: Path) -> None:
+        """Test loading VT payload when cache miss."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="test-key",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        result = service._load_vt_payload("nonexistent")
+        assert result is None
+
+
+class TestEnrichmentIntegration:
+    """Test full enrichment workflows with mocked external APIs."""
+
+    @patch("cowrieprocessor.enrichment.handlers.dshield_query")
+    @patch("cowrieprocessor.enrichment.handlers.safe_read_uh_data")
+    @patch("cowrieprocessor.enrichment.handlers.read_spur_data")
+    def test_enrich_session_with_all_apis(
+        self, mock_spur: Mock, mock_urlhaus: Mock, mock_dshield: Mock, tmp_path: Path
+    ) -> None:
+        """Test enriching a session with all API services enabled.
+
+        Given: EnrichmentService with all API keys configured
+        When: Calling enrich_session
+        Then: Should call all enrichment APIs and return combined results
+        """
+        # Setup mock responses
+        mock_dshield.return_value = {"ip": {"count": 10, "attacks": 5}}
+        mock_urlhaus.return_value = '{"urls": [{"tags": ["malware"]}]}'
+        mock_spur.return_value = '{"asn": {"number": "12345", "organization": "Test"}}'
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="vt-key",
+            dshield_email="test@example.com",
+            urlhaus_api="uh-key",
+            spur_api="spur-key",
+        )
+
+        result = service.enrich_session("session-123", "192.168.1.1")
+
+        # Verify structure
+        assert result["session_id"] == "session-123"
+        assert result["src_ip"] == "192.168.1.1"
+        assert "enrichment" in result
+
+        # Verify all APIs were called
+        mock_dshield.assert_called_once()
+        mock_urlhaus.assert_called_once()
+        mock_spur.assert_called_once()
+
+        # Verify enrichment data
+        assert result["enrichment"]["dshield"]["ip"]["count"] == 10
+        assert "malware" in result["enrichment"]["urlhaus"]
+        assert "12345" in result["enrichment"]["spur"]
+
+    @patch("cowrieprocessor.enrichment.handlers.dshield_query")
+    def test_enrich_session_dshield_only(self, mock_dshield: Mock, tmp_path: Path) -> None:
+        """Test session enrichment with only DShield configured."""
+        mock_dshield.return_value = {"ip": {"count": 5}}
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email="test@example.com",
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        result = service.enrich_session("session-456", "10.0.0.1")
+
+        assert result["enrichment"]["dshield"]["ip"]["count"] == 5
+        assert result["enrichment"]["urlhaus"] == ""
+        assert isinstance(result["enrichment"]["spur"], list)
+
+    @patch("cowrieprocessor.enrichment.handlers.dshield_query")
+    def test_enrich_session_dshield_error(self, mock_dshield: Mock, tmp_path: Path) -> None:
+        """Test session enrichment when DShield API fails.
+
+        Given: DShield API raises an exception
+        When: Calling enrich_session
+        Then: Should handle error gracefully and return empty DShield payload
+        """
+        mock_dshield.side_effect = Exception("API error")
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email="test@example.com",
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        result = service.enrich_session("session-789", "10.0.0.2")
+
+        # Should return empty DShield structure on error (from _empty_dshield())
+        assert "enrichment" in result
+        assert "dshield" in result["enrichment"]
+        # _empty_dshield returns {"ip": {"asname": "", "ascountry": ""}}
+        assert "ip" in result["enrichment"]["dshield"]
+        assert result["enrichment"]["dshield"]["ip"]["asname"] == ""
+        assert result["enrichment"]["dshield"]["ip"]["ascountry"] == ""
+
+    @patch("cowrieprocessor.enrichment.handlers.safe_read_uh_data")
+    def test_enrich_session_urlhaus_error(self, mock_urlhaus: Mock, tmp_path: Path) -> None:
+        """Test session enrichment when URLHaus API fails."""
+        mock_urlhaus.side_effect = Exception("URLHaus API error")
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email=None,
+            urlhaus_api="uh-key",
+            spur_api=None,
+        )
+
+        result = service.enrich_session("session-error", "10.0.0.3")
+
+        # Should return empty string on URLHaus error
+        assert result["enrichment"]["urlhaus"] == ""
+
+    @patch("cowrieprocessor.enrichment.handlers.read_spur_data")
+    def test_enrich_session_spur_error(self, mock_spur: Mock, tmp_path: Path) -> None:
+        """Test session enrichment when SPUR API fails."""
+        mock_spur.side_effect = Exception("SPUR API error")
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api=None,
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api="spur-key",
+        )
+
+        result = service.enrich_session("session-spur-err", "10.0.0.4")
+
+        # Should return empty SPUR payload on error
+        assert isinstance(result["enrichment"]["spur"], list)
+        assert len(result["enrichment"]["spur"]) == 18
+
+    def test_enrich_file_with_vt(self, tmp_path: Path) -> None:
+        """Test file enrichment with VirusTotal.
+
+        Given: VirusTotal API configured
+        When: Calling enrich_file
+        Then: Should fetch VT data and return enrichment result
+        """
+        vt_payload = {
+            "data": {
+                "attributes": {
+                    "last_analysis_stats": {"malicious": 10, "suspicious": 2}
+                }
+            }
+        }
+
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="vt-key-123",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        # Mock the VT handler's enrich_file method
+        service.vt_handler.enrich_file = Mock(return_value=vt_payload)
+
+        result = service.enrich_file("abc123def", "malware.exe")
+
+        assert result["file_hash"] == "abc123def"
+        assert result["filename"] == "malware.exe"
+        assert result["enrichment"]["virustotal"]["data"]["attributes"]["last_analysis_stats"]["malicious"] == 10
+
+    def test_enrich_file_vt_error(self, tmp_path: Path) -> None:
+        """Test file enrichment when VirusTotal API fails."""
+        service = EnrichmentService(
+            cache_dir=tmp_path,
+            vt_api="vt-key-456",
+            dshield_email=None,
+            urlhaus_api=None,
+            spur_api=None,
+        )
+
+        # Mock VT handler to raise exception
+        service.vt_handler.enrich_file = Mock(side_effect=Exception("VT API error"))
+
+        result = service.enrich_file("def456ghi", "test.bin")
+
+        assert result["file_hash"] == "def456ghi"
+        assert result["enrichment"]["virustotal"] is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
