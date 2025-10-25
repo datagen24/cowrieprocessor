@@ -72,7 +72,30 @@ class FileTypeDetector:
             if cls.WEBHONEYPOT_JSON_PATTERN.search(content_text):
                 return 'webhoneypot_json', 'high', sample_content
 
-            # Check for generic JSON
+            # Check for generic JSON - try multiline first, then line-by-line
+            # First, try parsing the entire content as a single JSON object (multiline JSON)
+            try:
+                json.loads(content_text)
+                return 'json', 'high', sample_content
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+            # Check for multiline JSON patterns (prettified JSON objects)
+            # Look for lines starting with { or ending with } which indicate JSON structure
+            has_json_structure = False
+            if any(line.strip().startswith('{') for line in sample_content):
+                # Count lines that look like JSON structure
+                json_like_lines = sum(
+                    1 for line in sample_content
+                    if any(pattern in line for pattern in ['{', '}', '": ', '",', '":', ': "', ': {', ': ['])
+                )
+                if json_like_lines >= len(sample_content) * 0.5:
+                    has_json_structure = True
+
+            if has_json_structure:
+                return 'json', 'medium', sample_content
+
+            # Fall back to line-by-line JSON parsing
             json_valid_lines = 0
             for line in sample_content:
                 if line.strip():
