@@ -45,3 +45,7 @@ sensors.toml
 .coverage
 *.cover
 .coverage.*
+
+# Backup and temporary files
+*.bak
+coverage.xml
