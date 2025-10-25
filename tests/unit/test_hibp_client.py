@@ -264,42 +264,54 @@ def test_stats_increment_correctly(hibp_enricher, mock_rate_limiter) -> None:
 
 
 def test_hibp_service_unavailable_retries(hibp_enricher, mock_rate_limiter) -> None:
-    """Test HIBP client retries on 503 errors.
+    """Test HIBP client handles 503 errors gracefully.
 
     Given: HIBP service returns 503 Service Unavailable
     When: Client makes request
-    Then: Exception is raised with clear error message
+    Then: Error response is returned with error details
     """
     from unittest.mock import Mock
 
-    # Mock service unavailable response
+    # Mock service unavailable response that raises HTTPError
     mock_response = Mock()
     mock_response.status_code = 503
-    mock_response.json.return_value = {
-        "error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}
-    }
+    mock_response.raise_for_status = Mock(
+        side_effect=requests.HTTPError("503 Server Error: Service Unavailable")
+    )
 
     mock_rate_limiter.get.return_value = mock_response
 
-    with pytest.raises(Exception, match="Service temporarily unavailable"):
-        hibp_enricher.check_password("testpassword")
+    result = hibp_enricher.check_password("testpassword")
+
+    # Client should handle error gracefully and return error response
+    assert result['breached'] is False
+    assert result['error'] is not None
+    assert "503" in result['error'] or "Service Unavailable" in result['error']
+    assert hibp_enricher.stats['errors'] == 1
 
 
 def test_hibp_invalid_api_key_raises_auth_error(hibp_enricher, mock_rate_limiter) -> None:
-    """Test HIBP client handles invalid API keys.
+    """Test HIBP client handles invalid API keys gracefully.
 
     Given: HIBP service returns 401 Unauthorized
     When: Client makes request
-    Then: Authentication error is raised
+    Then: Error response is returned with auth error details
     """
     from unittest.mock import Mock
 
-    # Mock invalid API key response
+    # Mock invalid API key response that raises HTTPError
     mock_response = Mock()
     mock_response.status_code = 401
-    mock_response.json.return_value = {"error": {"code": "InvalidApiKey", "message": "Invalid API key"}}
+    mock_response.raise_for_status = Mock(
+        side_effect=requests.HTTPError("401 Client Error: Unauthorized")
+    )
 
     mock_rate_limiter.get.return_value = mock_response
 
-    with pytest.raises(Exception, match="Invalid API key"):
-        hibp_enricher.check_password("testpassword")
+    result = hibp_enricher.check_password("testpassword")
+
+    # Client should handle error gracefully and return error response
+    assert result['breached'] is False
+    assert result['error'] is not None
+    assert "401" in result['error'] or "Unauthorized" in result['error']
+    assert hibp_enricher.stats['errors'] == 1
