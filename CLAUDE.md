@@ -230,6 +230,51 @@ The system uses a **layered database architecture** optimized for honeypot data 
   - **`telemetry/`** - OpenTelemetry tracing
   - **`utils/`** - Shared utilities
 
+### Project Structure & Configuration
+
+- **`config/`** - Configuration files
+  - `sensors.toml` - Multi-sensor configuration (database connections, API keys, log paths)
+  - All CLI tools auto-detect config/sensors.toml with fallback to root sensors.toml
+- **`archive/`** - Deprecated legacy code (Phase 3 refactoring, October 2025)
+  - `process_cowrie.py` - Original monolithic processor (replaced by cowrie-loader)
+  - `enrichment_handlers.py` - Legacy enrichment (replaced by cowrieprocessor/enrichment/)
+  - `refresh_cache_and_reports.py` - Legacy cache refresh (replaced by cowrie-enrich refresh)
+  - `es_reports.py` - Legacy ES reports (replaced by cowrie-report)
+  - See `archive/README.md` for migration guides and rollback procedures
+- **`scripts/`** - Operational scripts
+  - `production/` - Production orchestration (orchestrate_sensors.py, monitor_progress.py)
+  - `debug/` - Debugging utilities
+  - `migrations/archive/` - Historical migration scripts
+
+**Important**: Tests that import legacy modules (process_cowrie, enrichment_handlers, secrets_resolver, session_enumerator) need updating to use new package paths. See "Current Development Context" section below for migration status.
+
+### Recent Refactoring (October 2025)
+
+**Phase 1** (Commit da40dc7): Break Dependency Cycles
+- Migrated 3 core utilities (1,459 lines) from root to package structure
+- `secrets_resolver.py` → `cowrieprocessor/utils/secrets.py`
+- `session_enumerator.py` → `cowrieprocessor/loader/session_parser.py`
+- `enrichment_handlers.py` → `cowrieprocessor/enrichment/handlers.py`
+- Eliminated circular dependencies between CLI and legacy code
+
+**Phase 2** (Commits 7343d7f, b7dbf81, 5814686): Modernize Production Tools
+- Updated `orchestrate_sensors.py` to use `cowrie-loader` CLI by default
+- Implemented secure `--sensor` mode (no secrets on command line)
+- Added backward compatibility with `USE_LEGACY_PROCESSOR=true`
+- Database credentials now loaded from sensors.toml internally
+
+**Phase 3** (Commit 41fe59b): Archive Legacy Code
+- Moved deprecated tools to `archive/` directory
+- Reorganized scripts into `scripts/{production,debug,migrations}/`
+- Created comprehensive deprecation documentation
+
+**Configuration Cleanup** (Commits 383c63b, 6bc1160):
+- Created `config/` directory at project root
+- Moved sensors.toml from scripts/production/ to config/
+- Updated 8 CLI tools to use config/ path with fallback
+
+**Test Impact**: 13 legacy test files require import path updates (documented in notes/WEEK5-6_SPRINT_PLAN.md Day 23)
+
 ### Key Design Patterns
 
 1. **Enrichment Pipeline**: All API enrichments flow through a unified caching layer with TTLs, rate limiting, and telemetry
