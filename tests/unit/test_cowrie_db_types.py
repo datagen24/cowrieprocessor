@@ -175,24 +175,30 @@ class TestCowrieDatabaseTypes:
                         with patch('cowrieprocessor.cli.cowrie_db.Path.stat') as mock_stat:
                             mock_stat.return_value.st_size = 1024 * 1024  # 1MB
 
-                            mock_connection.execute.return_value.fetchall.return_value = [
-                                ("raw_events", 1000),
-                                ("session_summaries", 500),
-                                ("files", 200),
-                            ]
+                            # Mock _get_session to return a mock session with proper integer responses
+                            mock_session = MagicMock()
+                            mock_session.__enter__ = MagicMock(return_value=mock_session)
+                            mock_session.__exit__ = MagicMock(return_value=False)
 
-                            db = CowrieDatabase("sqlite:///test.db")
-                            result = db.validate_schema()
+                            # Mock session.execute().scalar() for raw SQL queries
+                            mock_session.execute.return_value.scalar.return_value = 500
 
-                            assert isinstance(result, dict)
-                            assert 'is_valid' in result
-                            assert 'schema_version' in result
-                            assert 'database_size_mb' in result
-                            assert 'session_count' in result
-                            assert isinstance(result['is_valid'], bool)
-                            assert isinstance(result['schema_version'], int)
-                            assert isinstance(result['database_size_mb'], (int, float))
-                            assert isinstance(result['session_count'], int)
+                            # Mock session.scalar() for SQLAlchemy queries
+                            mock_session.scalar.return_value = 100
+
+                            with patch.object(CowrieDatabase, '_get_session', return_value=mock_session):
+                                db = CowrieDatabase("sqlite:///test.db")
+                                result = db.validate_schema()
+
+                                assert isinstance(result, dict)
+                                assert 'is_valid' in result
+                                assert 'schema_version' in result
+                                assert 'database_size_mb' in result
+                                assert 'session_count' in result
+                                assert isinstance(result['is_valid'], bool)
+                                assert isinstance(result['schema_version'], int)
+                                assert isinstance(result['database_size_mb'], (int, float))
+                                assert isinstance(result['session_count'], int)
 
     def test_optimize_return_type(self):
         """Test that optimize method returns proper Dict[str, Any] type."""
@@ -207,9 +213,9 @@ class TestCowrieDatabaseTypes:
                 result = db.optimize()
 
                 assert isinstance(result, dict)
-                assert 'operations_performed' in result
+                assert 'operations' in result
                 assert 'reclaimed_mb' in result
-                assert isinstance(result['operations_performed'], list)
+                assert isinstance(result['operations'], list)
                 assert isinstance(result['reclaimed_mb'], (int, float))
 
     def test_create_backup_return_type(self):
@@ -222,14 +228,13 @@ class TestCowrieDatabaseTypes:
 
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=True):
-                    with patch('cowrieprocessor.cli.cowrie_db.shutil.copy2') as mock_copy:
-                        mock_copy.return_value = "/path/to/backup.db"
+                    with patch('shutil.copy2'):
+                        with patch.object(CowrieDatabase, '_verify_backup_integrity', return_value=True):
+                            db = CowrieDatabase("sqlite:///test.db")
+                            result = db.create_backup()
 
-                        db = CowrieDatabase("sqlite:///test.db")
-                        result = db.create_backup()
-
-                        assert isinstance(result, str)
-                        assert result == "/path/to/backup.db"
+                            assert isinstance(result, str)
+                            assert result.endswith('.sqlite')
 
     def test_check_integrity_return_type(self):
         """Test that check_integrity method returns proper Dict[str, Any] type."""
@@ -246,11 +251,13 @@ class TestCowrieDatabaseTypes:
                 result = db.check_integrity()
 
                 assert isinstance(result, dict)
-                assert 'quick_check' in result
-                assert 'foreign_keys' in result
-                assert 'indexes' in result
+                assert 'checks' in result
                 assert 'corruption_found' in result
                 assert 'recommendations' in result
+                assert isinstance(result['checks'], dict)
+                assert 'quick_check' in result['checks']
+                assert 'foreign_keys' in result['checks']
+                assert 'indexes' in result['checks']
                 assert isinstance(result['corruption_found'], bool)
                 assert isinstance(result['recommendations'], list)
 
@@ -524,9 +531,9 @@ class TestSQLAlchemy20Compatibility:
             content = f.read()
 
         # Check for proper imports (allowing additional imports for SQLAlchemy 2.0)
-        assert 'from sqlalchemy import' in content and all(
-            imp in content for imp in ['Engine', 'Table', 'text']
-        ), "Should import Engine, Table, and text from sqlalchemy"
+        assert 'from sqlalchemy import' in content and all(imp in content for imp in ['Engine', 'Table', 'text']), (
+            "Should import Engine, Table, and text from sqlalchemy"
+        )
         assert 'from sqlalchemy.orm import Session, sessionmaker' in content, "Should import Session and sessionmaker"
         assert 'from sqlalchemy.dialects.sqlite import insert as sqlite_insert' in content, (
             "Should import sqlite_insert"
