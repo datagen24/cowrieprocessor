@@ -235,7 +235,7 @@ If you need to use these archived tools:
 For issues with the new CLI system:
 - See `CLAUDE.md` for current architecture
 - Run `uv run cowrie-loader --help` for usage
-- Check `scripts/production/sensors.example.toml` for configuration examples
+- Check `config/sensors.example.toml` for configuration examples
 
 ---
 

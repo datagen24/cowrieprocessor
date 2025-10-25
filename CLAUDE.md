@@ -129,7 +129,7 @@ uv run cowrie-report monthly 2025-09 --db "postgresql://..." --publish
 uv run cowrie-health --db "postgresql://..." --verbose
 
 # Monitor progress (real-time)
-uv run python monitor_progress.py --status-dir /mnt/dshield/data/logs/status --refresh 2
+uv run python scripts/production/monitor_progress.py --status-dir /mnt/dshield/data/logs/status --refresh 2
 ```
 
 ## Architecture Overview
@@ -361,14 +361,15 @@ When making changes, always check the `CONTRIBUTING.md` file and ensure all pre-
 4. **Test failures**: Check `tests/fixtures/` for required mock data
 5. **Enrichment cache misses**: Verify cache directory permissions at `~/.cache/cowrieprocessor` or custom path
 
-### Running Legacy Processor (DEPRECATED)
+### Running Legacy Processor (ARCHIVED)
 
-⚠️ **DEPRECATED**: The original `process_cowrie.py` script is being phased out. Use `cowrie-loader` instead.
+⚠️ **ARCHIVED**: The original `process_cowrie.py` script has been moved to `archive/` as of Phase 3 refactoring. Use `cowrie-loader` instead.
 
-For backward compatibility, it remains functional but will be removed in a future release:
+The archived script remains available for emergency rollback but is no longer actively maintained:
 ```bash
-# DEPRECATED - Use cowrie-loader instead!
-uv run python process_cowrie.py \
+# ARCHIVED - Only use for rollback scenarios!
+# Requires: cp archive/process_cowrie.py . (restore to root first)
+uv run python archive/process_cowrie.py \
     --logpath /path/to/cowrie/logs \
     --sensor honeypot-a \
     --db /path/to/db.sqlite \
@@ -389,17 +390,17 @@ uv run cowrie-loader delta /path/to/cowrie/logs/*.json \
 
 ### Multi-Sensor Orchestration
 
-For managing multiple sensors, use `orchestrate_sensors.py` with a TOML configuration:
+For managing multiple sensors, use `scripts/production/orchestrate_sensors.py` with a TOML configuration:
 ```bash
 # Uses cowrie-loader by default (NEW mode)
-uv run python orchestrate_sensors.py --config sensors.toml
+uv run python scripts/production/orchestrate_sensors.py --config config/sensors.toml
 
 # Force legacy mode if needed
-USE_LEGACY_PROCESSOR=true uv run python orchestrate_sensors.py --config sensors.toml
-# Or: uv run python orchestrate_sensors.py --config sensors.toml --legacy
+USE_LEGACY_PROCESSOR=true uv run python scripts/production/orchestrate_sensors.py --config config/sensors.toml
+# Or: uv run python scripts/production/orchestrate_sensors.py --config config/sensors.toml --legacy
 ```
 
-See `sensors.example.toml` for configuration format.
+See `config/sensors.example.toml` for configuration format.
 
 **New in orchestrate_sensors.py**:
 - **Default**: Uses `cowrie-loader delta` (modern CLI)
