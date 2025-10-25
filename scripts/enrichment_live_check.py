@@ -27,7 +27,9 @@ from enrichment_handlers import EnrichmentService  # noqa: E402
 
 DEFAULT_DB = Path("/mnt/dshield/data/db/cowrieprocessor.sqlite")
 DEFAULT_CACHE = Path("/mnt/dshield/data/cache")
-SENSORS_FILE = Path("sensors.toml")
+
+# Try config/ directory first, then fall back to current directory
+SENSORS_FILE = Path("config/sensors.toml") if Path("config/sensors.toml").exists() else Path("sensors.toml")
 
 
 def load_sensor_credentials(sensor_index: int = 0) -> dict:

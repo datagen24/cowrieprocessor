@@ -14,7 +14,10 @@ def _load_sensors_config() -> dict[str, str] | None:
     Returns:
         Database configuration dict with 'url' key, or None if not found
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         return None
 

@@ -591,7 +591,10 @@ def _derive_vocab_path_from_config() -> Optional[Path]:
     Returns:
         Path to vocabulary file, or None to disable persistent vocabulary
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         # No config file, use default cache location
         default_cache = Path.home() / ".cache" / "cowrieprocessor"
@@ -645,7 +648,10 @@ def _load_memory_config_from_sensors() -> Dict[str, Optional[float]]:
     Returns:
         Dictionary with memory_limit_gb and memory_warning_threshold
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         logger.info("No sensors.toml found, using default memory configuration")
         return {

@@ -1226,11 +1226,13 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
     # If no credentials provided via command line or environment, try to load from sensors.toml
     if not any(resolved_credentials.values()):
         try:
-            # Look for sensors.toml in the project root
+            # Look for sensors.toml in the project root (config/ first, then root)
             from pathlib import Path
 
             project_root = Path(__file__).resolve().parents[2]
-            sensors_file = project_root / "sensors.toml"
+            sensors_file = project_root / "config" / "sensors.toml"
+            if not sensors_file.exists():
+                sensors_file = project_root / "sensors.toml"
 
             if sensors_file.exists():
                 logger.info(f"Loading API credentials from {sensors_file}")
