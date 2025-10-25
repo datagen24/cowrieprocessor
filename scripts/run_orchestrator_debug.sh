@@ -9,4 +9,4 @@ LOG_FILE="$LOG_DIR/orchestrate-$STAMP.log"
 
 printf 'Debug log: %s\n' "$LOG_FILE"
 
-PYTHONFAULTHANDLER=1 PYTHONUNBUFFERED=1 uv run python -u orchestrate_sensors.py "$@" 2>&1 | tee "$LOG_FILE"
+PYTHONFAULTHANDLER=1 PYTHONUNBUFFERED=1 uv run python -u production/orchestrate_sensors.py "$@" 2>&1 | tee "$LOG_FILE"

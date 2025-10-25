@@ -260,7 +260,7 @@ def main() -> None:
         description="Run Cowrie processors for multiple sensors via TOML",
         epilog="Uses cowrie-loader by default. Set USE_LEGACY_PROCESSOR=true env var for process_cowrie.py",
     )
-    ap.add_argument("--config", default="sensors.toml", help="Path to TOML configuration")
+    ap.add_argument("--config", default="config/sensors.toml", help="Path to TOML configuration")
     ap.add_argument("--only", nargs="*", help="Subset of sensor names to run")
     ap.add_argument(
         "--processor",

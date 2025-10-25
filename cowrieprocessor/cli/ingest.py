@@ -129,10 +129,10 @@ def _load_sensor_config(sensor_name: str, config_path: Path | None = None) -> di
     if config_path:
         sensors_file = config_path
     else:
-        # Try current directory first, then scripts/production/
-        sensors_file = Path("sensors.toml")
+        # Try config/ directory first, then current directory
+        sensors_file = Path("config/sensors.toml")
         if not sensors_file.exists():
-            sensors_file = Path("scripts/production/sensors.toml")
+            sensors_file = Path("sensors.toml")
 
     if not sensors_file.exists():
         print(f"Error: sensors.toml not found at {sensors_file} (required for --sensor mode)", file=sys.stderr)
@@ -187,7 +187,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument(
         "--config",
         type=Path,
-        help="Path to sensors.toml (default: ./sensors.toml or scripts/production/sensors.toml)",
+        help="Path to sensors.toml (default: config/sensors.toml or ./sensors.toml)",
     )
     parser.add_argument(
         "--db",
