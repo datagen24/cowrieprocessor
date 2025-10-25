@@ -186,14 +186,14 @@ class TestServiceRateLimits:
 
     def test_service_rate_limits_exist(self) -> None:
         """Test that all expected services have rate limits configured."""
-        expected_services = {"dshield", "virustotal", "urlhaus", "spur"}
+        expected_services = {"dshield", "virustotal", "urlhaus", "spur", "hibp"}
         assert set(SERVICE_RATE_LIMITS.keys()) == expected_services
 
     def test_get_service_rate_limit(self) -> None:
         """Test getting rate limits for specific services."""
         rate, burst = get_service_rate_limit("virustotal")
-        assert rate == 4.0
-        assert burst == 5
+        assert rate == 0.067  # VT allows 4 requests/minute = 0.067/sec
+        assert burst == 1
 
         rate, burst = get_service_rate_limit("dshield")
         assert rate == 1.0
