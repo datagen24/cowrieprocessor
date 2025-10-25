@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -19,9 +19,7 @@ from cowrieprocessor.cli.enrich_ssh_keys import (
     _normalize_event_timestamp,
     _parse_date,
     backfill_ssh_keys,
-    export_ssh_keys,
     main,
-    repair_ssh_key_timestamps,
 )
 from cowrieprocessor.db.base import Base
 
@@ -213,7 +211,7 @@ class TestNormalizeEventTimestamp:
         Then: Should convert to UTC
         """
         # Create a datetime with a non-UTC timezone offset
-        from datetime import timezone, timedelta
+        from datetime import timezone
 
         eastern = timezone(timedelta(hours=-5))
         eastern_dt = datetime(2025, 10, 25, 12, 0, 0, tzinfo=eastern)
@@ -393,6 +391,41 @@ class TestMainCLIParsing:
         assert exc_info.value.code == 2  # argparse error code
         captured = capsys.readouterr()
         assert "--end-date is required" in captured.err
+
+
+class TestBackfillSSHKeys:
+    """Test backfill_ssh_keys command function."""
+
+    @patch('cowrieprocessor.cli.enrich_ssh_keys.resolve_database_settings')
+    @patch('cowrieprocessor.cli.enrich_ssh_keys.create_engine_from_settings')
+    @patch('cowrieprocessor.cli.enrich_ssh_keys.apply_migrations')
+    def test_backfill_old_schema_version(
+        self,
+        mock_migrations: Mock,
+        mock_engine: Mock,
+        mock_settings: Mock,
+    ) -> None:
+        """Test backfill with incompatible schema version.
+
+        Given: Database with schema v10 (< v11 required)
+        When: Running backfill
+        Then: Should return 1 (error)
+        """
+        mock_settings.return_value = {"database_url": "sqlite:///test.db"}
+        mock_migrations.return_value = 10  # Old schema
+
+        args = argparse.Namespace(
+            days_back=7,
+            sensor=None,
+            status_dir=None,
+            batch_size=100,
+            progress=False,
+            verbose=False,
+        )
+
+        result = backfill_ssh_keys(args)
+
+        assert result == 1
 
 
 if __name__ == "__main__":
