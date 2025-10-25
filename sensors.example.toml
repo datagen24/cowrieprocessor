@@ -1,29 +1,49 @@
 [global]
-# SQLite database (default)
+# Database connection
+# SQLite: Absolute path (will be converted to sqlite:// URI)
 db = "/mnt/dshield/data/db/cowrieprocessor.sqlite"
 
-# PostgreSQL database (optional - requires: uv pip install -e ".[postgres]")
+# PostgreSQL: Full connection URI (requires: uv pip install -e ".[postgres]")
 # db = "postgresql://user:password@localhost:5432/cowrie"
 # db = "postgresql://user:password@postgres.example.com:5432/cowrie?sslmode=require"
 
+# Optional: Report output directory (legacy process_cowrie.py only)
 report_dir = "/mnt/dshield/reports"
+
+# Optional: Log directory for status files (default: /mnt/dshield/data/logs)
+# log_dir = "/mnt/dshield/data/logs"
+
+# Mode: By default, orchestrate_sensors.py uses the new cowrie-loader CLI
+# To use legacy process_cowrie.py, set environment variable:
+#   export USE_LEGACY_PROCESSOR=true
+# Or pass --legacy flag to orchestrate_sensors.py
 
 [[sensor]]
 name = "honeypot-a"
 logpath = "/mnt/dshield/a/NSM/cowrie"
+
+# Process last N days of logs (default: 1)
+# In NEW mode: passed as --last-days to cowrie-loader
+# In LEGACY mode: passed as --summarizedays to process_cowrie.py
 summarizedays = 1
+
+# Email for DShield enrichment
 email = "you@example.com"
-# Optional per-sensor override for report_dir
+
+# Optional: Per-sensor report directory override (legacy mode only)
 # report_dir = "/mnt/dshield/reports/honeypot-a"
-#
+
+# API Keys for Enrichment Services
 # Secrets can be provided as plain values or secret references.
-# Recommended: use secret references and let orchestrate_sensors set env vars.
-# Examples:
-# vtapi = "env:VT_API_KEY"                  # from environment
-# vtapi = "op://Security/VirusTotal/api"    # 1Password item field
+# Recommended: use secret references to avoid exposing secrets in process lists.
+#
+# Supported secret reference formats:
+# vtapi = "env:VT_API_KEY"                           # Environment variable
+# vtapi = "op://Security/VirusTotal/api"             # 1Password CLI
 # urlhausapi = "aws-sm://us-east-1/urlhaus#api_key"  # AWS Secrets Manager
-# spurapi = "vault://kv/data/spur#token"     # HashiCorp Vault KV v2
-# email = "file:/run/secrets/dshield_email"   # From a file
+# spurapi = "vault://kv/data/spur#token"             # HashiCorp Vault KV v2
+# email = "file:/run/secrets/dshield_email"          # From a file
+# vtapi = "sops://secrets.enc.json#virustotal.api"   # SOPS-encrypted JSON
 
 [[sensor]]
 name = "honeypot-b"

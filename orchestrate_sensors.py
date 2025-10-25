@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Orchestrate running process_cowrie.py for multiple sensors from a TOML config.
+"""Orchestrate running cowrie-loader for multiple sensors from a TOML config.
 
 This runs sensors sequentially, passing per-sensor log paths and credentials,
-and writes to a shared central SQLite database with sensor tagging.
+and writes to a shared central database (SQLite or PostgreSQL) with sensor tagging.
+
+By default, uses the new `cowrie-loader delta` CLI command. Set environment
+variable `USE_LEGACY_PROCESSOR=true` to fall back to process_cowrie.py.
 """
 
 import argparse
@@ -32,11 +35,69 @@ def load_config(path: Path) -> dict:
         return tomllib.load(f)
 
 
-def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> list:
-    """Build a process_cowrie.py command for a sensor configuration.
+def build_loader_cmd(db: str, sensor_cfg: dict, overrides: dict, mode: str = "delta") -> list:
+    """Build a cowrie-loader command for a sensor configuration (NEW).
 
     Note: Secrets are provided to the subprocess via environment variables,
     not CLI flags, to avoid exposure in process lists or logs.
+
+    Args:
+        db: Database connection string (sqlite:////path or postgresql://...)
+        sensor_cfg: Sensor configuration from TOML
+        overrides: Command-line overrides
+        mode: 'delta' (incremental) or 'bulk' (initial load)
+
+    Returns:
+        Command list suitable for subprocess execution
+    """
+    # Use uv run to execute the CLI command
+    cmd = ["uv", "run", "cowrie-loader", mode]
+
+    # Log path glob pattern
+    logpath = Path(sensor_cfg["logpath"])
+    cmd.append(f"{logpath}/*.json*")  # Support .json, .json.gz, .json.bz2
+
+    # Database connection (ensure proper URI format)
+    if db.startswith(("postgresql://", "sqlite://")):
+        cmd += ["--db", db]
+    elif db.startswith("/") or db.startswith("./") or db.startswith("../"):
+        # Convert relative/absolute paths to sqlite URI
+        cmd += ["--db", f"sqlite:///{os.path.abspath(db)}"]
+    else:
+        # Assume relative path
+        cmd += ["--db", f"sqlite:///{os.path.abspath(db)}"]
+
+    # Sensor name
+    cmd += ["--sensor", sensor_cfg["name"]]
+
+    # Status directory (for progress monitoring)
+    status_dir = overrides.get("status_dir", "/mnt/dshield/data/logs/status")
+    cmd += ["--status-dir", str(status_dir)]
+
+    # Optional: last N days (instead of summarizedays)
+    summarizedays = overrides.get("summarizedays") or sensor_cfg.get("summarizedays")
+    if summarizedays and summarizedays > 0:
+        cmd += ["--last-days", str(summarizedays)]
+
+    # Skip enrichment flag
+    if overrides.get("skip_enrich"):
+        cmd += ["--skip-enrich"]
+
+    # Buffer size
+    if overrides.get("buffer_bytes"):
+        cmd += ["--buffer-bytes", str(overrides["buffer_bytes"])]
+
+    return cmd
+
+
+def build_cmd(processor: Path, db: str, sensor_cfg: dict, overrides: dict) -> list:
+    """Build a process_cowrie.py command for a sensor configuration (LEGACY).
+
+    Note: Secrets are provided to the subprocess via environment variables,
+    not CLI flags, to avoid exposure in process lists or logs.
+
+    **DEPRECATED**: This function is maintained for backward compatibility.
+    Use build_loader_cmd() for new deployments.
     """
     cmd = [sys.executable, str(processor)]
 
@@ -202,10 +263,17 @@ def prepare_env_for_sensor(sensor_cfg: dict) -> Dict[str, str]:
 
 def main() -> None:
     """CLI entrypoint for orchestrating sensors from TOML config."""
-    ap = argparse.ArgumentParser(description="Run Cowrie processors for multiple sensors via TOML")
+    ap = argparse.ArgumentParser(
+        description="Run Cowrie processors for multiple sensors via TOML",
+        epilog="Uses cowrie-loader by default. Set USE_LEGACY_PROCESSOR=true env var for process_cowrie.py",
+    )
     ap.add_argument("--config", default="sensors.toml", help="Path to TOML configuration")
     ap.add_argument("--only", nargs="*", help="Subset of sensor names to run")
-    ap.add_argument("--processor", default="process_cowrie.py", help="Path to process_cowrie.py")
+    ap.add_argument(
+        "--processor",
+        default="process_cowrie.py",
+        help="Path to process_cowrie.py (legacy mode only)",
+    )
     ap.add_argument("--db", help="Override central DB path")
     ap.add_argument("--summarizedays", type=int, help="Override summarizedays for all sensors")
     ap.add_argument("--max-retries", type=int, default=2, help="Max retries per sensor (default: 2)")
@@ -221,7 +289,11 @@ def main() -> None:
         default=60.0,
         help="Poll status during runs (sec; 0=off)",
     )
-    ap.add_argument("--bulk-load", action='store_true', help="Pass --bulk-load to processor for faster ingest")
+    ap.add_argument(
+        "--bulk-load",
+        action='store_true',
+        help="Use bulk mode instead of delta (for initial loads)",
+    )
     ap.add_argument(
         "--skip-enrich",
         action='store_true',
@@ -236,7 +308,19 @@ def main() -> None:
         help=("Date range YYYY-MM-DD YYYY-MM-DD; stage only matching files"),
     )
     ap.add_argument("--keep-staging", action='store_true', help="Keep staging directory used for date-range runs")
+    ap.add_argument(
+        "--legacy",
+        action='store_true',
+        help="Force legacy mode (process_cowrie.py) even if USE_LEGACY_PROCESSOR not set",
+    )
     args = ap.parse_args()
+
+    # Determine which processor to use
+    use_legacy = args.legacy or os.getenv("USE_LEGACY_PROCESSOR", "").lower() == "true"
+    if use_legacy:
+        print("[orchestrate] Running in LEGACY mode (process_cowrie.py)")
+    else:
+        print("[orchestrate] Running in NEW mode (cowrie-loader)")
 
     cfg = load_config(Path(args.config))
     global_cfg = cfg.get("global", {})
@@ -268,6 +352,7 @@ def main() -> None:
             "bulk_load": args.bulk_load,
             "buffer_bytes": args.buffer_bytes,
             "skip_enrich": args.skip_enrich,
+            "status_dir": log_dir / 'status',
         }
 
         # Optional date-range staging
@@ -312,7 +397,14 @@ def main() -> None:
 
         # Build environment with secrets and command without secret flags
         extra_env = prepare_env_for_sensor(sensor_cfg)
-        cmd = build_cmd(processor, db, sensor_cfg, overrides)
+
+        # Choose command builder based on mode
+        if use_legacy:
+            cmd = build_cmd(processor, db, sensor_cfg, overrides)
+        else:
+            loader_mode = "bulk" if args.bulk_load else "delta"
+            cmd = build_loader_cmd(db, sensor_cfg, overrides, mode=loader_mode)
+
         status_path = log_dir / 'status' / f"{sensor_cfg['name']}.json"
         rc = run_with_retries(
             cmd,
