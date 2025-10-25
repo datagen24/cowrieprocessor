@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from sqlalchemy import Engine, Table, text
+from sqlalchemy import Engine, Table, func, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -257,7 +257,8 @@ class CowrieDatabase:
                 try:
                     from ..db.models import CommandStat
 
-                    result['command_count'] = session.query(CommandStat).count()
+                    count_result = session.scalar(select(func.count()).select_from(CommandStat))
+                    result['command_count'] = count_result if count_result is not None else 0
                 except Exception as e:
                     logger.warning(f"Could not get command count: {e}")
                     result['command_count'] = 0
@@ -274,7 +275,8 @@ class CowrieDatabase:
 
                 # Check files table count if it exists
                 try:
-                    result['files_table_count'] = session.query(Files).count()
+                    files_count_result = session.scalar(select(func.count()).select_from(Files))
+                    result['files_table_count'] = files_count_result if files_count_result is not None else 0
                 except Exception:
                     result['files_table_count'] = 0
 
