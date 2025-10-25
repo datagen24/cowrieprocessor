@@ -519,7 +519,7 @@ def test_print_longtail_summary_with_anomalies(capsys: Any) -> None:
 
     # Then: Output contains key information
     captured = capsys.readouterr()
-    assert ("LONGTAIL" in captured.out or "Longtail" in captured.out or "ANALYSIS" in captured.out)
+    assert "LONGTAIL" in captured.out or "Longtail" in captured.out or "ANALYSIS" in captured.out
 
 
 def test_print_longtail_summary_no_anomalies(capsys: Any) -> None:
@@ -544,7 +544,7 @@ def test_print_longtail_summary_no_anomalies(capsys: Any) -> None:
 
     # Then: Output indicates no detection
     captured = capsys.readouterr()
-    assert ("LONGTAIL" in captured.out or "Longtail" in captured.out or "ANALYSIS" in captured.out)
+    assert "LONGTAIL" in captured.out or "Longtail" in captured.out or "ANALYSIS" in captured.out
 
 
 # ============================================================================
@@ -1238,11 +1238,15 @@ def test_main_botnet_command() -> None:
         mock_botnet.return_value = 0
 
         # When: Call main with botnet command
-        result = analyze.main([
-            "botnet",
-            "--db", ":memory:",
-            "--window", "24",
-        ])
+        result = analyze.main(
+            [
+                "botnet",
+                "--db",
+                ":memory:",
+                "--window",
+                "24",
+            ]
+        )
 
         # Then: Botnet analysis is called and succeeds
         assert result == 0
@@ -1264,11 +1268,15 @@ def test_main_snowshoe_command() -> None:
         mock_snowshoe.return_value = 0
 
         # When: Call main with snowshoe command
-        result = analyze.main([
-            "snowshoe",
-            "--db", ":memory:",
-            "--window", "24h",
-        ])
+        result = analyze.main(
+            [
+                "snowshoe",
+                "--db",
+                ":memory:",
+                "--window",
+                "24h",
+            ]
+        )
 
         # Then: Snowshoe analysis is called and succeeds
         assert result == 0
@@ -1290,11 +1298,15 @@ def test_main_longtail_command() -> None:
         mock_longtail.return_value = 0
 
         # When: Call main with longtail command
-        result = analyze.main([
-            "longtail",
-            "--db", ":memory:",
-            "--lookback-days", "7",
-        ])
+        result = analyze.main(
+            [
+                "longtail",
+                "--db",
+                ":memory:",
+                "--lookback-days",
+                "7",
+            ]
+        )
 
         # Then: Longtail analysis is called and succeeds
         assert result == 0
@@ -1316,10 +1328,13 @@ def test_main_snowshoe_report_command() -> None:
         mock_report.return_value = 0
 
         # When: Call main with snowshoe-report command
-        result = analyze.main([
-            "snowshoe-report",
-            "--db", ":memory:",
-        ])
+        result = analyze.main(
+            [
+                "snowshoe-report",
+                "--db",
+                ":memory:",
+            ]
+        )
 
         # Then: Snowshoe report is called and succeeds
         assert result == 0

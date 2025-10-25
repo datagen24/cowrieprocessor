@@ -278,6 +278,7 @@ class TestLoadTextWithTTL:
         cache_path.touch()
         Path(cache_path).chmod(0o644)
         import os
+
         os.utime(cache_path, (old_time, old_time))
 
         # When: Load text (should be expired)
@@ -370,6 +371,7 @@ class TestCleanupExpired:
         old_path = cache_mgr.get_path("test", "old_key")
         old_time = time.time() - 10  # 10 seconds ago
         import os
+
         os.utime(old_path, (old_time, old_time))
 
         # When: Cleanup expired
@@ -453,6 +455,7 @@ class TestCleanupExpired:
         # Make file old
         old_time = time.time() - 10
         import os
+
         os.utime(file_path, (old_time, old_time))
 
         # When: Cleanup with file deletion during iteration
@@ -508,6 +511,7 @@ class TestResolveExistingPath:
 
         # Manually create legacy path
         import hashlib
+
         key = "test_key"
         digest = hashlib.sha256(key.encode()).hexdigest()
         legacy_dir = tmp_path / "cache" / "virustotal" / digest[:2]

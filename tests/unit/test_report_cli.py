@@ -187,8 +187,10 @@ def test_generate_longtail_report_last_day_json(tmp_path: Path, capsys) -> None:
         [
             "longtail",
             "last-day",
-            "--format", "json",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "json",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -221,8 +223,10 @@ def test_generate_longtail_report_quarter_format(tmp_path: Path, capsys) -> None
         [
             "longtail",
             "Q12024",
-            "--format", "json",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "json",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -253,8 +257,10 @@ def test_generate_longtail_report_month_format(tmp_path: Path, capsys) -> None:
         [
             "longtail",
             "2024-01",
-            "--format", "json",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "json",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -306,10 +312,13 @@ def test_generate_longtail_report_text_format_with_threats(tmp_path: Path, capsy
         [
             "longtail",
             "last-day",
-            "--format", "text",
+            "--format",
+            "text",
             "--threats",
-            "--limit", "5",
-            "--db", f"sqlite:///{db_path}",
+            "--limit",
+            "5",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -360,8 +369,10 @@ def test_generate_longtail_report_with_vectors_and_trends(tmp_path: Path, capsys
         [
             "longtail",
             "last-day",
-            "--format", "text",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "text",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -390,8 +401,10 @@ def test_generate_longtail_report_error_invalid_period(tmp_path: Path, capsys) -
         [
             "longtail",
             "invalid-period-format",
-            "--format", "json",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "json",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -419,7 +432,8 @@ def test_main_traditional_subcommand_routing(tmp_path: Path, capsys) -> None:
             "traditional",
             "daily",
             "2024-01-01",
-            "--db", db_url,
+            "--db",
+            db_url,
         ]
     )
 
@@ -451,8 +465,10 @@ def test_main_ssh_keys_subcommand_routing(tmp_path: Path, capsys) -> None:
         [
             "ssh-keys",
             "summary",
-            "--db", f"sqlite:///{db_path}",
-            "--limit", "10",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--limit",
+            "10",
         ]
     )
 
@@ -481,8 +497,10 @@ def test_main_longtail_subcommand_routing(tmp_path: Path, capsys) -> None:
         [
             "longtail",
             "last-day",
-            "--format", "json",
-            "--db", f"sqlite:///{db_path}",
+            "--format",
+            "json",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -525,7 +543,8 @@ def test_generate_traditional_report_daily_mode(tmp_path: Path, capsys) -> None:
             "traditional",
             "daily",
             "2024-01-01",
-            "--db", db_url,
+            "--db",
+            db_url,
         ]
     )
 
@@ -562,7 +581,8 @@ def test_generate_traditional_report_weekly_mode(tmp_path: Path, capsys) -> None
             "traditional",
             "weekly",
             "2024-W01",
-            "--db", db_url,
+            "--db",
+            db_url,
         ]
     )
 
@@ -596,32 +616,34 @@ def test_generate_traditional_report_with_sensor_filter(tmp_path: Path, capsys) 
     factory = sessionmaker(bind=engine, expire_on_commit=False)
 
     with factory() as session:
-        session.add_all([
-            SessionSummary(
-                session_id="s1",
-                first_event_at=datetime(2024, 1, 1, tzinfo=UTC),
-                last_event_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
-                event_count=4,
-                command_count=2,
-                file_downloads=1,
-                login_attempts=0,
-                vt_flagged=0,
-                dshield_flagged=0,
-                matcher="sensor-a",
-            ),
-            SessionSummary(
-                session_id="s2",
-                first_event_at=datetime(2024, 1, 1, tzinfo=UTC),
-                last_event_at=datetime(2024, 1, 1, 2, tzinfo=UTC),
-                event_count=3,
-                command_count=1,
-                file_downloads=0,
-                login_attempts=0,
-                vt_flagged=0,
-                dshield_flagged=0,
-                matcher="sensor-b",
-            ),
-        ])
+        session.add_all(
+            [
+                SessionSummary(
+                    session_id="s1",
+                    first_event_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    last_event_at=datetime(2024, 1, 1, 1, tzinfo=UTC),
+                    event_count=4,
+                    command_count=2,
+                    file_downloads=1,
+                    login_attempts=0,
+                    vt_flagged=0,
+                    dshield_flagged=0,
+                    matcher="sensor-a",
+                ),
+                SessionSummary(
+                    session_id="s2",
+                    first_event_at=datetime(2024, 1, 1, tzinfo=UTC),
+                    last_event_at=datetime(2024, 1, 1, 2, tzinfo=UTC),
+                    event_count=3,
+                    command_count=1,
+                    file_downloads=0,
+                    login_attempts=0,
+                    vt_flagged=0,
+                    dshield_flagged=0,
+                    matcher="sensor-b",
+                ),
+            ]
+        )
         session.commit()
 
     # When: Generate report with sensor filter
@@ -630,8 +652,10 @@ def test_generate_traditional_report_with_sensor_filter(tmp_path: Path, capsys) 
             "traditional",
             "daily",
             "2024-01-01",
-            "--db", f"sqlite:///{db_path}",
-            "--sensor", "sensor-a",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--sensor",
+            "sensor-a",
         ]
     )
 
@@ -663,8 +687,10 @@ def test_generate_traditional_report_output_to_file(tmp_path: Path) -> None:
             "traditional",
             "daily",
             "2024-01-01",
-            "--db", db_url,
-            "--output", str(output_file),
+            "--db",
+            db_url,
+            "--output",
+            str(output_file),
         ]
     )
 
@@ -723,9 +749,12 @@ def test_generate_ssh_key_summary_with_file_output(tmp_path: Path) -> None:
         [
             "ssh-keys",
             "summary",
-            "--db", f"sqlite:///{db_path}",
-            "--output", str(output_file),
-            "--limit", "10",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--output",
+            str(output_file),
+            "--limit",
+            "10",
         ]
     )
 
@@ -781,11 +810,16 @@ def test_generate_ssh_key_campaigns_report_basic(tmp_path: Path, capsys) -> None
         [
             "ssh-keys",
             "campaigns",
-            "--db", f"sqlite:///{db_path}",
-            "--days-back", "30",
-            "--min-attempts", "10",
-            "--min-ips", "2",
-            "--confidence-threshold", "0.5",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--days-back",
+            "30",
+            "--min-attempts",
+            "10",
+            "--min-ips",
+            "2",
+            "--confidence-threshold",
+            "0.5",
         ]
     )
 
@@ -841,10 +875,14 @@ def test_generate_ssh_key_detail_report_basic(tmp_path: Path, capsys) -> None:
         [
             "ssh-keys",
             "detail",
-            "--db", f"sqlite:///{db_path}",
-            "--fingerprint", "SHA256:target123",
-            "--min-association-strength", "0.3",
-            "--max-related", "10",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--fingerprint",
+            "SHA256:target123",
+            "--min-association-strength",
+            "0.3",
+            "--max-related",
+            "10",
         ]
     )
 
@@ -880,7 +918,8 @@ def test_generate_ssh_key_detail_report_missing_fingerprint(tmp_path: Path, caps
         [
             "ssh-keys",
             "detail",
-            "--db", f"sqlite:///{db_path}",
+            "--db",
+            f"sqlite:///{db_path}",
         ]
     )
 
@@ -908,8 +947,10 @@ def test_generate_ssh_key_detail_report_key_not_found(tmp_path: Path, capsys) ->
         [
             "ssh-keys",
             "detail",
-            "--db", f"sqlite:///{db_path}",
-            "--fingerprint", "SHA256:does_not_exist",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--fingerprint",
+            "SHA256:does_not_exist",
         ]
     )
 
@@ -988,11 +1029,16 @@ def test_generate_ssh_key_campaigns_with_file_output(tmp_path: Path) -> None:
         [
             "ssh-keys",
             "campaigns",
-            "--db", f"sqlite:///{db_path}",
-            "--output", str(output_file),
-            "--days-back", "30",
-            "--min-attempts", "10",
-            "--min-ips", "2",
+            "--db",
+            f"sqlite:///{db_path}",
+            "--output",
+            str(output_file),
+            "--days-back",
+            "30",
+            "--min-attempts",
+            "10",
+            "--min-ips",
+            "2",
         ]
     )
 

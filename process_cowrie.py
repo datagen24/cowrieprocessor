@@ -36,17 +36,13 @@ import requests
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
 from cowrieprocessor.threat_detection.longtail import run_longtail_analysis
-from enrichment_handlers import (
+from cowrieprocessor.enrichment.handlers import (
     dshield_query as enrichment_dshield_query,
-)
-from enrichment_handlers import (
     read_spur_data as enrichment_read_spur_data,
-)
-from enrichment_handlers import (
     safe_read_uh_data as enrichment_safe_read_uh_data,
 )
-from secrets_resolver import is_reference, resolve_secret
-from session_enumerator import SessionMetrics, enumerate_sessions
+from cowrieprocessor.utils.secrets import is_reference, resolve_secret
+from cowrieprocessor.loader.session_parser import SessionMetrics, enumerate_sessions
 
 faulthandler.enable()
 if hasattr(signal, "SIGUSR1"):

@@ -275,9 +275,7 @@ def test_hibp_service_unavailable_retries(hibp_enricher, mock_rate_limiter) -> N
     # Mock service unavailable response that raises HTTPError
     mock_response = Mock()
     mock_response.status_code = 503
-    mock_response.raise_for_status = Mock(
-        side_effect=requests.HTTPError("503 Server Error: Service Unavailable")
-    )
+    mock_response.raise_for_status = Mock(side_effect=requests.HTTPError("503 Server Error: Service Unavailable"))
 
     mock_rate_limiter.get.return_value = mock_response
 
@@ -302,9 +300,7 @@ def test_hibp_invalid_api_key_raises_auth_error(hibp_enricher, mock_rate_limiter
     # Mock invalid API key response that raises HTTPError
     mock_response = Mock()
     mock_response.status_code = 401
-    mock_response.raise_for_status = Mock(
-        side_effect=requests.HTTPError("401 Client Error: Unauthorized")
-    )
+    mock_response.raise_for_status = Mock(side_effect=requests.HTTPError("401 Client Error: Unauthorized"))
 
     mock_rate_limiter.get.return_value = mock_response
 

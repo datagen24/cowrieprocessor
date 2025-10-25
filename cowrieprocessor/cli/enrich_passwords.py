@@ -1259,16 +1259,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
     # Initialize enrichment service
     try:
         # Import here to avoid circular imports
-        import sys
         from pathlib import Path
 
         from ..enrichment import EnrichmentCacheManager
-
-        # Add project root to path to import enrichment_handlers
-        project_root = Path(__file__).resolve().parents[2]
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
-        from enrichment_handlers import EnrichmentService
+        from ..enrichment.handlers import EnrichmentService
 
         cache_dir_path = Path(args.cache_dir)
         cache_manager = EnrichmentCacheManager(cache_dir_path)

