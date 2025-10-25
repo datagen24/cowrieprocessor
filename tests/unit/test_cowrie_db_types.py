@@ -523,8 +523,10 @@ class TestSQLAlchemy20Compatibility:
         with open(cowrie_db_path, 'r') as f:
             content = f.read()
 
-        # Check for proper imports
-        assert 'from sqlalchemy import Engine, Table, text' in content, "Should import Engine and Table"
+        # Check for proper imports (allowing additional imports for SQLAlchemy 2.0)
+        assert 'from sqlalchemy import' in content and all(
+            imp in content for imp in ['Engine', 'Table', 'text']
+        ), "Should import Engine, Table, and text from sqlalchemy"
         assert 'from sqlalchemy.orm import Session, sessionmaker' in content, "Should import Session and sessionmaker"
         assert 'from sqlalchemy.dialects.sqlite import insert as sqlite_insert' in content, (
             "Should import sqlite_insert"
