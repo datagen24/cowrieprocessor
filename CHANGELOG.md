@@ -5,7 +5,22 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 ## [Unreleased]
 
 ### Added - Test Coverage Improvements (Week 4, October 2025)
-- **Week 4 Day 16** (October 25): Report CLI testing achieving 55% → 56% total coverage (+1%)
+- **Week 4 Days 16-17** (October 25): CLI module testing achieving 55% → 57% total coverage (+2%)
+- **Analyze CLI Testing** (Day 17, October 25):
+  - 17 new tests for `cowrieprocessor/cli/analyze.py`
+  - Module coverage: 27% → 65% (+38 percentage points, exceeded 55-60% target by +5-10%)
+  - Overall project coverage: 56% → 57% (+1 percentage point)
+  - **Batch 1 - CLI Entry Points** (11 tests):
+    - `longtail_analyze()` - success path, no-sessions error, file output
+    - `snowshoe_report()` - report generation, file output, empty results
+    - `main()` - CLI router with all 4 command branches (botnet, snowshoe, longtail, snowshoe-report)
+  - **Batch 2 - Database Storage & Botnet** (6 tests):
+    - `_store_detection_result()` - storage success and exception handling
+    - `_store_botnet_detection_result()` - botnet detection storage
+    - `_run_botnet_analysis()` - analysis success, no-sessions error, file output
+  - Test quality: 100% pass rate, zero technical debt introduced
+  - File: `tests/unit/test_analyze.py` (738 → 1,722 lines, +984 lines, +133% growth)
+  - Testing efficiency: 2.24% average coverage per test (exceptional ROI)
 - **Report CLI Testing** (Day 16, October 25):
   - 16 new tests for `cowrieprocessor/cli/report.py`
   - Module coverage: 63% → 76% (+13 percentage points, exceeded 75% target)
