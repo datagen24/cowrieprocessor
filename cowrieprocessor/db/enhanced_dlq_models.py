@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     DateTime,
     Index,
@@ -20,7 +21,7 @@ from sqlalchemy import (
     String,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.elements import ColumnElement
@@ -44,17 +45,17 @@ class EnhancedDeadLetterEvent(Base):
 
     # Failure information
     reason: Mapped[str] = mapped_column(String(128), index=True)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     # Security & Audit enhancements
     payload_checksum: Mapped[str | None] = mapped_column(String(64), index=True)
-    retry_count: Mapped[int] = mapped_column(server_default="0")
-    error_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
-    processing_attempts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    retry_count: Mapped[int] = mapped_column(default=0, server_default="0")
+    error_history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    processing_attempts: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
 
     # Resolution tracking
-    resolved: Mapped[bool] = mapped_column(server_default="false", index=True)
+    resolved: Mapped[bool] = mapped_column(default=False, server_default="false", index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution_method: Mapped[str | None] = mapped_column(String(64))  # 'stored_proc', 'application', 'manual'
 
@@ -122,11 +123,11 @@ class EnhancedDeadLetterEvent(Base):
             'error_type': error_type,
             'error_message': error_message,
             'processing_method': processing_method,
-            'retry_count': self.retry_count,
+            'retry_count': self.retry_count or 0,
         }
 
         self.error_history.append(error_record)
-        self.retry_count += 1
+        self.retry_count = (self.retry_count or 0) + 1
         self.last_processed_at = datetime.now(timezone.utc)
 
     def add_processing_attempt(self, method: str, success: bool, processing_time_ms: Optional[int] = None) -> None:
