@@ -41,6 +41,9 @@ def build_loader_cmd(db: str, sensor_cfg: dict, overrides: dict, mode: str = "de
     Note: Secrets are provided to the subprocess via environment variables,
     not CLI flags, to avoid exposure in process lists or logs.
 
+    Note: cowrie-loader auto-detects sensor names from JSON payload field,
+    but uses --ingest-id for tracking this specific ingestion run.
+
     Args:
         db: Database connection string (sqlite:////path or postgresql://...)
         sensor_cfg: Sensor configuration from TOML
@@ -67,25 +70,25 @@ def build_loader_cmd(db: str, sensor_cfg: dict, overrides: dict, mode: str = "de
         # Assume relative path
         cmd += ["--db", f"sqlite:///{os.path.abspath(db)}"]
 
-    # Sensor name
-    cmd += ["--sensor", sensor_cfg["name"]]
+    # Ingest ID for tracking (uses sensor name)
+    # Note: Sensor name is auto-extracted from JSON payload's "sensor" field
+    cmd += ["--ingest-id", sensor_cfg["name"]]
 
     # Status directory (for progress monitoring)
     status_dir = overrides.get("status_dir", "/mnt/dshield/data/logs/status")
     cmd += ["--status-dir", str(status_dir)]
 
-    # Optional: last N days (instead of summarizedays)
-    summarizedays = overrides.get("summarizedays") or sensor_cfg.get("summarizedays")
-    if summarizedays and summarizedays > 0:
-        cmd += ["--last-days", str(summarizedays)]
+    # Note: cowrie-loader does not have --last-days filtering
+    # It processes all files matching the glob pattern
+    # File filtering by date should be done by the caller if needed
 
     # Skip enrichment flag
     if overrides.get("skip_enrich"):
         cmd += ["--skip-enrich"]
 
-    # Buffer size
-    if overrides.get("buffer_bytes"):
-        cmd += ["--buffer-bytes", str(overrides["buffer_bytes"])]
+    # Note: --buffer-bytes not supported by cowrie-loader CLI
+    # Note: API keys are passed via environment variables (see prepare_env_for_sensor)
+    # to avoid exposure in process lists
 
     return cmd
 
