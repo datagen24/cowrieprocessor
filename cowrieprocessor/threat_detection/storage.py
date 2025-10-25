@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -480,7 +480,7 @@ def store_longtail_analysis(
 
 def get_analysis_checkpoint(
     session_factory: sessionmaker[Session],
-    checkpoint_date: datetime,
+    checkpoint_date: date,
 ) -> Optional[Dict[str, Any]]:
     """Get analysis checkpoint for a specific date.
 
@@ -495,19 +495,24 @@ def get_analysis_checkpoint(
         with session_factory() as session:
             result = session.execute(
                 text("""
-                    SELECT id, checkpoint_date, window_start, window_end, 
+                    SELECT id, checkpoint_date, window_start, window_end,
                            sessions_analyzed, vocabulary_hash, last_analysis_id, completed_at
                     FROM longtail_analysis_checkpoints
                     WHERE checkpoint_date = :checkpoint_date
                 """),
-                {"checkpoint_date": checkpoint_date.date()},
+                {"checkpoint_date": checkpoint_date},
             )
 
             row = result.fetchone()
             if row:
+                # Convert string date to date object if needed (SQLite returns strings)
+                checkpoint_date_value = row.checkpoint_date
+                if isinstance(checkpoint_date_value, str):
+                    checkpoint_date_value = datetime.fromisoformat(checkpoint_date_value).date()
+
                 return {
                     "id": row.id,
-                    "checkpoint_date": row.checkpoint_date,
+                    "checkpoint_date": checkpoint_date_value,
                     "window_start": row.window_start,
                     "window_end": row.window_end,
                     "sessions_analyzed": row.sessions_analyzed,
@@ -524,7 +529,7 @@ def get_analysis_checkpoint(
 
 def create_analysis_checkpoint(
     session_factory: sessionmaker[Session],
-    checkpoint_date: datetime,
+    checkpoint_date: date,
     window_start: datetime,
     window_end: datetime,
     sessions_analyzed: int,
@@ -561,7 +566,7 @@ def create_analysis_checkpoint(
                         completed_at = EXCLUDED.completed_at
                 """),
                 {
-                    "checkpoint_date": checkpoint_date.date(),
+                    "checkpoint_date": checkpoint_date,
                     "window_start": window_start,
                     "window_end": window_end,
                     "sessions_analyzed": sessions_analyzed,
@@ -571,7 +576,7 @@ def create_analysis_checkpoint(
                 },
             )
             session.commit()
-            logger.info(f"Created/updated checkpoint for {checkpoint_date.date()}")
+            logger.info(f"Created/updated checkpoint for {checkpoint_date}")
 
     except Exception as e:
         logger.error(f"Error creating checkpoint: {e}")
