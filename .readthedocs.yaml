@@ -1,0 +1,40 @@
+# Read the Docs configuration file for Cowrie Processor
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+version: 2
+
+# Build documentation in the "docs/sphinx" directory with Sphinx
+sphinx:
+  configuration: docs/sphinx/source/conf.py
+  fail_on_warning: false
+
+# Build all formats (HTML, PDF, ePub)
+formats:
+  - pdf
+  - epub
+
+# Python configuration
+python:
+  version: "3.13"
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+    - requirements: docs/sphinx/requirements.txt
+
+# Build configuration
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.13"
+  jobs:
+    pre_build:
+      # Install system dependencies if needed
+      - echo "Installing system dependencies..."
+    post_checkout:
+      # Ensure submodules are checked out if any
+      - git submodule update --init --recursive
+    post_install:
+      # Verify Sphinx installation
+      - python -m sphinx --version
