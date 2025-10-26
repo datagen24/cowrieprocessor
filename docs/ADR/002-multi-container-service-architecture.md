@@ -1578,211 +1578,445 @@ exporter.export_sessions(sensor="sensor-a", days=7)
 
 ### Filesystem-Based Report Export (Recommended for Students)
 
-**Design Philosophy**: Don't assume students have cloud budgets or complex infrastructure. Simple filesystem exports work for most educational use cases.
+**Design Philosophy**: Don't assume students have cloud budgets or complex infrastructure. Simple Kubernetes volume mounts work for most educational use cases in K3s.
 
-**Approach 1: Local Volume Mount** (Simplest)
+**Approach 1: HostPath Volume** (Simplest for single-node K3s)
 ```yaml
-# docker-compose.yml
+# k8s/coordinator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+  namespace: cowrie
+spec:
+  template:
+    spec:
+      containers:
+      - name: coordinator
+        env:
+        - name: EXPORT_PATH
+          value: /app/exports
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+      volumes:
+      - name: exports
+        hostPath:
+          path: /opt/cowrie/exports  # On K3s node
+          type: DirectoryOrCreate
+
+# Reports written to /opt/cowrie/exports on K3s node
+# Students can access via SSH to node or USB backup
+```
+
+**Approach 2: PersistentVolumeClaim with Local Storage** (Better for backup)
+```yaml
+# k8s/storage.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cowrie-exports-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /mnt/ssd/cowrie-exports  # Dedicated SSD on K3s node
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - storage-server  # Your K3s node name
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cowrie-exports
+  namespace: cowrie
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+# k8s/coordinator.yaml (updated)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+spec:
+  template:
+    spec:
+      containers:
+      - name: coordinator
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+      volumes:
+      - name: exports
+        persistentVolumeClaim:
+          claimName: cowrie-exports
+```
+
+**Approach 3: NFS for Home Lab NAS** (Multi-node or shared access)
+```yaml
+# k8s/nfs-storage.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cowrie-exports-nfs
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany  # Multiple pods can access
+  nfs:
+    server: 192.168.1.100  # Your NAS IP
+    path: /volume1/cowrie-exports
+  persistentVolumeReclaimPolicy: Retain
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cowrie-exports
+  namespace: cowrie
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+
+# Multiple pods can write to same NFS share
+# Accessible from any machine on network
+```
+
+**Approach 4: CronJob for SSH Export** (Periodic remote backup)
+```yaml
+# k8s/backup-cronjob.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: export-reports-ssh
+  namespace: cowrie
+spec:
+  schedule: "0 2 * * *"  # 2 AM daily
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: ssh-export
+            image: alpine:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              apk add --no-cache openssh-client rsync
+              rsync -avz --delete \
+                -e "ssh -i /secrets/backup-key -o StrictHostKeyChecking=yes" \
+                /exports/ \
+                student@backup-server.local:/backups/cowrie/
+            volumeMounts:
+            - name: exports
+              mountPath: /exports
+              readOnly: true
+            - name: ssh-key
+              mountPath: /secrets
+              readOnly: true
+          volumes:
+          - name: exports
+            persistentVolumeClaim:
+              claimName: cowrie-exports
+          - name: ssh-key
+            secret:
+              secretName: backup-ssh-key
+              defaultMode: 0400
+          restartPolicy: OnFailure
+
+---
+# Create SSH key secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-ssh-key
+  namespace: cowrie
+type: Opaque
+stringData:
+  backup-key: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    [Your SSH private key here]
+    -----END OPENSSH PRIVATE KEY-----
+```
+
+**Approach 5: Self-Hosted MinIO in K3s** (S3-compatible, local)
+```yaml
+# k8s/minio.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: cowrie
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: local-storage
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: cowrie
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        args:
+        - server
+        - /data
+        - --console-address
+        - ":9001"
+        env:
+        - name: MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-user
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-password
+        ports:
+        - containerPort: 9000
+          name: api
+        - containerPort: 9001
+          name: console
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minio-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: cowrie
+spec:
+  selector:
+    app: minio
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+
+---
+# Coordinator connects to MinIO
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+spec:
+  template:
+    spec:
+      containers:
+      - name: coordinator
+        env:
+        - name: EXPORT_TYPE
+          value: s3
+        - name: S3_ENDPOINT
+          value: http://minio:9000
+        - name: S3_BUCKET
+          value: cowrie-reports
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-user
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-credentials
+              key: root-password
+
+# S3-compatible but runs in K3s cluster (no cloud costs)
+```
+
+**Docker Compose for Local Development Only**:
+```yaml
+# docker-compose.dev.yml
+# For local development/testing only - NOT for production
 services:
-  coordinator:
+  postgres:
+    image: postgres:16-alpine
     volumes:
-      - ./exports:/app/exports  # Local directory mount
+      - postgres-data:/var/lib/postgresql/data
+  
+  coordinator:
+    build: .
+    volumes:
+      - ./exports:/app/exports  # Simple mount for local dev
     environment:
+      EXPORT_TYPE: filesystem
       EXPORT_PATH: /app/exports
 
-# Reports written to ./exports/ directory
-# Students can copy files manually or rsync to USB drive
-```
-
-**Approach 2: NFS/CIFS Network Share**
-```yaml
-# docker-compose.yml
-services:
-  coordinator:
-    volumes:
-      - type: volume
-        source: nfs-share
-        target: /app/exports
-        volume:
-          nocopy: true
-
 volumes:
-  nfs-share:
-    driver: local
-    driver_opts:
-      type: nfs
-      o: addr=192.168.1.100,rw
-      device: ":/mnt/shared/cowrie"
+  postgres-data:
 
-# Reports written to NAS/network share
-# Accessible from multiple machines
-```
-
-**Approach 3: SSHFS Mount** (Remote filesystem over SSH)
-```bash
-# On host running Docker
-mkdir -p /mnt/remote-exports
-sshfs user@remote-server:/path/to/exports /mnt/remote-exports
-
-# Then mount in docker-compose.yml
-services:
-  coordinator:
-    volumes:
-      - /mnt/remote-exports:/app/exports
-```
-
-**Approach 4: Simple SSH Export Script** (No mounts required)
-```bash
-#!/bin/bash
-# scripts/export-reports.sh
-# Cron this script for periodic exports
-
-EXPORT_DIR="/app/exports"  # Inside container
-REMOTE_USER="student"
-REMOTE_HOST="backup-server.local"
-REMOTE_PATH="/backups/cowrie"
-
-# Copy from container to local
-docker cp cowrie-coordinator:${EXPORT_DIR} /tmp/cowrie-exports
-
-# SCP to remote server
-scp -r /tmp/cowrie-exports/* ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}/
-
-# Cleanup
-rm -rf /tmp/cowrie-exports
-```
-
-**Approach 5: Self-Hosted MinIO** (S3-compatible, free, local)
-```yaml
-# docker-compose.yml
-services:
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio-data:/data
-    ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Web UI
-
-  coordinator:
-    environment:
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY: minioadmin
-      S3_SECRET_KEY: minioadmin
-      S3_BUCKET: cowrie-reports
-
-volumes:
-  minio-data:
-
-# S3-compatible but runs locally (no cloud costs)
+# Note: Use K3s for actual deployments (see k8s/ directory)
 ```
 
 **Comparison for Students**:
 
 | Method | Complexity | Cost | Use Case |
 |--------|-----------|------|----------|
-| Local volume mount | ⭐ Easiest | Free | Single machine, manual backup |
-| NFS/CIFS share | ⭐⭐ Easy | Free | Home lab with NAS |
-| SSHFS mount | ⭐⭐ Easy | Free | Remote server access |
-| SSH export script | ⭐⭐ Moderate | Free | Scheduled backups |
-| Self-hosted MinIO | ⭐⭐⭐ Moderate | Free | S3-compatible without cloud |
+| HostPath (K3s) | ⭐ Easiest | Free | Single-node K3s, local access |
+| PVC + Local Storage | ⭐⭐ Easy | Free | Dedicated storage device (SSD) |
+| NFS PV | ⭐⭐ Easy | Free | Home lab with NAS |
+| CronJob SSH export | ⭐⭐⭐ Moderate | Free | Scheduled remote backups |
+| MinIO in K3s | ⭐⭐⭐ Moderate | Free | S3-compatible without cloud |
 | Cloud S3/Azure Blob | ⭐⭐⭐⭐ Complex | $$ | Production, multi-region |
 
-**V4.0 Default**: Local volume mount (no assumptions about infrastructure)
+**V4.0 Default (K3s)**: HostPath volume (no assumptions about infrastructure)
+
+**Documentation Approach**:
+```markdown
+# docs/deployment/k3s-setup.md
+
+## K3s Deployment (Recommended)
+
+Cowrie Processor is designed for K3s (lightweight Kubernetes).
+Most students will deploy on a single-node K3s cluster.
+
+### Quick Start (Single-Node K3s)
+[K3s installation instructions]
+[Apply manifests from k8s/ directory]
+
+### Report Export Options
+
+Choose the storage option that fits your setup:
+
+#### Option 1: HostPath (Simplest - Single Node)
+- Exports saved to /opt/cowrie/exports on K3s node
+- Access via SSH to node or USB backup
+- [HostPath manifest example]
+
+#### Option 2: NFS (If You Have a NAS)
+- Exports saved to network share
+- Accessible from multiple machines
+- [NFS PV manifest example]
+
+#### Option 3: MinIO (S3-Compatible Local Storage)
+- S3-like interface without cloud costs
+- Runs in K3s cluster
+- [MinIO deployment manifests]
+
+### Local Development with Docker Compose
+
+For rapid development iteration only (not for production):
+[Docker Compose instructions]
+```
 
 ### Report Export Implementation in V4.0
 
-**New Export Interface** (`cowrieprocessor/exports/base.py`):
+**Export Interface** (unchanged, filesystem-agnostic):
 ```python
+# cowrieprocessor/exports/base.py
 from abc import ABC, abstractmethod
 from pathlib import Path
 import json
-import os
-import boto3
 
 class ReportExporter(ABC):
     """Base class for report exporters."""
-
+    
     @abstractmethod
     def export(self, report: dict, filename: str) -> bool:
         """Export report to destination. Returns True on success."""
         pass
 
 class FilesystemExporter(ReportExporter):
-    """Simple filesystem export (default)."""
-
+    """Simple filesystem export - works with any Kubernetes volume."""
+    
     def __init__(self, export_path: Path):
         self.export_path = export_path
         self.export_path.mkdir(parents=True, exist_ok=True)
-
+    
     def export(self, report: dict, filename: str) -> bool:
         output_file = self.export_path / filename
         with open(output_file, 'w') as f:
             json.dump(report, f, indent=2)
         return True
 
-class MinIOExporter(ReportExporter):
-    """S3-compatible export (optional)."""
-
-    def __init__(self, endpoint: str, bucket: str, access_key: str, secret_key: str):
-        self.client = boto3.client(
-            's3',
-            endpoint_url=endpoint,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key
-        )
-        self.bucket = bucket
-
-    def export(self, report: dict, filename: str) -> bool:
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=filename,
-            Body=json.dumps(report, indent=2)
-        )
-        return True
-
-# Factory pattern for configuration
-def get_exporter() -> ReportExporter:
-    export_type = os.getenv("EXPORT_TYPE", "filesystem")
-
-    if export_type == "filesystem":
-        return FilesystemExporter(Path(os.getenv("EXPORT_PATH", "/app/exports")))
-    elif export_type == "s3":
-        return MinIOExporter(
-            endpoint=os.getenv("S3_ENDPOINT"),
-            bucket=os.getenv("S3_BUCKET"),
-            access_key=os.getenv("S3_ACCESS_KEY"),
-            secret_key=os.getenv("S3_SECRET_KEY")
-        )
-    else:
-        raise ValueError(f"Unknown export type: {export_type}")
+# Works with:
+# - K3s HostPath volumes
+# - K3s PersistentVolumeClaims (local, NFS, etc.)
+# - Docker Compose volume mounts (dev only)
+# - Native filesystem (monolithic deployment)
 ```
 
-**Default Configuration** (`docker-compose.yml`):
+**Default K3s Configuration**:
 ```yaml
-services:
-  coordinator:
-    environment:
-      EXPORT_TYPE: filesystem  # Default
-      EXPORT_PATH: /app/exports
-    volumes:
-      - ./exports:/app/exports  # Local directory
+# k8s/coordinator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+  namespace: cowrie
+spec:
+  template:
+    spec:
+      containers:
+      - name: coordinator
+        image: cowrieprocessor:v4.0.0
+        env:
+        - name: EXPORT_TYPE
+          value: filesystem  # Default
+        - name: EXPORT_PATH
+          value: /app/exports
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+      volumes:
+      - name: exports
+        hostPath:
+          path: /opt/cowrie/exports
+          type: DirectoryOrCreate
 
-# Students uncomment sections as needed:
-#
-# # For NFS share:
-# volumes:
-#   - nfs-share:/app/exports
-#
-# # For MinIO:
-# environment:
-#   EXPORT_TYPE: s3
-#   S3_ENDPOINT: http://minio:9000
-#   S3_BUCKET: cowrie-reports
+# Students can modify volume type as needed:
+# - Change to PersistentVolumeClaim
+# - Point to NFS mount
+# - Add MinIO environment variables
 ```
 
 ### Design Philosophy: Infrastructure Assumptions
@@ -1791,19 +2025,21 @@ services:
 - ❌ Students have AWS/Azure/GCP accounts
 - ❌ Students have budget for cloud storage
 - ❌ Students want cloud dependencies
-- ❌ Students have complex networking (beyond home router)
+- ❌ Students have multi-node Kubernetes experience
 
 **Do Assume**:
+- ✅ Students can install K3s on a single machine
 - ✅ Students have local disk space
-- ✅ Students can create directories and mount volumes
-- ✅ Students want simple, working defaults
+- ✅ Students can edit YAML files
+- ✅ Students understand basic Kubernetes concepts
 - ✅ Students may have home NAS (optional, not required)
 
-**Provide Options, Not Mandates**:
-- Filesystem export: **Default** (works everywhere)
-- NFS/SSHFS: **Optional** (if they have NAS)
-- MinIO: **Optional** (if they want S3-like features locally)
-- Cloud S3: **Optional** (if they have budget and need it)
+**Deployment Hierarchy**:
+1. **Primary**: K3s (single-node) with HostPath volumes
+2. **Enhanced**: K3s with NFS if they have NAS
+3. **Advanced**: MinIO in K3s for S3-compatible features
+4. **Development**: Docker Compose for local iteration only
+5. **Optional**: Cloud providers if they have budget
 
 ### V5.0 Code Cleanup
 
@@ -1813,7 +2049,11 @@ Planned removals in V5.0:
 - Associated tests, documentation, configuration
 - Dependencies: `dropbox`, `elasticsearch-py` (if removed)
 
-**Result**: Cleaner codebase focused on PostgreSQL + simple exports
+**Result**: Cleaner codebase focused on:
+- PostgreSQL for data storage
+- K3s for orchestration
+- Simple filesystem exports via Kubernetes volumes
+
 
 ## Consequences
 
