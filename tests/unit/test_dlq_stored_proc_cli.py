@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, Mock, patch
 
-import pytest
-
 from cowrieprocessor.loader.dlq_stored_proc_cli import (
     cleanup_dlq_stored_proc,
     create_stored_procedures,
@@ -31,9 +29,12 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures') as mock_create, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures'
+            ) as mock_create,
+            patch('builtins.print') as mock_print,
+        ):
             create_stored_procedures(mock_engine)
 
             mock_create.assert_called_once_with(mock_connection)
@@ -63,9 +64,12 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures') as mock_create, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures'
+            ) as mock_create,
+            patch('builtins.print') as mock_print,
+        ):
             mock_create.side_effect = Exception("Database error")
 
             create_stored_procedures(mock_engine)
@@ -83,15 +87,13 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc') as mock_process, \
-             patch('builtins.print') as mock_print:
-
-            mock_process.return_value = {
-                "processed": 100,
-                "repaired": 80,
-                "failed": 15,
-                "skipped": 5
-            }
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc'
+            ) as mock_process,
+            patch('builtins.print') as mock_print,
+        ):
+            mock_process.return_value = {"processed": 100, "repaired": 80, "failed": 15, "skipped": 5}
 
             process_dlq_stored_proc(mock_engine, limit=50, reason_filter="json_parsing_failed")
 
@@ -114,15 +116,13 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc') as mock_process, \
-             patch('builtins.print') as mock_print:
-
-            mock_process.return_value = {
-                "processed": 0,
-                "repaired": 0,
-                "failed": 0,
-                "skipped": 0
-            }
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc'
+            ) as mock_process,
+            patch('builtins.print') as mock_print,
+        ):
+            mock_process.return_value = {"processed": 0, "repaired": 0, "failed": 0, "skipped": 0}
 
             process_dlq_stored_proc(mock_engine)
 
@@ -141,19 +141,19 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc'
+            ) as mock_stats,
+            patch('builtins.print') as mock_print,
+        ):
             mock_stats.return_value = {
                 "total_events": 1000,
                 "unresolved_events": 150,
                 "resolved_events": 850,
-                "top_reasons": {
-                    "json_parsing_failed": 100,
-                    "validation_error": 50
-                },
+                "top_reasons": {"json_parsing_failed": 100, "validation_error": 50},
                 "oldest_unresolved": "2025-01-01T10:00:00Z",
-                "newest_unresolved": "2025-01-15T14:30:00Z"
+                "newest_unresolved": "2025-01-15T14:30:00Z",
             }
 
             get_dlq_stats_stored_proc(mock_engine)
@@ -180,16 +180,19 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc'
+            ) as mock_stats,
+            patch('builtins.print') as mock_print,
+        ):
             mock_stats.return_value = {
                 "total_events": 0,
                 "unresolved_events": 0,
                 "resolved_events": 0,
                 "top_reasons": [],
                 "oldest_unresolved": None,
-                "newest_unresolved": None
+                "newest_unresolved": None,
             }
 
             get_dlq_stats_stored_proc(mock_engine)
@@ -209,9 +212,12 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc') as mock_cleanup, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc'
+            ) as mock_cleanup,
+            patch('builtins.print') as mock_print,
+        ):
             mock_cleanup.return_value = 42
 
             cleanup_dlq_stored_proc(mock_engine, older_than_days=7)
@@ -231,9 +237,12 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc') as mock_cleanup, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc'
+            ) as mock_cleanup,
+            patch('builtins.print') as mock_print,
+        ):
             mock_cleanup.return_value = 0
 
             cleanup_dlq_stored_proc(mock_engine)
@@ -249,7 +258,9 @@ class TestDLQStoredProcCLI:
 
         # Mock both stored procedure calls
         mock_repair_result = Mock()
-        mock_repair_result.fetchone.return_value = ('{"eventid": "cowrie.session.connect", "timestamp": "2025-01-01T00:00:00Z"}',)
+        mock_repair_result.fetchone.return_value = (
+            '{"eventid": "cowrie.session.connect", "timestamp": "2025-01-01T00:00:00Z"}',
+        )
 
         mock_stats_result = Mock()
         mock_stats_result.fetchone.return_value = (100, 10, 90, {"error": 10}, "2025-01-01", "2025-01-15")
@@ -259,23 +270,30 @@ class TestDLQStoredProcCLI:
         mock_engine.connect.return_value.__enter__.return_value = mock_connection
         mock_engine.connect.return_value.__exit__.return_value = None
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch(
+                'cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc'
+            ) as mock_stats,
+            patch('builtins.print') as mock_print,
+        ):
             mock_stats.return_value = {
                 "total_events": 100,
                 "unresolved_events": 10,
                 "resolved_events": 90,
                 "top_reasons": {"error": 10},
                 "oldest_unresolved": "2025-01-01",
-                "newest_unresolved": "2025-01-15"
+                "newest_unresolved": "2025-01-15",
             }
 
             verify_stored_procedures(mock_engine)
 
             mock_print.assert_any_call("=== Testing Stored Procedures ===")
-            mock_print.assert_any_call("Test repair input: {\"eventid\": \"cowrie.client.kex\", \"session\": \"test123\"")
-            mock_print.assert_any_call("Test repair output: {\"eventid\": \"cowrie.session.connect\", \"timestamp\": \"2025-01-01T00:00:00Z\"}")
+            mock_print.assert_any_call(
+                "Test repair input: {\"eventid\": \"cowrie.client.kex\", \"session\": \"test123\""
+            )
+            mock_print.assert_any_call(
+                "Test repair output: {\"eventid\": \"cowrie.session.connect\", \"timestamp\": \"2025-01-01T00:00:00Z\"}"
+            )
 
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_test_stored_procedures_with_no_repair_result(self, mock_engine_from_settings) -> None:
@@ -315,11 +333,7 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.argparse.ArgumentParser.parse_args')
     def test_main_with_process_command(self, mock_args, mock_engine_from_settings) -> None:
         """Test main function with process command."""
-        mock_args.return_value = Mock(
-            command="process",
-            limit=100,
-            reason="json_parsing_failed"
-        )
+        mock_args.return_value = Mock(command="process", limit=100, reason="json_parsing_failed")
         mock_engine = Mock()
         mock_engine_from_settings.return_value = mock_engine
 
@@ -347,10 +361,7 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.argparse.ArgumentParser.parse_args')
     def test_main_with_cleanup_command(self, mock_args, mock_engine_from_settings) -> None:
         """Test main function with cleanup command."""
-        mock_args.return_value = Mock(
-            command="cleanup",
-            older_than_days=60
-        )
+        mock_args.return_value = Mock(command="cleanup", older_than_days=60)
         mock_engine = Mock()
         mock_engine_from_settings.return_value = mock_engine
 
@@ -396,9 +407,10 @@ class TestDLQStoredProcCLI:
         mock_engine = Mock()
         mock_engine_from_settings.return_value = mock_engine
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_stored_procedures') as mock_create, \
-             patch('builtins.print') as mock_print:
-
+        with (
+            patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_stored_procedures') as mock_create,
+            patch('builtins.print') as mock_print,
+        ):
             mock_create.side_effect = Exception("Database connection failed")
 
             result = main()
@@ -410,13 +422,14 @@ class TestDLQStoredProcCLI:
         """Test CLI functions have correct parameter types."""
         # Test function signatures
         import inspect
+
         from cowrieprocessor.loader.dlq_stored_proc_cli import (
-            create_stored_procedures,
-            process_dlq_stored_proc,
-            get_dlq_stats_stored_proc,
             cleanup_dlq_stored_proc,
+            create_stored_procedures,
+            get_dlq_stats_stored_proc,
+            main,
+            process_dlq_stored_proc,
             verify_stored_procedures,
-            main
         )
 
         # Check create_stored_procedures
