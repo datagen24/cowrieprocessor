@@ -155,68 +155,66 @@ def test_delta_loader_records_dead_letters(tmp_path) -> None:
 
 
 def test_delta_loader_handles_empty_checkpoint_file(tmp_path) -> None:
-    """Test delta loader handles missing/empty checkpoint files.
+    """Test delta loader handles first run with no prior cursor state.
 
-    Given: An empty checkpoint file
+    Given: A fresh database with no IngestCursor records
     When: Delta loader processes events
-    Then: No events processed, no errors raised
+    Then: All events are processed (no prior cursor exists)
     """
-    # Create empty checkpoint file
-    checkpoint_file = tmp_path / "empty_checkpoint.json"
-    checkpoint_file.write_text("")
-
     source = tmp_path / "test.json"
-    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+    _write_events(source, [
+        {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+        {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+    ])
 
-    config = DeltaLoaderConfig(
-        source_path=source,
-        checkpoint_path=checkpoint_file,
-        db_settings=DatabaseSettings(url="sqlite:///:memory:"),
-        batch_size=100,
-    )
+    engine = _make_engine(tmp_path)
+    delta = DeltaLoader(engine, DeltaLoaderConfig())
+    metrics = delta.load_paths([source])
 
-    loader = DeltaLoader(config)
-    result = loader.load()
-
-    # Should complete successfully with no events processed
-    assert result.events_processed == 0
-    assert result.errors == 0
+    # Should process both events (no prior cursor = process from beginning)
+    assert metrics.events_inserted == 2
 
 
 def test_delta_loader_handles_corrupted_checkpoint(tmp_path) -> None:
-    """Test delta loader handles corrupted checkpoint data.
+    """Test delta loader handles invalid cursor data in database.
 
-    Given: A checkpoint file with invalid JSON
+    Given: A database with an invalid/corrupted IngestCursor record
     When: Delta loader processes events
-    Then: Checkpoint error is handled gracefully
+    Then: Cursor is reset and events are reprocessed
     """
-    # Create corrupted checkpoint file
-    checkpoint_file = tmp_path / "corrupted_checkpoint.json"
-    checkpoint_file.write_text('{"invalid": json}')
-
     source = tmp_path / "test.json"
-    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+    _write_events(source, [
+        {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+        {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+    ])
 
-    config = DeltaLoaderConfig(
-        source_path=source,
-        checkpoint_path=checkpoint_file,
-        db_settings=DatabaseSettings(url="sqlite:///:memory:"),
-        batch_size=100,
-    )
+    engine = _make_engine(tmp_path)
+    Session = create_session_maker(engine)
 
-    loader = DeltaLoader(config)
-    result = loader.load()
+    # Insert a corrupted cursor with negative offset (invalid state)
+    with Session() as db_session:
+        cursor = IngestCursor(
+            source=str(source),
+            last_offset=-999,  # Invalid offset
+            inode=str(os.stat(source).st_ino),
+        )
+        db_session.add(cursor)
+        db_session.commit()
 
-    # Should handle corrupted checkpoint gracefully
-    assert result.errors >= 1  # Should have at least one checkpoint parsing error
+    # Delta loader should handle this gracefully
+    delta = DeltaLoader(engine, DeltaLoaderConfig())
+    metrics = delta.load_paths([source])
+
+    # Should still process events despite corrupted cursor
+    assert metrics.events_inserted == 2
 
 
 def test_delta_loader_rolls_back_on_database_error(tmp_path) -> None:
-    """Test delta loader rolls back transaction on database errors.
+    """Test delta loader handles database errors gracefully.
 
-    Given: A database that fails during transaction
-    When: Delta loader processes events
-    Then: Transaction is rolled back and error is raised
+    Given: A database connection that fails during transaction
+    When: Delta loader attempts to process events
+    Then: Error is raised and no partial data is committed
     """
     from unittest.mock import Mock, patch
 
@@ -224,25 +222,24 @@ def test_delta_loader_rolls_back_on_database_error(tmp_path) -> None:
     from sqlalchemy.exc import OperationalError
 
     source = tmp_path / "test.json"
-    _write_events(source, [{"session": "test", "eventid": "cowrie.session.connect"}])
+    _write_events(source, [
+        {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+        {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+    ])
 
-    # Mock database session to raise error during commit
-    with patch('cowrieprocessor.db.create_engine_from_settings') as mock_create_engine:
-        mock_engine = Mock()
-        mock_session = Mock()
-        mock_session.commit.side_effect = OperationalError("database is locked", None, None)
-        mock_engine.begin.return_value.__enter__.return_value = mock_session
-        mock_create_engine.return_value = mock_engine
+    engine = _make_engine(tmp_path)
 
-        config = DeltaLoaderConfig(
-            source_path=source,
-            checkpoint_path=tmp_path / "checkpoint.json",
-            db_settings=DatabaseSettings(url="sqlite:///:memory:"),
-            batch_size=100,
-        )
+    # Mock the bulk loader's execute_flush to raise an error during commit
+    with patch.object(BulkLoader, '_execute_flush') as mock_flush:
+        mock_flush.side_effect = OperationalError("database is locked", None, None)
 
-        loader = DeltaLoader(config)
+        delta = DeltaLoader(engine, DeltaLoaderConfig())
 
         # Should raise OperationalError when database fails
         with pytest.raises(OperationalError, match="database is locked"):
-            loader.load()
+            delta.load_paths([source])
+
+    # Verify no events were committed (rollback successful)
+    with engine.connect() as conn:
+        total = conn.execute(select(func.count()).select_from(RawEvent)).scalar_one()
+        assert total == 0
