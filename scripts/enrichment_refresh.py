@@ -39,7 +39,11 @@ from cowrieprocessor.status_emitter import StatusEmitter  # noqa: E402
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
 # Try config/ directory first, then fall back to project root
-SENSORS_FILE_DEFAULT = PROJECT_ROOT / "config" / "sensors.toml" if (PROJECT_ROOT / "config" / "sensors.toml").exists() else PROJECT_ROOT / "sensors.toml"
+SENSORS_FILE_DEFAULT = (
+    PROJECT_ROOT / "config" / "sensors.toml"
+    if (PROJECT_ROOT / "config" / "sensors.toml").exists()
+    else PROJECT_ROOT / "sensors.toml"
+)
 
 
 def get_session_query(engine: Engine) -> str:

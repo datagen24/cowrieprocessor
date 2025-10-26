@@ -174,7 +174,7 @@ def test_bulk_loader_rejects_multiline_json_by_default(tmp_path: Path) -> None:
 
     # Should have malformed events due to multiline JSON (6 lines total)
     assert metrics.events_read == 6  # Each line is treated as a separate event
-    assert metrics.events_inserted == 6  # All events are inserted as quarantined
+    assert metrics.events_inserted == 0  # Malformed events are quarantined, not inserted
     assert metrics.events_quarantined == 6  # All are quarantined due to validation errors
 
 
@@ -351,7 +351,7 @@ def test_bulk_loader_handles_empty_log_file(tmp_path: Path) -> None:
 
     # Should complete successfully - empty file gets processed as dead letter
     assert result.files_processed == 1
-    assert result.events_inserted == 1  # Empty file becomes dead letter event
+    assert result.events_inserted == 0  # Empty file becomes dead letter event (quarantined, not inserted)
     assert result.events_quarantined == 1  # Empty file is quarantined
 
 
@@ -416,7 +416,7 @@ def test_bulk_loader_handles_empty_log_file_gracefully(tmp_path: Path) -> None:
     result = loader.load_paths([empty_file])
 
     assert result.files_processed == 1
-    assert result.events_inserted == 1  # Empty file gets quarantined as dead letter
+    assert result.events_inserted == 0  # Empty file gets quarantined as dead letter (not inserted)
     assert result.events_quarantined == 1
 
 
@@ -437,7 +437,7 @@ def test_bulk_loader_handles_malformed_json_gracefully(tmp_path: Path) -> None:
     result = loader.load_paths([bad_file])
 
     # Should handle corrupted JSON gracefully by quarantining as dead letter
-    assert result.events_inserted == 1  # Malformed JSON gets quarantined
+    assert result.events_inserted == 0  # Malformed JSON gets quarantined, not inserted
     assert result.events_quarantined == 1
 
 

@@ -154,7 +154,7 @@ def sample_analysis_result():
                 "frequency": 2,
                 "anomaly_score": 0.98,
                 "detection_type": "anomalous_sequence",
-            }
+            },
         ],
         outlier_sessions=[
             {

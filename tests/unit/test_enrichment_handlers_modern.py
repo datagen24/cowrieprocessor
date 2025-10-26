@@ -501,6 +501,7 @@ class TestRateLimitedSessionFactory:
         session = service._create_rate_limited_session_factory("dshield")
 
         from cowrieprocessor.enrichment.rate_limiting import RateLimitedSession
+
         assert isinstance(session, RateLimitedSession)
         assert session in service._active_sessions
 
@@ -543,13 +544,7 @@ class TestIteratorMethods:
             spur_api=None,
         )
 
-        payload = {
-            "data": {
-                "attributes": {
-                    "last_analysis_stats": {"malicious": 5}
-                }
-            }
-        }
+        payload = {"data": {"attributes": {"last_analysis_stats": {"malicious": 5}}}}
 
         results = list(service._iter_vt_payloads(payload))
         assert len(results) == 1
@@ -565,14 +560,7 @@ class TestIteratorMethods:
             spur_api=None,
         )
 
-        payload = {
-            "file1": {
-                "data": {"attributes": {}}
-            },
-            "file2": {
-                "data": {"attributes": {}}
-            }
-        }
+        payload = {"file1": {"data": {"attributes": {}}}, "file2": {"data": {"attributes": {}}}}
 
         results = list(service._iter_vt_payloads(payload))
         assert len(results) == 2
@@ -587,27 +575,14 @@ class TestIteratorMethods:
             spur_api=None,
         )
 
-        payload = [
-            {"data": {"attributes": {}}},
-            {"data": {"attributes": {}}}
-        ]
+        payload = [{"data": {"attributes": {}}}, {"data": {"attributes": {}}}]
 
         results = list(service._iter_vt_payloads(payload))
         assert len(results) == 2
 
     def test_extract_vt_stats(self) -> None:
         """Test extracting VT stats from payload."""
-        payload = {
-            "data": {
-                "attributes": {
-                    "last_analysis_stats": {
-                        "malicious": 5,
-                        "harmless": 60,
-                        "suspicious": 1
-                    }
-                }
-            }
-        }
+        payload = {"data": {"attributes": {"last_analysis_stats": {"malicious": 5, "harmless": 60, "suspicious": 1}}}}
 
         stats = EnrichmentService._extract_vt_stats(payload)
         assert stats["malicious"] == 5
@@ -813,13 +788,7 @@ class TestEnrichmentIntegration:
         When: Calling enrich_file
         Then: Should fetch VT data and return enrichment result
         """
-        vt_payload = {
-            "data": {
-                "attributes": {
-                    "last_analysis_stats": {"malicious": 10, "suspicious": 2}
-                }
-            }
-        }
+        vt_payload = {"data": {"attributes": {"last_analysis_stats": {"malicious": 10, "suspicious": 2}}}}
 
         service = EnrichmentService(
             cache_dir=tmp_path,

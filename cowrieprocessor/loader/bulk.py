@@ -132,6 +132,7 @@ class BulkLoaderMetrics:
     duplicates_skipped: int = 0
     batches_committed: int = 0
     batches_quarantined: int = 0
+    dead_letters_inserted: int = 0  # Successfully inserted into DLQ
     last_source: Optional[str] = None
     last_offset: int = 0
     duration_seconds: float = 0.0
@@ -361,9 +362,12 @@ class BulkLoader:
         ):
             while True:
                 try:
-                    inserted = self._execute_flush(
+                    regular_inserted, dead_letter_inserted = self._execute_flush(
                         session, raw_event_records, dead_letter_records, session_aggregates, pending_files
                     )
+                    # Track successful dead letter insertions
+                    metrics.dead_letters_inserted += dead_letter_inserted
+                    inserted = regular_inserted
                     break
                 except SQLAlchemyError as exc:  # pragma: no cover - exercised via integration
                     session.rollback()
@@ -413,8 +417,8 @@ class BulkLoader:
         dead_letter_records: List[JsonDict],
         session_aggregates: Dict[str, SessionAggregate],
         pending_files: List[Files],
-    ) -> int:
-        """Execute a single flush attempt returning inserted event count."""
+    ) -> tuple[int, int]:
+        """Execute a single flush attempt returning (regular_inserted, dead_letter_inserted) counts."""
         with session.begin():
             # Insert regular events
             regular_inserted = self._bulk_insert_raw_events(session, raw_event_records) if raw_event_records else 0
@@ -427,7 +431,8 @@ class BulkLoader:
             self._upsert_session_summaries(session, session_aggregates)
             self._bulk_insert_files(session, pending_files)
 
-        return regular_inserted + dead_letter_inserted
+        # Return both counts separately
+        return regular_inserted, dead_letter_inserted
 
     def _apply_enrichment(self, session_aggregates: Dict[str, SessionAggregate]) -> None:
         """Populate enrichment metadata and flags for the pending session aggregates."""
@@ -784,6 +789,15 @@ class BulkLoader:
 
         should_process, file_type, reason = FileTypeDetector.should_process_as_json(path)
 
+        # If JSON processing modes are explicitly enabled, process anyway
+        if not should_process and (self.config.multiline_json or self.config.hybrid_json):
+            logger.info(
+                f"Forcing JSON processing for {path} due to explicit configuration (type: {file_type}, reason: {reason})"
+            )
+            should_process = True
+            file_type = 'json'
+            reason = 'Explicit JSON mode enabled'
+
         if not should_process:
             logger.warning(f"Skipping non-JSON file: {path} (type: {file_type}, reason: {reason})")
 
@@ -945,17 +959,23 @@ class BulkLoader:
             if not stripped:
                 continue
             try:
-                # Sanitize Unicode control characters before parsing JSON
-                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                # Parse JSON first without sanitization
+                payload = json.loads(stripped)
 
-                sanitized_line = UnicodeSanitizer.sanitize_json_string(stripped)
-                payload = json.loads(sanitized_line)
+                # Validate it's a Cowrie event (for consistency)
+                if self._is_valid_cowrie_event(payload):
+                    # Then sanitize the successfully parsed event
+                    sanitized_payload = self._sanitize_event(payload)
+                    yield offset, sanitized_payload
+                else:
+                    # Not a valid Cowrie event, send to DLQ
+                    logger.debug(f"Invalid Cowrie event at offset {offset}: not a valid Cowrie event structure")
+                    yield offset, self._make_dead_letter_event(stripped)
             except (json.JSONDecodeError, ValueError) as e:
                 # Log the specific error for debugging
                 logger.debug(f"JSON parsing failed at offset {offset}: {e}")
                 yield offset, self._make_dead_letter_event(stripped)
                 continue
-            yield offset, payload
 
     def _iter_multiline_json(self, handle: TextIO) -> Iterator[tuple[int, Any]]:
         """Iterate through potentially multiline JSON objects."""
@@ -974,22 +994,33 @@ class BulkLoader:
             else:
                 accumulated_lines.append(stripped)
 
-            # Try to parse the accumulated content
+            # Try to parse the accumulated content WITHOUT sanitization first
             try:
                 combined_content = "\n".join(accumulated_lines)
-                # Sanitize Unicode control characters before parsing JSON
-                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                payload = json.loads(combined_content)  # Raw parse
 
-                sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
-                payload = json.loads(sanitized_content)
-                yield start_offset, payload
-                accumulated_lines = []
-                continue
+                # Validate it's a Cowrie event
+                if self._is_valid_cowrie_event(payload):
+                    # NOW sanitize the successfully parsed event
+                    sanitized_payload = self._sanitize_event(payload)
+                    yield start_offset, sanitized_payload
+                    accumulated_lines = []
+                    continue
+                else:
+                    # Not a valid Cowrie event, might need more lines
+                    if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
+                        logger.debug(
+                            f"Invalid Cowrie event at offset {start_offset}: not a valid Cowrie event structure"
+                        )
+                        yield start_offset, self._make_dead_letter_event(combined_content)
+                        accumulated_lines = []
+                    continue
             except (json.JSONDecodeError, ValueError) as e:
                 # If it's incomplete JSON, continue accumulating
                 # If we've accumulated too much, send to DLQ
                 if len(accumulated_lines) > 100:  # Reasonable limit for multiline objects
                     logger.debug(f"Multiline JSON parsing failed at offset {start_offset}: {e}")
+                    combined_content = "\n".join(accumulated_lines)
                     yield start_offset, self._make_dead_letter_event(combined_content)
                     accumulated_lines = []
                 continue
@@ -998,15 +1029,63 @@ class BulkLoader:
         if accumulated_lines:
             try:
                 combined_content = "\n".join(accumulated_lines)
-                # Sanitize Unicode control characters before parsing JSON
-                from ..utils.unicode_sanitizer import UnicodeSanitizer
+                payload = json.loads(combined_content)  # Raw parse
 
-                sanitized_content = UnicodeSanitizer.sanitize_json_string(combined_content)
-                payload = json.loads(sanitized_content)
-                yield start_offset, payload
+                # Validate it's a Cowrie event
+                if self._is_valid_cowrie_event(payload):
+                    # NOW sanitize the successfully parsed event
+                    sanitized_payload = self._sanitize_event(payload)
+                    yield start_offset, sanitized_payload
+                else:
+                    logger.debug(f"Final content not a valid Cowrie event at offset {start_offset}")
+                    yield start_offset, self._make_dead_letter_event(combined_content)
             except (json.JSONDecodeError, ValueError) as e:
                 logger.debug(f"Final multiline JSON parsing failed at offset {start_offset}: {e}")
+                combined_content = "\n".join(accumulated_lines)
                 yield start_offset, self._make_dead_letter_event(combined_content)
+
+    def _is_valid_cowrie_event(self, payload: Any) -> bool:
+        """Check if parsed JSON is a valid Cowrie event structure."""
+        if not isinstance(payload, dict):
+            return False
+
+        # Must have eventid field
+        if "eventid" not in payload:
+            return False
+
+        eventid = payload.get("eventid")
+
+        # Must start with "cowrie."
+        if not isinstance(eventid, str) or not eventid.startswith("cowrie."):
+            return False
+
+        # Must have timestamp
+        if "timestamp" not in payload:
+            return False
+
+        # Use existing validator if available
+        try:
+            from .cowrie_schema import CowrieSchemaValidator
+
+            is_valid, errors = CowrieSchemaValidator.validate_event(payload)
+            return is_valid
+        except ImportError:
+            # Fallback to basic validation if schema validator not available
+            return True
+
+    def _sanitize_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize a successfully parsed Cowrie event."""
+        from ..utils.unicode_sanitizer import UnicodeSanitizer
+
+        # Sanitize string fields only, not the entire JSON structure
+        sanitized = {}
+        for key, value in payload.items():
+            if isinstance(value, str):
+                sanitized[key] = UnicodeSanitizer.sanitize_unicode_string(value)
+            else:
+                sanitized[key] = value
+
+        return sanitized
 
     def _resolve_opener(self, path: Path) -> Callable[[str], TextIO]:
         if path.suffix == ".gz":
