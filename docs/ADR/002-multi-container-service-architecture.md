@@ -561,8 +561,75 @@ uv run celery -A cowrieprocessor.workers worker \
 **Security Considerations**:
 - Use TLS for Redis connections over WAN
 - PostgreSQL SSL required for remote connections
-- Consider VPN or Tailscale for secure connectivity
+- **Tailscale overlay networking** recommended for trusted workers (see below)
 - Redis AUTH password mandatory for remote access
+
+#### Tailscale Overlay Networking (Recommended)
+
+**Real-World Deployment**: User feedback confirms Tailscale as the preferred networking layer for trusted workers.
+
+**Network Topology**:
+```
+┌──────────────────────────────────────────────────────────────┐
+│              Tailscale Overlay (100.64.0.0/10)               │
+│                     WireGuard Encrypted                      │
+│                                                              │
+│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────┐ │
+│  │ Storage Server   │  │ M4 Mac        │  │ PostgreSQL   │ │
+│  │ (K3s Cluster)    │  │ (Native       │  │ Database     │ │
+│  │ - Coordinator    │  │  Worker)      │  │              │ │
+│  │ - MCP API        │  │ - Celery      │  │              │ │
+│  │ - Redis          │  │ - MCP Service │  │              │ │
+│  │ 100.64.1.1       │  │ 100.64.1.2    │  │ 100.64.1.3   │ │
+│  └──────────────────┘  └───────────────┘  └──────────────┘ │
+└──────────────────────────────────────────────────────────────┘
+                          ▲
+                          │ HTTPS API (8443)
+                          │ Public Internet
+                          │ NAT + Whitelist
+              ┌───────────┴────────────┐
+              │  Cloud Workers         │
+              │  (AWS/GCP/Azure)       │
+              │  - No Tailscale        │
+              │  - HTTP/S API only     │
+              │  - Whitelisted IPs     │
+              └────────────────────────┘
+```
+
+**Configuration Example** (M4 Mac with Tailscale):
+```bash
+# No VPN/port forwarding needed!
+# Tailscale handles routing automatically
+
+export DATABASE_URL="postgresql://user:pass@storage-server.tailnet:5432/cowrie"
+export REDIS_URL="redis://storage-server.tailnet:6379/0"
+
+# Or use Tailscale IPs directly
+export DATABASE_URL="postgresql://user:pass@100.64.1.1:5432/cowrie"
+export REDIS_URL="redis://100.64.1.1:6379/0"
+
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 8 \
+    --hostname m4-ml-worker@%h
+```
+
+**Benefits of Tailscale**:
+- ✅ **Zero Configuration**: No port forwarding, no firewall rules
+- ✅ **Encrypted**: WireGuard encryption at network layer
+- ✅ **Zero Trust**: Device authentication via Tailscale ACLs
+- ✅ **Magic DNS**: Use hostnames instead of IPs (`storage-server.tailnet`)
+- ✅ **Cross-Platform**: Works on macOS, Linux, Windows, mobile
+- ✅ **Audit Logs**: Tailscale logs all connection attempts
+- ✅ **Free Tier**: Up to 100 devices for personal use
+
+**Security Model**:
+| Worker Type | Network | Authentication | Encryption |
+|-------------|---------|----------------|------------|
+| Trusted (Tailscale) | Overlay | Device + Redis AUTH | WireGuard |
+| Cloud (NAT) | Public | API Key + mTLS | TLS 1.3 |
+
+**Note**: Users without Tailscale can use VPN (OpenVPN, WireGuard) or NAT with port forwarding, but Tailscale is strongly recommended for operational simplicity.
 
 #### Performance Benefits of Hybrid Approach
 
@@ -659,9 +726,590 @@ time uv run celery -A cowrieprocessor.workers call \
 - **Logs**: Loki or ELK Stack
 
 #### Databases
-- **Primary DB**: PostgreSQL 16+
+- **Primary DB**: PostgreSQL 16+ (**Note**: SQLite deprecated in V4.0, see ADR 003)
 - **Read Replicas**: PostgreSQL streaming replication
 - **Cache**: Redis 7+ (persistence enabled)
+
+### Redis Setup Guide (For Users New to Redis)
+
+**Background**: User feedback indicates familiarity with MQTT but not Redis. This section provides setup guidance.
+
+#### Redis vs MQTT Comparison
+
+| Feature | MQTT | Redis |
+|---------|------|-------|
+| **Primary Use** | IoT pub/sub messaging | In-memory data store + pub/sub |
+| **Message Delivery** | QoS 0/1/2 | Fire-and-forget or blocking |
+| **Persistence** | Optional (broker-dependent) | AOF + RDB snapshots |
+| **Data Structures** | Messages only | Strings, Lists, Sets, Hashes, Streams |
+| **Broker Pattern** | Central broker (Mosquitto) | Server (Redis) + Clients |
+| **Performance** | Optimized for IoT | Optimized for sub-ms latency |
+
+**For MQTT users**: Redis pub/sub is similar to MQTT topics, but Redis also provides powerful data structures (like a database) in addition to messaging.
+
+#### Redis Deployment Options
+
+##### Option 1: Redis in K3s (Recommended for Your Setup)
+
+**Deployment** (`k8s/redis.yaml`):
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+          - redis-server
+          - --appendonly yes      # Enable AOF persistence
+          - --requirepass changeme # Set password (use secret in production)
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: redis-storage
+          mountPath: /data
+      volumes:
+      - name: redis-storage
+        persistentVolumeClaim:
+          claimName: redis-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  type: ClusterIP
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+```
+
+**Deploy**:
+```bash
+kubectl apply -f k8s/redis.yaml
+
+# Verify
+kubectl get pods | grep redis
+kubectl logs -f deployment/redis
+```
+
+##### Option 2: Docker Compose (Development)
+
+```yaml
+# docker-compose.yml
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass changeme
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "changeme", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+```
+
+##### Option 3: Native Redis (macOS/Linux)
+
+**macOS**:
+```bash
+brew install redis
+brew services start redis
+
+# Configure password
+echo "requirepass changeme" >> /usr/local/etc/redis.conf
+brew services restart redis
+```
+
+**Linux (Ubuntu/Debian)**:
+```bash
+sudo apt install redis-server
+sudo systemctl start redis-server
+
+# Configure password
+sudo vi /etc/redis/redis.conf
+# Add: requirepass changeme
+sudo systemctl restart redis-server
+```
+
+#### Redis Configuration for Cowrie Processor
+
+**Recommended Settings** (`redis.conf`):
+```ini
+# Persistence (both AOF and RDB for safety)
+appendonly yes
+appendfsync everysec
+save 900 1
+save 300 10
+save 60 10000
+
+# Memory
+maxmemory 512mb
+maxmemory-policy allkeys-lru
+
+# Security
+requirepass changeme  # CHANGE THIS!
+bind 0.0.0.0         # Allow remote connections (Tailscale network)
+
+# Performance
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+```
+
+#### Testing Redis Connection
+
+```bash
+# Test from M4 Mac (Tailscale)
+redis-cli -h storage-server.tailnet -a changeme ping
+# Expected: PONG
+
+# Test Python connection
+python3 << 'EOF'
+import redis
+r = redis.Redis(host='storage-server.tailnet', port=6379, password='changeme', decode_responses=True)
+print(r.ping())  # Should print: True
+r.set('test', 'hello')
+print(r.get('test'))  # Should print: hello
+EOF
+```
+
+#### Celery Configuration with Redis
+
+**Worker Configuration** (`cowrieprocessor/workers/__init__.py`):
+```python
+from celery import Celery
+
+app = Celery('cowrieprocessor')
+
+app.conf.update(
+    broker_url='redis://:changeme@storage-server.tailnet:6379/0',
+    result_backend='redis://:changeme@storage-server.tailnet:6379/1',
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+    task_track_started=True,
+    task_time_limit=3600,  # 1 hour max per task
+    worker_prefetch_multiplier=1,  # Disable prefetch for fair distribution
+)
+```
+
+### Configurable Worker Routing System
+
+**User Requirement**: "Should be configurable, users may have many different workers and different hardware mixes"
+
+#### Routing Strategy Options
+
+##### 1. Queue-Based Routing (Default - Simple)
+
+Workers subscribe to specific queues:
+```bash
+# M4 Mac: Only ML-intensive queues
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --hostname m4-ml-worker
+
+# K3s Worker: All queues
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe,enrichment,reports \
+    --hostname k3s-general-worker
+```
+
+**Routing Decision**: Jobs go to ANY worker listening to that queue (round-robin by default).
+
+##### 2. Priority-Based Routing (Recommended)
+
+Workers advertise capabilities, jobs routed by preference:
+
+**Worker Configuration** (`worker-config.yaml`):
+```yaml
+workers:
+  - name: m4-ml-worker
+    hostname: m4-mac
+    queues:
+      - longtail:
+          priority: 100  # Prefer this worker for longtail jobs
+          exclusive: false  # Allow fallback to other workers
+      - snowshoe:
+          priority: 100
+          exclusive: false
+    capabilities:
+      accelerator: apple_neural_engine
+      memory_gb: 16
+      cpu_cores: 10
+
+  - name: k3s-worker-1
+    hostname: storage-server
+    queues:
+      - longtail:
+          priority: 50  # Fallback for longtail
+      - snowshoe:
+          priority: 50
+      - enrichment:
+          priority: 100  # Primary for enrichment
+      - reports:
+          priority: 100
+    capabilities:
+      accelerator: none
+      memory_gb: 8
+      cpu_cores: 4
+
+  - name: cloud-gpu-worker
+    hostname: aws-instance-1
+    queues:
+      - deep_learning:
+          priority: 100
+          exclusive: true  # ONLY this worker can run these jobs
+    capabilities:
+      accelerator: nvidia_cuda
+      gpu_memory_gb: 24
+```
+
+**Coordinator Routing Logic**:
+```python
+def route_job(job_type: str, routing_config: dict) -> str:
+    """Route job to best available worker."""
+    workers = get_workers_for_queue(job_type)
+
+    if not workers:
+        raise NoWorkersAvailable(f"No workers for queue: {job_type}")
+
+    # Sort by priority (descending)
+    workers.sort(key=lambda w: w['priority'], reverse=True)
+
+    # Check exclusive workers first
+    exclusive = [w for w in workers if w.get('exclusive')]
+    if exclusive:
+        return exclusive[0]['name']  # Must use exclusive worker
+
+    # Check if preferred worker available and not overloaded
+    preferred = workers[0]
+    if is_worker_available(preferred['name']) and not is_worker_overloaded(preferred['name']):
+        return preferred['name']
+
+    # Fallback to next available worker
+    for worker in workers[1:]:
+        if is_worker_available(worker['name']):
+            return worker['name']
+
+    # If all busy, queue for preferred worker
+    return preferred['name']
+```
+
+##### 3. Capability-Based Routing (Advanced)
+
+Jobs specify requirements, coordinator matches to worker capabilities:
+
+**Job Submission**:
+```python
+job = {
+    "job_type": "longtail_analysis",
+    "parameters": {...},
+    "requirements": {
+        "min_memory_gb": 8,
+        "accelerator": ["apple_neural_engine", "nvidia_cuda"],  # Either works
+        "min_cpu_cores": 4
+    }
+}
+```
+
+**Coordinator Matching**:
+```python
+def find_compatible_workers(job_requirements: dict) -> list:
+    """Find workers that meet job requirements."""
+    compatible = []
+
+    for worker in get_active_workers():
+        if matches_requirements(worker['capabilities'], job_requirements):
+            compatible.append(worker)
+
+    return sorted(compatible, key=lambda w: score_worker(w, job_requirements), reverse=True)
+```
+
+#### Recommended Routing Strategy
+
+**Phase 1 (V4.0.0)**: Queue-based routing (simple, works today)
+**Phase 2 (V4.1.0)**: Priority-based routing (user-configurable preferences)
+**Phase 3 (V4.2.0)**: Capability-based routing (automatic matching)
+
+### M4 Mac Resource Considerations
+
+**User Context**: "The Mac is also where the MCP service is typically running"
+
+#### Resource Sharing Strategy
+
+The M4 Mac runs **both** MCP service and Celery workers, requiring careful resource management:
+
+**Resource Allocation**:
+```
+M4 Mac (10-core CPU, 16GB RAM):
+├─ MCP Service (Claude Desktop)
+│  └─ RAM: ~2-4GB (LLM context caching)
+│  └─ CPU: 1-2 cores (bursty, low average)
+├─ Celery Workers (Longtail/Snowshoe)
+│  └─ RAM: ~4-6GB (ML models, feature vectors)
+│  └─ CPU: 6-8 cores (sustained during analysis)
+└─ OS + Other Apps
+   └─ RAM: ~4-6GB
+   └─ CPU: 1-2 cores
+```
+
+#### Worker Concurrency Configuration
+
+**Conservative (MCP service running)**:
+```bash
+# Limit worker concurrency to avoid starving MCP service
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 4  # Use 4 cores, leave 6 for MCP + OS \
+    --max-memory-per-child 2000000  # 2GB per worker process \
+    --hostname m4-ml-worker@%h
+```
+
+**Aggressive (MCP service idle or not running)**:
+```bash
+# Use most cores when MCP not active
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 8  # Use 8 cores \
+    --hostname m4-ml-worker@%h
+```
+
+#### Dynamic Worker Management
+
+**On-Demand Worker Launch** (User Requirement: "I see launching it on demand"):
+
+```bash
+# Launch worker when needed (manual)
+cd /Users/yourusername/src/dshield/cowrieprocessor
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 4 \
+    --autoscale=8,2  # Scale between 2-8 workers based on load \
+    --hostname m4-ml-worker@%h
+
+# Stop when done (Ctrl+C or kill)
+```
+
+**Optional: Launch Script** (`scripts/mac-worker.sh`):
+```bash
+#!/bin/bash
+# Start/stop Celery worker on M4 Mac
+
+case "$1" in
+    start)
+        echo "Starting Celery worker..."
+        cd /Users/$(whoami)/src/dshield/cowrieprocessor
+        uv run celery -A cowrieprocessor.workers worker \
+            --queues longtail,snowshoe \
+            --concurrency 4 \
+            --loglevel info \
+            --logfile logs/celery-worker.log \
+            --pidfile /tmp/celery-worker.pid \
+            --detach
+        echo "Worker started (PID: $(cat /tmp/celery-worker.pid))"
+        ;;
+    stop)
+        echo "Stopping Celery worker..."
+        if [ -f /tmp/celery-worker.pid ]; then
+            kill $(cat /tmp/celery-worker.pid)
+            rm /tmp/celery-worker.pid
+            echo "Worker stopped"
+        else
+            echo "No worker running"
+        fi
+        ;;
+    status)
+        if [ -f /tmp/celery-worker.pid ]; then
+            echo "Worker running (PID: $(cat /tmp/celery-worker.pid))"
+            uv run celery -A cowrieprocessor.workers inspect active
+        else
+            echo "Worker not running"
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|status}"
+        exit 1
+        ;;
+esac
+```
+
+**Usage**:
+```bash
+# Start worker when needed
+./scripts/mac-worker.sh start
+
+# Check status
+./scripts/mac-worker.sh status
+
+# Stop when done
+./scripts/mac-worker.sh stop
+```
+
+**Note**: Deliberately NOT using launchd/systemd per user preference for on-demand launching.
+
+### Longtail Analysis Performance and Caching
+
+**User Feedback**: "Longtail jobs often take substantial time to complete 10s of mins. This depends on the time window. We have the concept of caching some results in the database and storing sliding windows."
+
+#### Performance Characteristics
+
+**Time Window vs Duration**:
+| Time Window | Sessions Analyzed | Expected Duration | Caching Strategy |
+|-------------|-------------------|-------------------|------------------|
+| 1 day | ~1,000 | 30 seconds | Full cache |
+| 7 days | ~7,000 | 3-5 minutes | Sliding window |
+| 30 days | ~30,000 | 15-20 minutes | Incremental update |
+| 90 days | ~100,000 | 45-60 minutes | Batch + partitioning |
+
+#### Database-Backed Caching Strategy
+
+**Sliding Window Cache** (Incremental Analysis):
+
+```python
+# cowrieprocessor/threat_detection/longtail_cache.py
+
+class LongtailCacheManager:
+    """Manage cached longtail analysis results for incremental updates."""
+
+    def get_cached_features(self, time_window_days: int) -> Optional[dict]:
+        """Retrieve cached feature vectors for time window."""
+        cutoff = datetime.now() - timedelta(days=time_window_days)
+
+        cached = session.query(LongtailFeatures).filter(
+            LongtailFeatures.analysis_date >= cutoff,
+            LongtailFeatures.is_valid == True
+        ).all()
+
+        if not cached:
+            return None
+
+        return {
+            "feature_vectors": [c.feature_vector for c in cached],
+            "session_ids": [c.session_id for c in cached],
+            "last_analysis": max(c.analysis_date for c in cached)
+        }
+
+    def update_sliding_window(self, time_window_days: int) -> dict:
+        """Incremental update: only analyze new sessions since last run."""
+        # Get last analysis date
+        last_run = session.query(func.max(LongtailFeatures.analysis_date)).scalar()
+
+        if last_run:
+            # Only analyze sessions created since last run
+            new_sessions = session.query(SessionSummary).filter(
+                SessionSummary.start_time > last_run
+            ).all()
+
+            print(f"Incremental: Analyzing {len(new_sessions)} new sessions")
+            # Analyze only new sessions (fast!)
+            new_features = self.extract_features(new_sessions)
+
+            # Combine with cached features
+            cached_features = self.get_cached_features(time_window_days)
+            all_features = cached_features['feature_vectors'] + new_features
+
+            # Run anomaly detection on combined dataset
+            anomalies = self.detect_anomalies(all_features)
+
+            return {
+                "analysis_type": "incremental",
+                "new_sessions": len(new_sessions),
+                "cached_sessions": len(cached_features['session_ids']),
+                "duration_seconds": 45,  # Much faster than full re-analysis!
+                "anomalies": anomalies
+            }
+        else:
+            # First run: full analysis required
+            return self.full_analysis(time_window_days)
+```
+
+**Database Schema for Caching**:
+```sql
+-- longtail_features table (already exists)
+-- Stores pre-computed feature vectors
+
+-- Add index for efficient sliding window queries
+CREATE INDEX idx_longtail_features_date
+ON longtail_features(analysis_date DESC);
+
+-- Add materialized view for fast lookups
+CREATE MATERIALIZED VIEW longtail_cache_summary AS
+SELECT
+    DATE_TRUNC('day', analysis_date) AS analysis_day,
+    COUNT(*) AS sessions_analyzed,
+    COUNT(CASE WHEN anomaly_score > 0.7 THEN 1 END) AS anomalies_detected,
+    MAX(analysis_date) AS last_updated
+FROM longtail_features
+WHERE is_valid = TRUE
+GROUP BY DATE_TRUNC('day', analysis_date);
+
+-- Refresh materialized view daily (fast query)
+REFRESH MATERIALIZED VIEW longtail_cache_summary;
+```
+
+#### Performance Optimization: Progressive Results
+
+**Real-Time Progress Updates**:
+```python
+async def longtail_analysis_with_progress(sensor: str, time_window_days: int):
+    """Stream progress updates during long-running analysis."""
+    total_sessions = count_sessions(sensor, time_window_days)
+    processed = 0
+
+    async for batch in process_in_batches(sessions, batch_size=100):
+        # Process batch
+        features = extract_features(batch)
+        store_features(features)
+
+        # Emit progress
+        processed += len(batch)
+        progress = {
+            "job_id": job_id,
+            "progress_percent": int((processed / total_sessions) * 100),
+            "sessions_processed": processed,
+            "total_sessions": total_sessions,
+            "estimated_completion": estimate_completion_time(processed, total_sessions)
+        }
+
+        # Publish to Redis for UI to consume
+        redis_client.publish(f"cowrie:progress:{job_id}", json.dumps(progress))
+
+    return {"status": "completed", "anomalies": detect_anomalies(all_features)}
+```
+
+**UI displays progress bar**: "Analyzing sessions: 4,500 / 7,000 (64%) - ETA: 2 minutes"
 
 ## Consequences
 
@@ -722,13 +1370,25 @@ time uv run celery -A cowrieprocessor.workers call \
 
 ## Open Questions and Future Decisions
 
+### Resolved (User Feedback)
+
 1. **~~Kubernetes vs Docker Swarm~~**: **RESOLVED** - Support both K3s and K8s; native workers supported (hybrid model)
-2. **Authentication Strategy**: API keys vs OAuth2 vs mTLS for MCP API
+2. **~~Networking~~**: **RESOLVED** - Tailscale overlay for trusted workers, HTTP/S API for cloud workers
+3. **~~PostgreSQL Access~~**: **RESOLVED** - Over Tailscale, no port forwarding needed
+4. **~~Worker Management~~**: **RESOLVED** - On-demand launching (scripts), NOT systemd/launchd
+5. **~~Job Routing~~**: **RESOLVED** - Configurable routing (queue-based → priority-based → capability-based)
+6. **~~Worker Affinity~~**: **RESOLVED** - Configurable in worker-config.yaml with priorities
+7. **~~Longtail Performance~~**: **RESOLVED** - Database-backed caching with sliding windows
+
+### Remaining Open Questions
+
+1. **HTTP/S Worker API**: Build as part of coordinator or dedicated container? (Recommendation: part of coordinator)
+2. **Authentication Strategy**: API keys vs OAuth2 vs mTLS for MCP API (Recommendation: API keys in V4.0, mTLS in V4.1)
 3. **Multi-Tenancy**: Support multiple isolated deployments in single cluster?
 4. **Geographic Distribution**: Multi-region Kubernetes clusters or regional coordinators?
-5. **Job Prioritization**: How to prioritize enrichment vs analysis vs reporting jobs?
-6. **Worker Affinity**: Should we implement task routing to prefer specific worker types (e.g., always route longtail to M4 Mac)?
-7. **Hardware Detection**: Should workers auto-detect ANE/GPU and register capabilities with coordinator?
+5. **Hardware Detection**: Should workers auto-detect ANE/GPU and register capabilities with coordinator? (Recommendation: Phase 2 feature)
+6. **WebSocket vs Polling**: HTTP polling or WebSocket for worker API? (Recommendation: polling in V4.0, WebSocket in V4.1)
+7. **SQLite Deprecation Timeline**: V4.0 warning → V4.5 read-only → V5.0 removal? (See ADR 003)
 
 ## Related Decisions
 
