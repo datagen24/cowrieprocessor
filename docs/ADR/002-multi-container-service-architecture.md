@@ -30,10 +30,12 @@ The current architecture faces scalability, deployment, and operational challeng
 
 - **Multi-Sensor Architecture**: 2-50+ honeypot sensors per deployment
 - **Distributed Data**: Raw Cowrie logs stored near sensors (different hosts/regions)
-- **Shared Database**: Central PostgreSQL or SQLite database
+- **Shared Database**: Central PostgreSQL (multi-container) or SQLite (monolithic-only, deprecated V4.5)
 - **Heterogeneous Compute**: Mix of edge devices (low-power) and cloud instances (high-performance)
 - **Analysis Workloads**: Periodic batch jobs (longtail, snowshoe) requiring significant CPU
 - **External Consumers**: DShield MCP server, SIEM integrations, security analysts
+
+**Note**: Multi-container architecture (Docker Compose, Kubernetes) requires PostgreSQL from V4.0.0. SQLite remains available for monolithic deployments only (deprecated in V4.5, removed in V5.0). See ADR 003 for migration path.
 
 ## Decision Drivers
 
@@ -568,32 +570,42 @@ uv run celery -A cowrieprocessor.workers worker \
 
 **Real-World Deployment**: User feedback confirms Tailscale as the preferred networking layer for trusted workers.
 
+**User Infrastructure**: Storage server, M4 Mac, dedicated database host (SSD), NAS, Home Assistant server (not shown: additional infrastructure beyond cowrieprocessor scope).
+
 **Network Topology**:
 ```
-┌──────────────────────────────────────────────────────────────┐
-│              Tailscale Overlay (100.64.0.0/10)               │
-│                     WireGuard Encrypted                      │
-│                                                              │
-│  ┌──────────────────┐  ┌───────────────┐  ┌──────────────┐ │
-│  │ Storage Server   │  │ M4 Mac        │  │ PostgreSQL   │ │
-│  │ (K3s Cluster)    │  │ (Native       │  │ Database     │ │
-│  │ - Coordinator    │  │  Worker)      │  │              │ │
-│  │ - MCP API        │  │ - Celery      │  │              │ │
-│  │ - Redis          │  │ - MCP Service │  │              │ │
-│  │ 100.64.1.1       │  │ 100.64.1.2    │  │ 100.64.1.3   │ │
-│  └──────────────────┘  └───────────────┘  └──────────────┘ │
-└──────────────────────────────────────────────────────────────┘
-                          ▲
-                          │ HTTPS API (8443)
-                          │ Public Internet
-                          │ NAT + Whitelist
-              ┌───────────┴────────────┐
-              │  Cloud Workers         │
-              │  (AWS/GCP/Azure)       │
-              │  - No Tailscale        │
-              │  - HTTP/S API only     │
-              │  - Whitelisted IPs     │
-              └────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Tailscale Overlay (100.64.0.0/10)                    │
+│                          WireGuard Encrypted                            │
+│                                                                         │
+│  ┌──────────────────┐  ┌────────────────┐  ┌──────────────────────┐   │
+│  │ Storage Server   │  │ M4 Mac         │  │ Dedicated DB Host    │   │
+│  │ (K3s Cluster)    │  │ (Native Worker)│  │ (SSD Storage)        │   │
+│  │                  │  │                │  │                      │   │
+│  │ - Coordinator    │  │ - Celery       │  │ ┌──────────────────┐ │   │
+│  │ - MCP API        │  │ - MCP Service  │  │ │ PostgreSQL 16    │ │   │
+│  │ - Data Loader    │  │ - Longtail Jobs│  │ │ (Container)      │ │   │
+│  │ - Redis          │  │ - Snowshoe Jobs│  │ │ Port: 5432       │ │   │
+│  │                  │  │                │  │ │ Volume: /ssd/pg  │ │   │
+│  │ 100.64.1.1       │  │ 100.64.1.2     │  │ └──────────────────┘ │   │
+│  │ (K3s Services)   │  │ (Worker + MCP) │  │ 100.64.1.3           │   │
+│  └──────────────────┘  └────────────────┘  │ (PostgreSQL)         │   │
+│                                            └──────────────────────┘   │
+│                                                                         │
+│  Additional Infrastructure (User has NAS, Home Assistant, etc.)        │
+│  These are outside cowrieprocessor scope but part of Tailscale network │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   ▲
+                                   │ HTTPS API (8443)
+                                   │ Public Internet
+                                   │ NAT + Whitelist
+                       ┌───────────┴────────────┐
+                       │  Cloud Workers         │
+                       │  (AWS/GCP/Azure)       │
+                       │  - No Tailscale        │
+                       │  - HTTP/S API only     │
+                       │  - Whitelisted IPs     │
+                       └────────────────────────┘
 ```
 
 **Configuration Example** (M4 Mac with Tailscale):
@@ -601,17 +613,35 @@ uv run celery -A cowrieprocessor.workers worker \
 # No VPN/port forwarding needed!
 # Tailscale handles routing automatically
 
-export DATABASE_URL="postgresql://user:pass@storage-server.tailnet:5432/cowrie"
+# Connect to dedicated PostgreSQL host via Tailscale
+export DATABASE_URL="postgresql://user:pass@db-host.tailnet:5432/cowrie"
 export REDIS_URL="redis://storage-server.tailnet:6379/0"
 
 # Or use Tailscale IPs directly
-export DATABASE_URL="postgresql://user:pass@100.64.1.1:5432/cowrie"
+export DATABASE_URL="postgresql://user:pass@100.64.1.3:5432/cowrie"
 export REDIS_URL="redis://100.64.1.1:6379/0"
 
 uv run celery -A cowrieprocessor.workers worker \
     --queues longtail,snowshoe \
-    --concurrency 8 \
+    --concurrency 4  # Conservative (MCP service running)
     --hostname m4-ml-worker@%h
+```
+
+**PostgreSQL Deployment on Dedicated Host**:
+```bash
+# User's actual setup (dedicated DB host with SSD)
+docker run -d \
+  --name cowrie-postgres \
+  --restart unless-stopped \
+  -e POSTGRES_DB=cowrie \
+  -e POSTGRES_USER=cowrie \
+  -e POSTGRES_PASSWORD=changeme \
+  -v /ssd/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  postgres:16-alpine
+
+# Accessible via Tailscale from all devices
+# No firewall rules needed on public interfaces
 ```
 
 **Benefits of Tailscale**:
@@ -726,7 +756,8 @@ time uv run celery -A cowrieprocessor.workers call \
 - **Logs**: Loki or ELK Stack
 
 #### Databases
-- **Primary DB**: PostgreSQL 16+ (**Note**: SQLite deprecated in V4.0, see ADR 003)
+- **Primary DB**: PostgreSQL 16+ (**Note**: SQLite for monolithic only; deprecated in V4.5, see ADR 003)
+- **Deployment**: Flexible (K3s, native, managed service, or **dedicated container host with SSD** - user's setup)
 - **Read Replicas**: PostgreSQL streaming replication
 - **Cache**: Redis 7+ (persistence enabled)
 
@@ -1426,30 +1457,52 @@ Existing deployments continue to work:
 - Future multi-sensor: Kubernetes CronJobs replace `orchestrate_sensors.py`
 - **Hybrid deployments**: K3s for orchestration + native workers on high-performance machines
 
-### Real-World Deployment Example (M4 Mac + K3s)
+### Real-World Deployment Example (User's Production Setup)
 
-**Use Case**: User with M4 Mac, storage server running K3s, central PostgreSQL
+**Infrastructure**:
+- Storage Server: K3s cluster (coordinator, MCP API, data loaders, Redis)
+- M4 Mac: Native Celery worker (longtail/snowshoe) + MCP service (Claude Desktop)
+- Dedicated DB Host: PostgreSQL 16 container with SSD storage
+- Additional: NAS, Home Assistant server (not shown - outside cowrieprocessor scope)
+- Network: Tailscale overlay (WireGuard encrypted)
 
 **Deployment**:
 ```bash
+# Dedicated DB Host (SSD Storage)
+docker run -d \
+  --name cowrie-postgres \
+  --restart unless-stopped \
+  -e POSTGRES_DB=cowrie \
+  -e POSTGRES_USER=cowrie \
+  -e POSTGRES_PASSWORD=changeme \
+  -v /ssd/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  postgres:16-alpine
+
 # Storage Server (K3s)
 kubectl apply -f k8s/coordinator.yaml
 kubectl apply -f k8s/mcp-api.yaml
 kubectl apply -f k8s/data-loader.yaml
 kubectl apply -f k8s/redis.yaml
 
-# M4 Mac (Native Worker)
+# M4 Mac (Native Worker - On Demand)
+cd ~/src/dshield/cowrieprocessor
+export DATABASE_URL="postgresql://cowrie:pass@db-host.tailnet:5432/cowrie"
+export REDIS_URL="redis://storage-server.tailnet:6379/0"
+
 uv run celery -A cowrieprocessor.workers worker \
     --queues longtail,snowshoe \
-    --concurrency 8 \
+    --concurrency 4 \
     --hostname m4-ml-worker@%h
 ```
 
 **Benefits**:
 - ✅ Coordinator, MCP API, loaders run in K3s (easy orchestration)
 - ✅ ML-heavy jobs run natively on M4 Mac (3-5x faster with ANE)
+- ✅ PostgreSQL on dedicated SSD host (optimal I/O performance)
 - ✅ No container overhead for performance-critical paths
 - ✅ Unified job queue (Redis) coordinates all workers
+- ✅ Tailscale provides zero-config secure connectivity
 - ✅ Coordinator sees and manages both containerized and native workers
 
 ### 4.0 Release Scope
