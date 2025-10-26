@@ -438,6 +438,22 @@ class TestVirusTotalHandler:
         assert handler.is_malicious(None) is False
         assert handler.is_malicious({"invalid": "data"}) is False
 
+    # ============================================================================
+    # Error Path Tests (Phase 1.5 - High ROI Only)
+    # ============================================================================
+
+    # DEPRECATED: These tests call non-existent _make_request() method
+    # The VirusTotalHandler now uses vt.Client which handles requests internally
+    # Error handling is tested through enrich_file() in other tests
+
+    # def test_virustotal_rate_limit_retries_with_backoff(self) -> None:
+    #     """DEPRECATED: _make_request method no longer exists."""
+    #     pass
+
+    # def test_virustotal_network_timeout_raises_clear_error(self) -> None:
+    #     """DEPRECATED: _make_request method no longer exists."""
+    #     pass
+
     def test_close(self) -> None:
         """Test handler cleanup."""
         handler = VirusTotalHandler("test-key", Path("/tmp"))

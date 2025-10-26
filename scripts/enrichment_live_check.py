@@ -7,9 +7,9 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping, Optional, Tuple
+from typing import Any, Iterable, Iterator, Mapping, Optional, Tuple
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 try:
@@ -21,13 +21,16 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from enrichment_handlers import EnrichmentService  # noqa: E402
+
 from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_engine  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
-from enrichment_handlers import EnrichmentService  # noqa: E402
 
 DEFAULT_DB = Path("/mnt/dshield/data/db/cowrieprocessor.sqlite")
 DEFAULT_CACHE = Path("/mnt/dshield/data/cache")
-SENSORS_FILE = Path("sensors.toml")
+
+# Try config/ directory first, then fall back to current directory
+SENSORS_FILE = Path("config/sensors.toml") if Path("config/sensors.toml").exists() else Path("sensors.toml")
 
 
 def load_sensor_credentials(sensor_index: int = 0) -> dict:
@@ -68,8 +71,8 @@ def create_readonly_engine(db_url: str) -> Engine:
     if db_url.startswith("sqlite://"):
         try:
 
-            @engine.event.listens_for(engine, "connect")
-            def set_sqlite_pragma(dbapi_connection, connection_record):
+            @event.listens_for(engine, "connect")
+            def set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA query_only=1")
                 cursor.close()
@@ -114,7 +117,7 @@ def sample_sessions(engine: Engine, limit: int) -> Iterator[Tuple[str, str]]:
 
 def sample_file_hashes(engine: Engine, limit: int) -> Iterator[str]:
     """Yield file hashes extracted from raw_events up to the limit."""
-    dialect_name = JSONAccessor.get_dialect_name_from_engine(engine)
+    dialect_name = get_dialect_name_from_engine(engine)
 
     if dialect_name == "postgresql":
         base_query = """

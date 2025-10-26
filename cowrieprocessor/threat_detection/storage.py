@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 
 def _serialize_for_json(obj: Any) -> Any:
     """Serialize objects for JSON storage, handling datetime and numpy objects.
-    
+
     Args:
         obj: Object to serialize
-        
+
     Returns:
         JSON-serializable version of the object
     """
@@ -89,7 +89,7 @@ def _store_command_vectors(
         analysis_id: ID of the analysis record
     """
     logger.info(f"Starting vector storage for {len(sessions)} sessions, analysis_id={analysis_id}")
-    
+
     if not _check_pgvector_available(db_session.connection()):
         logger.info("pgvector not available, skipping vector storage")
         return
@@ -97,16 +97,16 @@ def _store_command_vectors(
     try:
         # Extract command sequences and vectors for each session
         vectors_to_store = []
-        
+
         # Check if analyzer has a fitted vectorizer
         if not hasattr(analyzer, 'command_vectorizer'):
             logger.warning("Analyzer does not have command_vectorizer attribute")
             return
-        
+
         if not hasattr(analyzer.command_vectorizer, 'transform'):
             logger.warning("command_vectorizer does not have transform method")
             return
-            
+
         logger.info("Analyzer has command_vectorizer with transform method")
 
         for session in sessions:
@@ -162,6 +162,7 @@ def _store_command_vectors(
                                 for sub_key, sub_value in value.items():
                                     try:
                                         import ipaddress
+
                                         ip_obj = ipaddress.ip_address(sub_key)
                                         if not (ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_private):
                                             src_ip = sub_key
@@ -170,12 +171,13 @@ def _store_command_vectors(
                                         continue
                                 if src_ip:
                                     break
-                        
+
                         # If not found in nested structure, try direct lookup
                         if not src_ip:
                             for key in session.enrichment.keys():
                                 try:
                                     import ipaddress
+
                                     ip_obj = ipaddress.ip_address(key)
                                     if not (ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_private):
                                         src_ip = key
@@ -250,6 +252,7 @@ def _create_detection_sessions_links(
         if links_to_create:
             # Bulk insert junction table entries
             from sqlalchemy import insert
+
             stmt = insert(LongtailDetectionSession)
             session.execute(stmt, links_to_create)
             logger.debug(f"Created {len(links_to_create)} detection-session links for detection {detection_id}")
@@ -298,13 +301,15 @@ def store_longtail_analysis(
                 outlier_session_count=result.outlier_session_count,
                 emerging_pattern_count=result.emerging_pattern_count,
                 high_entropy_payload_count=result.high_entropy_payload_count,
-                analysis_results=_serialize_for_json({
-                    "rare_commands": result.rare_commands,
-                    "anomalous_sequences": result.anomalous_sequences,
-                    "outlier_sessions": result.outlier_sessions,
-                    "emerging_patterns": result.emerging_patterns,
-                    "high_entropy_payloads": result.high_entropy_payloads,
-                }),
+                analysis_results=_serialize_for_json(
+                    {
+                        "rare_commands": result.rare_commands,
+                        "anomalous_sequences": result.anomalous_sequences,
+                        "outlier_sessions": result.outlier_sessions,
+                        "emerging_patterns": result.emerging_patterns,
+                        "high_entropy_payloads": result.high_entropy_payloads,
+                    }
+                ),
                 statistical_summary=_serialize_for_json(result.statistical_summary),
                 analysis_duration_seconds=result.analysis_duration_seconds,
                 memory_usage_mb=getattr(result, 'memory_usage_mb', None),
@@ -327,13 +332,15 @@ def store_longtail_analysis(
                     analysis_id=analysis_id,
                     detection_type="rare_command",
                     session_id=None,  # Will be linked via junction table
-                    detection_data=_serialize_for_json({
-                        "command": detection.get("command"),
-                        "frequency": detection.get("frequency"),
-                        "rarity_score": detection.get("rarity_score"),
-                        "session_count": detection.get("session_count", 0),
-                        "detection_type": "rare_command",
-                    }),
+                    detection_data=_serialize_for_json(
+                        {
+                            "command": detection.get("command"),
+                            "frequency": detection.get("frequency"),
+                            "rarity_score": detection.get("rarity_score"),
+                            "session_count": detection.get("session_count", 0),
+                            "detection_type": "rare_command",
+                        }
+                    ),
                     confidence_score=detection.get("confidence_score", 0.0),
                     severity_score=detection.get("severity_score", 0.0),
                     timestamp=detection.get("timestamp", window_start),
@@ -354,12 +361,14 @@ def store_longtail_analysis(
                     analysis_id=analysis_id,
                     detection_type="anomalous_sequence",
                     session_id=None,
-                    detection_data=_serialize_for_json({
-                        "sequence": detection.get("sequence"),
-                        "frequency": detection.get("frequency"),
-                        "anomaly_score": detection.get("anomaly_score"),
-                        "detection_type": "anomalous_sequence",
-                    }),
+                    detection_data=_serialize_for_json(
+                        {
+                            "sequence": detection.get("sequence"),
+                            "frequency": detection.get("frequency"),
+                            "anomaly_score": detection.get("anomaly_score"),
+                            "detection_type": "anomalous_sequence",
+                        }
+                    ),
                     confidence_score=detection.get("confidence_score", 0.0),
                     severity_score=detection.get("severity_score", 0.0),
                     timestamp=detection.get("timestamp", window_start),
@@ -375,16 +384,18 @@ def store_longtail_analysis(
                     analysis_id=analysis_id,
                     detection_type="outlier_session",
                     session_id=detection.get("session_id"),
-                    detection_data=_serialize_for_json({
-                        "session_id": detection.get("session_id"),
-                        "src_ip": detection.get("src_ip"),
-                        "duration": detection.get("duration"),
-                        "command_count": detection.get("command_count"),
-                        "login_attempts": detection.get("login_attempts"),
-                        "file_operations": detection.get("file_operations"),
-                        "cluster_label": detection.get("cluster_label"),
-                        "detection_type": "outlier_session",
-                    }),
+                    detection_data=_serialize_for_json(
+                        {
+                            "session_id": detection.get("session_id"),
+                            "src_ip": detection.get("src_ip"),
+                            "duration": detection.get("duration"),
+                            "command_count": detection.get("command_count"),
+                            "login_attempts": detection.get("login_attempts"),
+                            "file_operations": detection.get("file_operations"),
+                            "cluster_label": detection.get("cluster_label"),
+                            "detection_type": "outlier_session",
+                        }
+                    ),
                     confidence_score=detection.get("confidence_score", 0.0),
                     severity_score=detection.get("severity_score", 0.0),
                     timestamp=detection.get("timestamp", window_start),
@@ -400,11 +411,13 @@ def store_longtail_analysis(
                     analysis_id=analysis_id,
                     detection_type="emerging_pattern",
                     session_id=None,
-                    detection_data=_serialize_for_json({
-                        "pattern": detection.get("pattern"),
-                        "emergence_score": detection.get("emergence_score"),
-                        "detection_type": "emerging_pattern",
-                    }),
+                    detection_data=_serialize_for_json(
+                        {
+                            "pattern": detection.get("pattern"),
+                            "emergence_score": detection.get("emergence_score"),
+                            "detection_type": "emerging_pattern",
+                        }
+                    ),
                     confidence_score=detection.get("confidence_score", 0.0),
                     severity_score=detection.get("severity_score", 0.0),
                     timestamp=detection.get("timestamp", window_start),
@@ -420,11 +433,13 @@ def store_longtail_analysis(
                     analysis_id=analysis_id,
                     detection_type="high_entropy_payload",
                     session_id=None,
-                    detection_data=_serialize_for_json({
-                        "payload": detection.get("payload"),
-                        "entropy": detection.get("entropy"),
-                        "detection_type": "high_entropy_payload",
-                    }),
+                    detection_data=_serialize_for_json(
+                        {
+                            "payload": detection.get("payload"),
+                            "entropy": detection.get("entropy"),
+                            "detection_type": "high_entropy_payload",
+                        }
+                    ),
                     confidence_score=detection.get("confidence_score", 0.0),
                     severity_score=detection.get("severity_score", 0.0),
                     timestamp=detection.get("timestamp", window_start),
@@ -439,7 +454,9 @@ def store_longtail_analysis(
             logger.info(f"Stored {total_detections} detection records for analysis {analysis_id}")
 
             # Store vectors if analyzer and sessions provided
-            logger.info(f"Checking vector storage conditions: analyzer={analyzer is not None}, sessions={sessions is not None if sessions else False}, vector_analysis_enabled={result.vector_analysis_enabled}")
+            logger.info(
+                f"Checking vector storage conditions: analyzer={analyzer is not None}, sessions={sessions is not None if sessions else False}, vector_analysis_enabled={result.vector_analysis_enabled}"
+            )
             if analyzer and sessions and result.vector_analysis_enabled:
                 try:
                     _store_command_vectors(db_session, analyzer, sessions, int(analysis_id))
@@ -463,7 +480,7 @@ def store_longtail_analysis(
 
 def get_analysis_checkpoint(
     session_factory: sessionmaker[Session],
-    checkpoint_date: datetime,
+    checkpoint_date: date,
 ) -> Optional[Dict[str, Any]]:
     """Get analysis checkpoint for a specific date.
 
@@ -478,19 +495,24 @@ def get_analysis_checkpoint(
         with session_factory() as session:
             result = session.execute(
                 text("""
-                    SELECT id, checkpoint_date, window_start, window_end, 
+                    SELECT id, checkpoint_date, window_start, window_end,
                            sessions_analyzed, vocabulary_hash, last_analysis_id, completed_at
                     FROM longtail_analysis_checkpoints
                     WHERE checkpoint_date = :checkpoint_date
                 """),
-                {"checkpoint_date": checkpoint_date.date()},
+                {"checkpoint_date": checkpoint_date},
             )
 
             row = result.fetchone()
             if row:
+                # Convert string date to date object if needed (SQLite returns strings)
+                checkpoint_date_value = row.checkpoint_date
+                if isinstance(checkpoint_date_value, str):
+                    checkpoint_date_value = datetime.fromisoformat(checkpoint_date_value).date()
+
                 return {
                     "id": row.id,
-                    "checkpoint_date": row.checkpoint_date,
+                    "checkpoint_date": checkpoint_date_value,
                     "window_start": row.window_start,
                     "window_end": row.window_end,
                     "sessions_analyzed": row.sessions_analyzed,
@@ -507,7 +529,7 @@ def get_analysis_checkpoint(
 
 def create_analysis_checkpoint(
     session_factory: sessionmaker[Session],
-    checkpoint_date: datetime,
+    checkpoint_date: date,
     window_start: datetime,
     window_end: datetime,
     sessions_analyzed: int,
@@ -544,7 +566,7 @@ def create_analysis_checkpoint(
                         completed_at = EXCLUDED.completed_at
                 """),
                 {
-                    "checkpoint_date": checkpoint_date.date(),
+                    "checkpoint_date": checkpoint_date,
                     "window_start": window_start,
                     "window_end": window_end,
                     "sessions_analyzed": sessions_analyzed,
@@ -554,7 +576,7 @@ def create_analysis_checkpoint(
                 },
             )
             session.commit()
-            logger.info(f"Created/updated checkpoint for {checkpoint_date.date()}")
+            logger.info(f"Created/updated checkpoint for {checkpoint_date}")
 
     except Exception as e:
         logger.error(f"Error creating checkpoint: {e}")

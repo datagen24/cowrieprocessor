@@ -8,15 +8,8 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
-try:
-    from cowrieprocessor.enrichment import EnrichmentCacheManager
-    from enrichment_handlers import EnrichmentService
-except ModuleNotFoundError:  # pragma: no cover - package execution path
-    project_root = Path(__file__).resolve().parents[2]
-    if str(project_root) not in sys.path:
-        sys.path.append(str(project_root))
-    from cowrieprocessor.enrichment import EnrichmentCacheManager
-    from enrichment_handlers import EnrichmentService
+from cowrieprocessor.enrichment import EnrichmentCacheManager
+from cowrieprocessor.enrichment.handlers import EnrichmentService
 
 from ..db import apply_migrations, create_engine_from_settings
 from ..loader import (
@@ -120,6 +113,60 @@ def run_delta_loader(args: argparse.Namespace, sources: Sequence[str | Path]) ->
     return 0
 
 
+def _load_sensor_config(sensor_name: str, config_path: Path | None = None) -> dict:
+    """Load sensor configuration from sensors.toml.
+
+    Args:
+        sensor_name: Name of sensor to load from sensors.toml [[sensor]] entries
+        config_path: Optional path to sensors.toml (default: ./sensors.toml or scripts/production/sensors.toml)
+
+    Returns:
+        Sensor configuration dict with logpath, db, and optional API keys
+
+    Raises:
+        SystemExit: If sensors.toml not found or sensor not found in config
+    """
+    if config_path:
+        sensors_file = config_path
+    else:
+        # Try config/ directory first, then current directory
+        sensors_file = Path("config/sensors.toml")
+        if not sensors_file.exists():
+            sensors_file = Path("sensors.toml")
+
+    if not sensors_file.exists():
+        print(f"Error: sensors.toml not found at {sensors_file} (required for --sensor mode)", file=sys.stderr)
+        print("Hint: Use --config to specify path to sensors.toml", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib
+        else:
+            import tomli as tomllib
+
+        with sensors_file.open("rb") as f:
+            config = tomllib.load(f)
+    except Exception as e:
+        print(f"Error loading sensors.toml: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Find the sensor entry
+    sensors = config.get("sensor", [])
+    for sensor in sensors:
+        if sensor.get("name") == sensor_name:
+            # Merge with global config
+            global_cfg = config.get("global", {})
+            result = dict(global_cfg)
+            result.update(sensor)
+            return result
+
+    available = [s.get("name") for s in sensors if s.get("name")]
+    print(f"Error: Sensor '{sensor_name}' not found in sensors.toml", file=sys.stderr)
+    print(f"Available sensors: {', '.join(available)}", file=sys.stderr)
+    sys.exit(1)
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     """CLI entry point for running bulk or delta ingestion."""
     parser = argparse.ArgumentParser(description="Load Cowrie logs into the database")
@@ -130,12 +177,24 @@ def main(argv: Iterable[str] | None = None) -> int:
     )
     parser.add_argument(
         "sources",
-        nargs="+",
-        help="Paths to Cowrie JSON logs to ingest",
+        nargs="*",
+        help="Paths to Cowrie JSON logs to ingest (or use --sensor to load from sensors.toml)",
     )
-    parser.add_argument("--db", help="Database URL or SQLite path. If omitted, reads from sensors.toml [global].db")
+    parser.add_argument(
+        "--sensor",
+        help="Load configuration from sensors.toml entry (provides logpath, db, and secrets)",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        help="Path to sensors.toml (default: config/sensors.toml or ./sensors.toml)",
+    )
+    parser.add_argument(
+        "--db",
+        help="Database URL or SQLite path. If omitted, reads from sensors.toml [global].db or --sensor entry",
+    )
     parser.add_argument("--status-dir", help="Directory for status JSON", default=None)
-    parser.add_argument("--ingest-id", help="Explicit ingest identifier")
+    parser.add_argument("--ingest-id", help="Explicit ingest identifier (defaults to sensor name if --sensor used)")
     parser.add_argument("--batch-size", type=int, default=BulkLoaderConfig().batch_size)
     parser.add_argument(
         "--quarantine-threshold",
@@ -161,7 +220,47 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--spur-api-key", help="SPUR API token for infrastructure lookups")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
-    sources: Sequence[str | Path] = [Path(src) for src in args.sources]
+
+    # Handle --sensor mode
+    if args.sensor:
+        sensor_cfg = _load_sensor_config(args.sensor, args.config)
+
+        # Get logpath from sensor config
+        if not args.sources:
+            logpath = sensor_cfg.get("logpath")
+            if not logpath:
+                print(f"Error: Sensor '{args.sensor}' missing 'logpath' in sensors.toml", file=sys.stderr)
+                sys.exit(1)
+            sources: Sequence[str | Path] = [Path(logpath) / "*.json*"]
+        else:
+            sources = [Path(src) for src in args.sources]
+
+        # Get database from sensor config if not specified
+        if not args.db:
+            args.db = sensor_cfg.get("db")
+            if not args.db:
+                print("Error: No database specified (not in --db, sensor config, or global config)", file=sys.stderr)
+                sys.exit(1)
+
+        # Get API keys from sensor config if not specified
+        if not args.vt_api_key and "vtapi" in sensor_cfg:
+            args.vt_api_key = sensor_cfg["vtapi"]
+        if not args.dshield_email and "email" in sensor_cfg:
+            args.dshield_email = sensor_cfg["email"]
+        if not args.urlhaus_api_key and "urlhausapi" in sensor_cfg:
+            args.urlhaus_api_key = sensor_cfg["urlhausapi"]
+        if not args.spur_api_key and "spurapi" in sensor_cfg:
+            args.spur_api_key = sensor_cfg["spurapi"]
+
+        # Set ingest-id to sensor name if not specified
+        if not args.ingest_id:
+            args.ingest_id = args.sensor
+    else:
+        # Traditional mode: explicit sources required
+        if not args.sources:
+            print("Error: Either provide source paths or use --sensor to load from sensors.toml", file=sys.stderr)
+            sys.exit(1)
+        sources = [Path(src) for src in args.sources]
 
     if args.mode == "bulk":
         return run_bulk_loader(args, sources)

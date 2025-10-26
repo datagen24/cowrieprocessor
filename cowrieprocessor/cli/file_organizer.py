@@ -27,11 +27,11 @@ def organize_files(source_directory: Path, dry_run: bool = True, move_files: boo
         Dictionary mapping file types to lists of file paths
     """
     results: Dict[str, List[Any]] = {
-        'iptables_files': [], 
-        'cowrie_files': [], 
-        'webhoneypot_files': [], 
-        'unknown_files': [], 
-        'errors': []
+        'iptables_files': [],
+        'cowrie_files': [],
+        'webhoneypot_files': [],
+        'unknown_files': [],
+        'errors': [],
     }
 
     # Find all files recursively

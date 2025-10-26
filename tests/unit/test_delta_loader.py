@@ -41,7 +41,7 @@ def _write_events(path: Path, events: list[dict], mode: str = "w") -> None:
             fh.write("\n")
 
 
-def test_delta_loader_ingests_only_new_events(tmp_path) -> None:
+def test_delta_loader_ingests_only_new_events(tmp_path: Path) -> None:
     """Delta loader should append new events without duplicating existing rows."""
     source = tmp_path / "cowrie.log"
     initial_events = [
@@ -78,7 +78,7 @@ def test_delta_loader_ingests_only_new_events(tmp_path) -> None:
         assert cursor.last_offset >= 2
 
 
-def test_delta_loader_handles_file_rotation(tmp_path) -> None:
+def test_delta_loader_handles_file_rotation(tmp_path: Path) -> None:
     """When a file is rewritten with a new inode, delta loader should reprocess events."""
     source = tmp_path / "cowrie.log"
     _write_events(
@@ -120,7 +120,7 @@ def test_delta_loader_handles_file_rotation(tmp_path) -> None:
         assert total == 3  # original + two new from rotated file
 
 
-def test_delta_loader_records_dead_letters(tmp_path) -> None:
+def test_delta_loader_records_dead_letters(tmp_path: Path) -> None:
     """Invalid events should populate the dead-letter queue instead of raw table."""
     source = tmp_path / "dlq.log"
     _write_events(source, [{"session": "dlq1", "eventid": "cowrie.command.input", "input": "wget http://bad"}])
@@ -147,3 +147,108 @@ def test_delta_loader_records_dead_letters(tmp_path) -> None:
     assert status_file.exists()
     data = json.loads(status_file.read_text(encoding="utf-8"))
     assert data.get("dead_letter", {}).get("total") == 1
+
+
+# ============================================================================
+# Error Path Tests (Phase 1.5 - High ROI Only)
+# ============================================================================
+
+
+def test_delta_loader_handles_empty_checkpoint_file(tmp_path: Path) -> None:
+    """Test delta loader handles first run with no prior cursor state.
+
+    Given: A fresh database with no IngestCursor records
+    When: Delta loader processes events
+    Then: All events are processed (no prior cursor exists)
+    """
+    source = tmp_path / "test.json"
+    _write_events(
+        source,
+        [
+            {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+            {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+        ],
+    )
+
+    engine = _make_engine(tmp_path)
+    delta = DeltaLoader(engine, DeltaLoaderConfig())
+    metrics = delta.load_paths([source])
+
+    # Should process both events (no prior cursor = process from beginning)
+    assert metrics.events_inserted == 2
+
+
+def test_delta_loader_handles_corrupted_checkpoint(tmp_path: Path) -> None:
+    """Test delta loader handles invalid cursor data in database.
+
+    Given: A database with an invalid/corrupted IngestCursor record
+    When: Delta loader processes events
+    Then: Cursor is reset and events are reprocessed
+    """
+    source = tmp_path / "test.json"
+    _write_events(
+        source,
+        [
+            {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+            {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+        ],
+    )
+
+    engine = _make_engine(tmp_path)
+    Session = create_session_maker(engine)
+
+    # Insert a corrupted cursor with negative offset (invalid state)
+    with Session() as db_session:
+        cursor = IngestCursor(
+            source=str(source),
+            last_offset=-999,  # Invalid offset
+            inode=str(os.stat(source).st_ino),
+        )
+        db_session.add(cursor)
+        db_session.commit()
+
+    # Delta loader should handle this gracefully
+    delta = DeltaLoader(engine, DeltaLoaderConfig())
+    metrics = delta.load_paths([source])
+
+    # Should still process events despite corrupted cursor
+    assert metrics.events_inserted == 2
+
+
+def test_delta_loader_rolls_back_on_database_error(tmp_path: Path) -> None:
+    """Test delta loader handles database errors gracefully.
+
+    Given: A database connection that fails during transaction
+    When: Delta loader attempts to process events
+    Then: Error is raised and no partial data is committed
+    """
+    from unittest.mock import patch
+
+    import pytest
+    from sqlalchemy.exc import OperationalError
+
+    source = tmp_path / "test.json"
+    _write_events(
+        source,
+        [
+            {"session": "test1", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"},
+            {"session": "test2", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:01:00Z"},
+        ],
+    )
+
+    engine = _make_engine(tmp_path)
+
+    # Mock the bulk loader's execute_flush to raise an error during commit
+    with patch.object(BulkLoader, '_execute_flush') as mock_flush:
+        mock_flush.side_effect = OperationalError("database is locked", None, None)
+
+        delta = DeltaLoader(engine, DeltaLoaderConfig())
+
+        # Should raise OperationalError when database fails
+        with pytest.raises(OperationalError, match="database is locked"):
+            delta.load_paths([source])
+
+    # Verify no events were committed (rollback successful)
+    with engine.connect() as conn:
+        total = conn.execute(select(func.count()).select_from(RawEvent)).scalar_one()
+        assert total == 0

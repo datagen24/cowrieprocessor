@@ -85,7 +85,6 @@ class ReportingRepository:
         engine = session.bind
         if engine is None:
             raise ValueError("Session has no bound engine")
-        from sqlalchemy.engine import Engine
         return get_dialect_name_from_engine(engine)  # type: ignore[arg-type]
 
     def session_stats(self, start: datetime, end: datetime, sensor: Optional[str] = None) -> SessionStatistics:

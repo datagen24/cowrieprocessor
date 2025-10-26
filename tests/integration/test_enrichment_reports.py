@@ -5,13 +5,15 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 
 @pytest.fixture
-def test_database_with_enrichment() -> None:
+def test_database_with_enrichment() -> Generator[Path, None, None]:
     """Create test database with enrichment data for report testing."""
     with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tmp:
         db_path = Path(tmp.name)
@@ -160,13 +162,13 @@ def test_database_with_enrichment() -> None:
         ("enriched_session_2", "chmod +x malware.exe", "2025-01-01T11:02:00"),
     ]
 
-    for session, command, timestamp in commands_data:
+    for session_id, command, timestamp in commands_data:
         conn.execute(
             """
             INSERT INTO commands (session, command, timestamp)
             VALUES (?, ?, ?)
         """,
-            (session, command, timestamp),
+            (session_id, command, timestamp),
         )
 
     conn.commit()
@@ -181,7 +183,7 @@ def test_database_with_enrichment() -> None:
 class TestEnrichmentInSessionReports:
     """Test that enrichment data appears in session reports."""
 
-    def test_session_report_includes_dshield_data(self, test_database_with_enrichment) -> None:
+    def test_session_report_includes_dshield_data(self, test_database_with_enrichment: Path) -> None:
         """Test that DShield data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -203,13 +205,13 @@ class TestEnrichmentInSessionReports:
         assert session["dshield_country"] == "US"
 
         # Test that this data would appear in a report
-        report_content = self._generate_mock_session_report(session)
+        report_content = _generate_mock_session_report(session)
 
         assert "AS16509" in report_content
         assert "US" in report_content
         assert "DShield" in report_content or "ASN" in report_content
 
-    def test_session_report_includes_spur_data(self, test_database_with_enrichment) -> None:
+    def test_session_report_includes_spur_data(self, test_database_with_enrichment: Path) -> None:
         """Test that SPUR data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -236,12 +238,12 @@ class TestEnrichmentInSessionReports:
         assert spur_data[2] == "DATACENTER"  # Infrastructure
 
         # Test that this data would appear in a report
-        report_content = self._generate_mock_session_report(session)
+        report_content = _generate_mock_session_report(session)
 
         assert "Amazon.com" in report_content
         assert "DATACENTER" in report_content
 
-    def test_session_report_includes_urlhaus_data(self, test_database_with_enrichment) -> None:
+    def test_session_report_includes_urlhaus_data(self, test_database_with_enrichment: Path) -> None:
         """Test that URLHaus data appears in session reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -262,12 +264,12 @@ class TestEnrichmentInSessionReports:
         assert session["urlhaus_tags"] == "malware,trojan"
 
         # Test that this data would appear in a report
-        report_content = self._generate_mock_session_report(session)
+        report_content = _generate_mock_session_report(session)
 
         assert "malware" in report_content
         assert "trojan" in report_content
 
-    def test_multiple_sessions_enrichment_consistency(self, test_database_with_enrichment) -> None:
+    def test_multiple_sessions_enrichment_consistency(self, test_database_with_enrichment: Path) -> None:
         """Test that enrichment data is consistent across multiple sessions."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -297,7 +299,7 @@ class TestEnrichmentInSessionReports:
 
         # Test report generation for both sessions
         for session in sessions:
-            report_content = self._generate_mock_session_report(session)
+            report_content = _generate_mock_session_report(session)
 
             # Each report should include enrichment data
             assert session["dshield_asn"] in report_content
@@ -312,7 +314,7 @@ class TestEnrichmentInSessionReports:
 class TestEnrichmentInFileReports:
     """Test that enrichment data appears in file reports."""
 
-    def test_file_report_includes_vt_data(self, test_database_with_enrichment) -> None:
+    def test_file_report_includes_vt_data(self, test_database_with_enrichment: Path) -> None:
         """Test that VirusTotal data appears in file reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -337,13 +339,13 @@ class TestEnrichmentInFileReports:
 
         # Test that this data would appear in a report
         for file_data in files:
-            report_content = self._generate_mock_file_report(file_data)
+            report_content = _generate_mock_file_report(file_data)
 
             assert file_data["vt_description"] in report_content
             assert file_data["vt_classification"] in report_content
             assert str(file_data["vt_malicious"]) in report_content
 
-    def test_file_report_enrichment_metadata(self, test_database_with_enrichment) -> None:
+    def test_file_report_enrichment_metadata(self, test_database_with_enrichment: Path) -> None:
         """Test that file report includes comprehensive enrichment metadata."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -362,7 +364,7 @@ class TestEnrichmentInFileReports:
         conn.close()
 
         # Test comprehensive report generation
-        report_content = self._generate_mock_comprehensive_report(file_data)
+        report_content = _generate_mock_comprehensive_report(file_data)
 
         # Should include file metadata
         assert file_data["filename"] in report_content
@@ -381,7 +383,7 @@ class TestEnrichmentInFileReports:
 class TestReportEnrichmentIntegration:
     """Test integration of enrichment data in full reports."""
 
-    def test_daily_report_includes_enrichment_summary(self, test_database_with_enrichment) -> None:
+    def test_daily_report_includes_enrichment_summary(self, test_database_with_enrichment: Path) -> None:
         """Test that daily reports include enrichment summaries."""
         # Mock the report generation process
         conn = sqlite3.connect(test_database_with_enrichment)
@@ -403,7 +405,7 @@ class TestReportEnrichmentIntegration:
         conn.close()
 
         # Generate mock daily report
-        self._generate_mock_daily_report(summary)
+        _generate_mock_daily_report(summary)
 
         # Verify enrichment statistics are included
         assert "total_sessions" in str(summary)
@@ -411,7 +413,7 @@ class TestReportEnrichmentIntegration:
         assert "malicious_files" in str(summary)
         assert "unique_asns" in str(summary)
 
-    def test_abnormal_activity_report_enrichment_flags(self, test_database_with_enrichment) -> None:
+    def test_abnormal_activity_report_enrichment_flags(self, test_database_with_enrichment: Path) -> None:
         """Test that abnormal activity reports flag suspicious enrichment data."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -431,7 +433,7 @@ class TestReportEnrichmentIntegration:
         conn.close()
 
         # Generate abnormal activity report
-        report_content = self._generate_mock_abnormal_report(suspicious_sessions)
+        report_content = _generate_mock_abnormal_report(suspicious_sessions)
 
         # Verify suspicious indicators are flagged
         for session in suspicious_sessions:
@@ -445,7 +447,7 @@ class TestReportEnrichmentIntegration:
 class TestEnrichmentReportFormatting:
     """Test formatting of enrichment data in reports."""
 
-    def test_enrichment_data_formatting_consistency(self, test_database_with_enrichment) -> None:
+    def test_enrichment_data_formatting_consistency(self, test_database_with_enrichment: Path) -> None:
         """Test that enrichment data is formatted consistently in reports."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -462,9 +464,9 @@ class TestEnrichmentReportFormatting:
 
         # Test multiple formatting approaches
         report_variants = [
-            self._generate_mock_session_report(session),
-            self._generate_mock_detailed_session_report(session),
-            self._generate_mock_summary_session_report(session),
+            _generate_mock_session_report(session),
+            _generate_mock_detailed_session_report(session),
+            _generate_mock_summary_session_report(session),
         ]
 
         # All reports should include key enrichment data
@@ -477,7 +479,7 @@ class TestEnrichmentReportFormatting:
             if spur_data[1]:  # Organization
                 assert spur_data[1] in report_content
 
-    def test_enrichment_tags_parsing_and_display(self, test_database_with_enrichment) -> None:
+    def test_enrichment_tags_parsing_and_display(self, test_database_with_enrichment: Path) -> None:
         """Test that URLHaus tags are properly parsed and displayed."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -494,10 +496,10 @@ class TestEnrichmentReportFormatting:
             assert "," in tags  # Should be comma-separated
 
             # Test tag display formatting
-            formatted_tags = self._format_urlhaus_tags(tags)
+            formatted_tags = _format_urlhaus_tags(tags)
             assert "malware" in formatted_tags or "trojan" in formatted_tags or "botnet" in formatted_tags
 
-    def test_vt_classification_display(self, test_database_with_enrichment) -> None:
+    def test_vt_classification_display(self, test_database_with_enrichment: Path) -> None:
         """Test that VT classifications are displayed appropriately."""
         conn = sqlite3.connect(test_database_with_enrichment)
 
@@ -514,14 +516,14 @@ class TestEnrichmentReportFormatting:
             malicious_count = file_data["vt_malicious"]
 
             # Test classification display
-            display_text = self._format_vt_classification(classification, malicious_count)
+            display_text = _format_vt_classification(classification, malicious_count)
 
             assert classification in display_text
             assert str(malicious_count) in display_text
 
 
 # Helper methods for generating mock reports
-def _generate_mock_session_report(session_data):
+def _generate_mock_session_report(session_data: dict[str, Any]) -> str:
     """Generate mock session report content."""
     lines = [
         f"Session: {session_data['session']}",
@@ -544,7 +546,7 @@ def _generate_mock_session_report(session_data):
     return "\n".join(lines)
 
 
-def _generate_mock_file_report(file_data):
+def _generate_mock_file_report(file_data: dict[str, Any]) -> str:
     """Generate mock file report content."""
     lines = [
         f"File: {file_data['filename']}",
@@ -564,7 +566,7 @@ def _generate_mock_file_report(file_data):
     return "\n".join(lines)
 
 
-def _generate_mock_comprehensive_report(session_data):
+def _generate_mock_comprehensive_report(session_data: dict[str, Any]) -> str:
     """Generate mock comprehensive report content."""
     lines = [
         "=== Session Report ===",
@@ -586,7 +588,7 @@ def _generate_mock_comprehensive_report(session_data):
     return "\n".join(lines)
 
 
-def _generate_mock_daily_report(summary_data):
+def _generate_mock_daily_report(summary_data: dict[str, Any]) -> str:
     """Generate mock daily report content."""
     lines = [
         "=== Daily Summary ===",
@@ -600,7 +602,7 @@ def _generate_mock_daily_report(summary_data):
     return "\n".join(lines)
 
 
-def _generate_mock_abnormal_report(suspicious_sessions):
+def _generate_mock_abnormal_report(suspicious_sessions: list[dict[str, Any]]) -> str:
     """Generate mock abnormal activity report content."""
     lines = [
         "=== Abnormal Activity Report ===",
@@ -623,7 +625,7 @@ def _generate_mock_abnormal_report(suspicious_sessions):
     return "\n".join(lines)
 
 
-def _generate_mock_detailed_session_report(session_data):
+def _generate_mock_detailed_session_report(session_data: dict[str, Any]) -> str:
     """Generate mock detailed session report."""
     lines = [
         "DETAILED SESSION ANALYSIS",
@@ -649,7 +651,7 @@ def _generate_mock_detailed_session_report(session_data):
     return "\n".join(lines)
 
 
-def _generate_mock_summary_session_report(session_data):
+def _generate_mock_summary_session_report(session_data: dict[str, Any]) -> str:
     """Generate mock summary session report."""
     spur_data = json.loads(session_data["spur_data"]) if session_data.get("spur_data") else []
 
@@ -661,11 +663,11 @@ def _generate_mock_summary_session_report(session_data):
     )
 
 
-def _format_urlhaus_tags(tags_str):
+def _format_urlhaus_tags(tags_str: str) -> str:
     """Format URLHaus tags for display."""
     return tags_str.replace(",", ", ")
 
 
-def _format_vt_classification(classification, malicious_count):
+def _format_vt_classification(classification: str, malicious_count: int) -> str:
     """Format VT classification for display."""
     return f"{classification} ({malicious_count} detections)"

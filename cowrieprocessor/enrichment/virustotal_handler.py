@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 class VirusTotalHandler:
     """VirusTotal enrichment handler with quota management and caching."""
-    
+
     quota_manager: Optional[VirusTotalQuotaManager]
 
     def __init__(

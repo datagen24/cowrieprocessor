@@ -233,7 +233,7 @@ class TestEnrichmentServiceTelemetryIntegration:
         import tempfile
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from enrichment_handlers import EnrichmentService
+        from cowrieprocessor.enrichment.handlers import EnrichmentService
 
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -259,7 +259,7 @@ class TestEnrichmentServiceTelemetryIntegration:
         import tempfile
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from enrichment_handlers import EnrichmentService
+        from cowrieprocessor.enrichment.handlers import EnrichmentService
 
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -283,7 +283,7 @@ class TestEnrichmentServiceTelemetryIntegration:
         import tempfile
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from enrichment_handlers import EnrichmentService
+        from cowrieprocessor.enrichment.handlers import EnrichmentService
 
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)

@@ -1226,11 +1226,13 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
     # If no credentials provided via command line or environment, try to load from sensors.toml
     if not any(resolved_credentials.values()):
         try:
-            # Look for sensors.toml in the project root
+            # Look for sensors.toml in the project root (config/ first, then root)
             from pathlib import Path
 
             project_root = Path(__file__).resolve().parents[2]
-            sensors_file = project_root / "sensors.toml"
+            sensors_file = project_root / "config" / "sensors.toml"
+            if not sensors_file.exists():
+                sensors_file = project_root / "sensors.toml"
 
             if sensors_file.exists():
                 logger.info(f"Loading API credentials from {sensors_file}")
@@ -1259,16 +1261,10 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
     # Initialize enrichment service
     try:
         # Import here to avoid circular imports
-        import sys
         from pathlib import Path
 
         from ..enrichment import EnrichmentCacheManager
-
-        # Add project root to path to import enrichment_handlers
-        project_root = Path(__file__).resolve().parents[2]
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
-        from enrichment_handlers import EnrichmentService
+        from ..enrichment.handlers import EnrichmentService
 
         cache_dir_path = Path(args.cache_dir)
         cache_manager = EnrichmentCacheManager(cache_dir_path)

@@ -16,6 +16,9 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import text
 
 from cowrieprocessor.db import apply_migrations, create_engine_from_settings, create_session_maker
 from cowrieprocessor.db.models import SessionSummary
@@ -34,7 +37,7 @@ def test_database_connectivity(db_url: str) -> bool:
         db_settings = DatabaseSettings(url=db_url)
         engine = create_engine_from_settings(db_settings)
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
             logger.info("✅ Database connectivity confirmed")
             return True
     except Exception as e:
@@ -66,7 +69,7 @@ def get_test_sessions(db_url: str, limit: int = 10) -> list[SessionSummary] | No
         return None
 
 
-def run_longtail_analysis_test(db_url: str) -> dict[str, any]:
+def run_longtail_analysis_test(db_url: str) -> dict[str, Any]:
     """Run longtail analysis test against database."""
     logger.info("Running longtail analysis test...")
 
