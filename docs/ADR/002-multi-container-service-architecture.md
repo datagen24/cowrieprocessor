@@ -1496,6 +1496,325 @@ Explicitly **out of scope** to avoid complexity:
 - SIEM integration (Wazuh, Elastic Security)
 - Advanced threat detection on containers
 
+## Legacy Features and Deprecation Path
+
+### Elasticsearch Integration - Legacy Export Feature
+
+**Historical Context**: Elasticsearch integration was initially designed to provide backend context for the dshield-mcp server, which interacted with a customized Elasticsearch cluster. The original vision was to enable rich querying and aggregation of honeypot data through Elasticsearch's powerful search capabilities.
+
+**Current Reality**: The integration didn't perform as well as anticipated. While functional, it adds operational complexity (another service to run and secure) without sufficient benefit over direct PostgreSQL queries for typical use cases.
+
+**V4.0 Status**: 🟡 **Maintained but Not Recommended**
+
+**What Exists**:
+- Export hooks in codebase (`cowrieprocessor/integrations/elasticsearch.py`)
+- Report export functionality to Elasticsearch clusters
+- Basic indexing and bulk operations
+- Used by some dshield-mcp server deployments (limited)
+
+**What's Changing**:
+- No new Elasticsearch features in V4.0
+- Existing export hooks remain functional (bug fixes only)
+- Documentation will note "legacy feature, use PostgreSQL instead"
+- No enhancements planned
+
+**Deprecation Timeline**:
+- **V4.0-V4.5**: Legacy support maintained (export hooks work, no new features)
+- **V5.0**: Likely removal (gather user feedback in V4.x cycle)
+- **Alternative**: Direct PostgreSQL queries + Grafana dashboards
+
+**Migration Path** (for current Elasticsearch users):
+```python
+# Current (Elasticsearch export)
+from cowrieprocessor.integrations.elasticsearch import ESExporter
+exporter = ESExporter(es_url="http://elasticsearch:9200")
+exporter.export_sessions(sensor="sensor-a", days=7)
+
+# V4.0 Recommended (PostgreSQL + Grafana)
+# Query PostgreSQL directly via MCP API or Grafana dashboards
+# Grafana provides visualization without separate Elasticsearch cluster
+```
+
+**Why Not Remove Immediately?**
+1. Some users may still rely on dshield-mcp + Elasticsearch workflow (uncertain)
+2. Code maintenance burden is low (isolated module, ~500 lines)
+3. V4.x cycle allows gathering feedback on actual usage
+4. Removal is non-trivial (would break existing configs)
+
+**Recommendation for New Deployments**:
+- ❌ Don't use Elasticsearch integration
+- ✅ Use PostgreSQL + Grafana for dashboards
+- ✅ Use MCP API for programmatic access
+- ✅ Use filesystem exports for simple backup needs (see below)
+
+### Dropbox Integration - Abandoned Legacy Code
+
+**Historical Context**: Dropbox integration was added in V1.x as a simple cloud backup mechanism for the legacy monolithic `process_cowrie.py` script. It allowed students to backup reports to Dropbox without setting up their own infrastructure.
+
+**Current Reality**: **This code has been unmaintained since V1.5** and only ever worked with the legacy `process_cowrie.py` script (removed in V3.0). It likely doesn't function in modern versions.
+
+**V4.0 Status**: 🔴 **Dead Code - Removal Candidate**
+
+**What Exists** (possibly non-functional):
+- Legacy hooks in codebase (`cowrieprocessor/integrations/dropbox.py` - if it still exists)
+- Originally exported reports from V1.x monolithic script
+- Never updated for multi-container architecture
+- **No known active users**
+
+**What's Changing**:
+- **V4.0**: Code review to determine if removal is safe
+- **V4.1**: Likely removal (no migration path needed, already broken)
+- **Alternative**: Simple filesystem exports (volume mounts, NFS, SSH)
+
+**Why This Exists at All**:
+- Historical artifact from V1.x architecture
+- Never actively maintained after V1.5
+- Removal was deferred (low priority, isolated code)
+- V4.0 is good opportunity for cleanup
+
+**Recommendation for New Deployments**:
+- ❌ **Do not attempt to use** (likely broken, unmaintained)
+- ✅ Use filesystem-based exports (see below)
+
+### Filesystem-Based Report Export (Recommended for Students)
+
+**Design Philosophy**: Don't assume students have cloud budgets or complex infrastructure. Simple filesystem exports work for most educational use cases.
+
+**Approach 1: Local Volume Mount** (Simplest)
+```yaml
+# docker-compose.yml
+services:
+  coordinator:
+    volumes:
+      - ./exports:/app/exports  # Local directory mount
+    environment:
+      EXPORT_PATH: /app/exports
+
+# Reports written to ./exports/ directory
+# Students can copy files manually or rsync to USB drive
+```
+
+**Approach 2: NFS/CIFS Network Share**
+```yaml
+# docker-compose.yml
+services:
+  coordinator:
+    volumes:
+      - type: volume
+        source: nfs-share
+        target: /app/exports
+        volume:
+          nocopy: true
+
+volumes:
+  nfs-share:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=192.168.1.100,rw
+      device: ":/mnt/shared/cowrie"
+
+# Reports written to NAS/network share
+# Accessible from multiple machines
+```
+
+**Approach 3: SSHFS Mount** (Remote filesystem over SSH)
+```bash
+# On host running Docker
+mkdir -p /mnt/remote-exports
+sshfs user@remote-server:/path/to/exports /mnt/remote-exports
+
+# Then mount in docker-compose.yml
+services:
+  coordinator:
+    volumes:
+      - /mnt/remote-exports:/app/exports
+```
+
+**Approach 4: Simple SSH Export Script** (No mounts required)
+```bash
+#!/bin/bash
+# scripts/export-reports.sh
+# Cron this script for periodic exports
+
+EXPORT_DIR="/app/exports"  # Inside container
+REMOTE_USER="student"
+REMOTE_HOST="backup-server.local"
+REMOTE_PATH="/backups/cowrie"
+
+# Copy from container to local
+docker cp cowrie-coordinator:${EXPORT_DIR} /tmp/cowrie-exports
+
+# SCP to remote server
+scp -r /tmp/cowrie-exports/* ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_PATH}/
+
+# Cleanup
+rm -rf /tmp/cowrie-exports
+```
+
+**Approach 5: Self-Hosted MinIO** (S3-compatible, free, local)
+```yaml
+# docker-compose.yml
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Web UI
+
+  coordinator:
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: cowrie-reports
+
+volumes:
+  minio-data:
+
+# S3-compatible but runs locally (no cloud costs)
+```
+
+**Comparison for Students**:
+
+| Method | Complexity | Cost | Use Case |
+|--------|-----------|------|----------|
+| Local volume mount | ⭐ Easiest | Free | Single machine, manual backup |
+| NFS/CIFS share | ⭐⭐ Easy | Free | Home lab with NAS |
+| SSHFS mount | ⭐⭐ Easy | Free | Remote server access |
+| SSH export script | ⭐⭐ Moderate | Free | Scheduled backups |
+| Self-hosted MinIO | ⭐⭐⭐ Moderate | Free | S3-compatible without cloud |
+| Cloud S3/Azure Blob | ⭐⭐⭐⭐ Complex | $$ | Production, multi-region |
+
+**V4.0 Default**: Local volume mount (no assumptions about infrastructure)
+
+### Report Export Implementation in V4.0
+
+**New Export Interface** (`cowrieprocessor/exports/base.py`):
+```python
+from abc import ABC, abstractmethod
+from pathlib import Path
+import json
+import os
+import boto3
+
+class ReportExporter(ABC):
+    """Base class for report exporters."""
+
+    @abstractmethod
+    def export(self, report: dict, filename: str) -> bool:
+        """Export report to destination. Returns True on success."""
+        pass
+
+class FilesystemExporter(ReportExporter):
+    """Simple filesystem export (default)."""
+
+    def __init__(self, export_path: Path):
+        self.export_path = export_path
+        self.export_path.mkdir(parents=True, exist_ok=True)
+
+    def export(self, report: dict, filename: str) -> bool:
+        output_file = self.export_path / filename
+        with open(output_file, 'w') as f:
+            json.dump(report, f, indent=2)
+        return True
+
+class MinIOExporter(ReportExporter):
+    """S3-compatible export (optional)."""
+
+    def __init__(self, endpoint: str, bucket: str, access_key: str, secret_key: str):
+        self.client = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key
+        )
+        self.bucket = bucket
+
+    def export(self, report: dict, filename: str) -> bool:
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=filename,
+            Body=json.dumps(report, indent=2)
+        )
+        return True
+
+# Factory pattern for configuration
+def get_exporter() -> ReportExporter:
+    export_type = os.getenv("EXPORT_TYPE", "filesystem")
+
+    if export_type == "filesystem":
+        return FilesystemExporter(Path(os.getenv("EXPORT_PATH", "/app/exports")))
+    elif export_type == "s3":
+        return MinIOExporter(
+            endpoint=os.getenv("S3_ENDPOINT"),
+            bucket=os.getenv("S3_BUCKET"),
+            access_key=os.getenv("S3_ACCESS_KEY"),
+            secret_key=os.getenv("S3_SECRET_KEY")
+        )
+    else:
+        raise ValueError(f"Unknown export type: {export_type}")
+```
+
+**Default Configuration** (`docker-compose.yml`):
+```yaml
+services:
+  coordinator:
+    environment:
+      EXPORT_TYPE: filesystem  # Default
+      EXPORT_PATH: /app/exports
+    volumes:
+      - ./exports:/app/exports  # Local directory
+
+# Students uncomment sections as needed:
+#
+# # For NFS share:
+# volumes:
+#   - nfs-share:/app/exports
+#
+# # For MinIO:
+# environment:
+#   EXPORT_TYPE: s3
+#   S3_ENDPOINT: http://minio:9000
+#   S3_BUCKET: cowrie-reports
+```
+
+### Design Philosophy: Infrastructure Assumptions
+
+**Don't Assume**:
+- ❌ Students have AWS/Azure/GCP accounts
+- ❌ Students have budget for cloud storage
+- ❌ Students want cloud dependencies
+- ❌ Students have complex networking (beyond home router)
+
+**Do Assume**:
+- ✅ Students have local disk space
+- ✅ Students can create directories and mount volumes
+- ✅ Students want simple, working defaults
+- ✅ Students may have home NAS (optional, not required)
+
+**Provide Options, Not Mandates**:
+- Filesystem export: **Default** (works everywhere)
+- NFS/SSHFS: **Optional** (if they have NAS)
+- MinIO: **Optional** (if they want S3-like features locally)
+- Cloud S3: **Optional** (if they have budget and need it)
+
+### V5.0 Code Cleanup
+
+Planned removals in V5.0:
+- `cowrieprocessor/integrations/dropbox.py` (~300 lines) - Dead code
+- `cowrieprocessor/integrations/elasticsearch.py` (~500 lines) - If usage < 5%
+- Associated tests, documentation, configuration
+- Dependencies: `dropbox`, `elasticsearch-py` (if removed)
+
+**Result**: Cleaner codebase focused on PostgreSQL + simple exports
+
 ## Consequences
 
 ### Positive Consequences
