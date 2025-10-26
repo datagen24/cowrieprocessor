@@ -1668,7 +1668,10 @@ PostgreSQL configured with max_connections = 100 (leaves headroom)
 
 ### 12. API Rate Limiting
 
-**MCP API DoS Protection**:
+**MCP API DoS Protection** (Distributed Rate Limiting):
+
+**IMPORTANT**: Use Redis for distributed rate limiting when running multiple MCP API pods. In-memory storage (`memory://`) means each pod has separate counters, allowing users to bypass limits by hitting different pods.
+
 ```python
 # cowrieprocessor/mcp/rate_limiting.py
 
@@ -1676,8 +1679,20 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from fastapi import FastAPI, Request
+import os
 
-limiter = Limiter(key_func=get_remote_address)
+# ✅ CORRECT: Redis storage for distributed rate limiting
+# All MCP API pods share the same rate limit counters
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri=os.getenv("REDIS_URL", "redis://redis:6379/1"),  # Shared counter across pods
+    strategy="fixed-window",  # or "moving-window" for stricter limits
+)
+
+# ❌ INCORRECT: In-memory storage (default if storage_uri not specified)
+# Each pod has separate counters, users can bypass by hitting different pods
+# limiter = Limiter(key_func=get_remote_address)  # DON'T USE THIS
+
 app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -1685,12 +1700,32 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 @app.get("/api/statistics")
 @limiter.limit("100/minute")  # 100 requests per minute per IP
 async def get_statistics(request: Request):
+    """General statistics endpoint (moderate rate limit)."""
     pass
 
 @app.get("/api/snowshoe")
 @limiter.limit("10/minute")  # Expensive query, lower limit
 async def get_snowshoe(request: Request):
+    """Snowshoe detection endpoint (lower rate limit - resource intensive)."""
     pass
+
+@app.get("/api/longtail")
+@limiter.limit("5/minute")  # Very expensive, very low limit
+async def get_longtail(request: Request):
+    """Longtail analysis endpoint (lowest rate limit - ML inference)."""
+    pass
+```
+
+**Rate Limiting Strategies**:
+- **fixed-window**: Simple counter reset at interval boundary (e.g., minute)
+- **moving-window**: Smoother limit enforcement, prevents bursting at boundary
+- **fixed-window-elastic-expiry**: Hybrid approach
+
+**Local Development** (single instance):
+```python
+# For local dev where Redis isn't running, fall back to memory
+storage_uri = os.getenv("REDIS_URL", "memory://")  # memory:// only for local dev
+limiter = Limiter(key_func=get_remote_address, storage_uri=storage_uri)
 ```
 
 **Per-Client Quotas** (API Key Based):
@@ -1884,11 +1919,100 @@ curl -X POST https://coordinator.example.com:8443/api/v1/workers/register \
 
 ### 15. Elasticsearch Integration
 
-**Current Status**: Mentioned in `cowrieprocessor/reporting/es_publisher.py` but not in architecture
+**Decision**: **Optional for V4.0, Recommended for V4.1+**
 
-**Recommendation**: **Phase 3 Enhancement** (not critical for V4.0)
+**Current Status**: Mentioned in `cowrieprocessor/reporting/es_publisher.py` but not required for architecture
 
-**Architecture Placement**:
+**V4.0 Strategy** (Elasticsearch **OPTIONAL**):
+```
+Option A: Direct PostgreSQL Queries (Default)
+┌─────────────┐
+│  Grafana    │ ← Direct queries to PostgreSQL
+└─────────────┘
+      ↓
+┌─────────────┐
+│ PostgreSQL  │ ← All data stored here
+└─────────────┘
+
+Pros:
+- ✅ No additional service to deploy/secure
+- ✅ Acceptable performance for < 10M events
+- ✅ Simpler architecture (fewer credentials)
+- ✅ JSONB queries support full-text search
+
+Cons:
+- ❌ Slower aggregations at scale (> 10M events)
+- ❌ Limited text search capabilities vs Elasticsearch
+```
+
+**V4.1+ Strategy** (Elasticsearch **RECOMMENDED** for scale):
+```
+Option B: Elasticsearch for Advanced Search
+┌─────────────┐
+│  Kibana     │ ← Rich dashboards, full-text search
+└─────────────┘
+      ↓
+┌─────────────┐
+│Elasticsearch│ ← Reports published here
+└─────────────┘
+      ↑
+┌─────────────┐
+│ Coordinator │ ← Publishes daily/weekly reports
+└─────────────┘
+      ↓
+┌─────────────┐
+│ PostgreSQL  │ ← Source of truth (raw data)
+└─────────────┘
+
+When to Add Elasticsearch:
+- Events > 10 million (slow PostgreSQL aggregations)
+- Need full-text search across all logs
+- Complex nested aggregations (multi-level drill-down)
+- Real-time streaming dashboards
+```
+
+**Alternative: TimescaleDB** (Time-Series Optimized PostgreSQL):
+```sql
+-- Convert PostgreSQL to TimescaleDB (extension)
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+
+-- Convert raw_events to hypertable (time-series optimized)
+SELECT create_hypertable('raw_events', 'timestamp');
+
+-- Automatic data retention (drop old partitions)
+SELECT add_retention_policy('raw_events', INTERVAL '90 days');
+
+-- Continuous aggregates (pre-computed views)
+CREATE MATERIALIZED VIEW daily_attack_summary
+WITH (timescaledb.continuous) AS
+SELECT time_bucket('1 day', timestamp) AS day,
+       sensor, COUNT(*) AS attack_count
+FROM raw_events
+GROUP BY day, sensor;
+
+Pros:
+- ✅ No new service (PostgreSQL extension)
+- ✅ 10-100x faster time-series queries
+- ✅ Automatic data retention
+- ✅ Continuous aggregates (like materialized views)
+
+Cons:
+- ❌ Not as fast as Elasticsearch for text search
+- ❌ Adds complexity to PostgreSQL setup
+```
+
+**V4.0 Decision Matrix**:
+| Deployment Size | Recommendation | Reason |
+|----------------|---------------|--------|
+| < 1M events | PostgreSQL only | Simple, no extra services |
+| 1-10M events | PostgreSQL + Grafana | Acceptable performance |
+| 10-100M events | PostgreSQL + TimescaleDB | Time-series optimization |
+| > 100M events | PostgreSQL + Elasticsearch | Full-text search, aggregations |
+
+**V4.0 Implementation**: PostgreSQL direct queries (Grafana)
+**V4.1 Migration Path**: Add Elasticsearch via `cowrie-report publish --elasticsearch`
+
+**Architecture Placement** (when Elasticsearch added in V4.1+):
 ```
 Coordinator → Publishes Reports → Elasticsearch
                                   ↓
