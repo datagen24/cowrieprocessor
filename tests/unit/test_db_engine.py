@@ -27,8 +27,7 @@ from cowrieprocessor.settings import DatabaseSettings
 class TestDetectPostgresqlSupport:
     """Test PostgreSQL support detection."""
 
-    @patch('cowrieprocessor.db.engine.importlib.import_module')
-    def test_detect_postgresql_support_with_psycopg_returns_true(self, mock_import: Mock) -> None:
+    def test_detect_postgresql_support_with_psycopg_returns_true(self) -> None:
         """Test that PostgreSQL support detection returns True when psycopg is available."""
         # Mock successful import
         with patch('builtins.__import__', return_value=Mock()):
@@ -126,11 +125,11 @@ class TestSqliteOnConnect:
         mock_connection.cursor.assert_called_once()
         mock_cursor.close.assert_called_once()
 
-        # Verify basic PRAGMA settings were executed
+        # Verify basic PRAGMA settings were executed with actual defaults
         expected_calls = [
             "PRAGMA busy_timeout=5000",
-            "PRAGMA synchronous=1",
-            "PRAGMA cache_size=-2000",
+            "PRAGMA synchronous=NORMAL",
+            "PRAGMA cache_size=-64000",
         ]
         actual_calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
 
@@ -193,13 +192,16 @@ class TestCreateEngineFromSettings:
         settings = DatabaseSettings(url="sqlite:///test.db")
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            mock_engine = Mock()
-            mock_create_engine.return_value = mock_engine
+            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+                mock_engine = Mock()
+                mock_create_engine.return_value = mock_engine
 
-            result = create_engine_from_settings(settings)
+                result = create_engine_from_settings(settings)
 
-            assert result == mock_engine
-            mock_create_engine.assert_called_once()
+                assert result == mock_engine
+                mock_create_engine.assert_called_once()
+                # Verify event listener was registered for SQLite
+                mock_event_listen.assert_called_once()
 
     def test_create_engine_from_settings_postgresql_converts_url(self) -> None:
         """Test that PostgreSQL URLs are converted to use psycopg driver."""
@@ -236,51 +238,54 @@ class TestCreateEngineFromSettings:
         settings = DatabaseSettings(url="sqlite:///:memory:")
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            mock_engine = Mock()
-            mock_create_engine.return_value = mock_engine
+            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+                mock_engine = Mock()
+                mock_create_engine.return_value = mock_engine
 
-            result = create_engine_from_settings(settings)
+                result = create_engine_from_settings(settings)
 
-            assert result == mock_engine
-            # Verify StaticPool was used and pool_timeout was removed
-            call_kwargs = mock_create_engine.call_args[1]
-            assert "poolclass" in call_kwargs
-            assert "pool_timeout" not in call_kwargs
+                assert result == mock_engine
+                # Verify StaticPool was used and pool_timeout was removed
+                call_kwargs = mock_create_engine.call_args[1]
+                assert "poolclass" in call_kwargs
+                assert "pool_timeout" not in call_kwargs
 
     def test_create_engine_from_settings_with_pool_settings_applies_config(self) -> None:
         """Test that pool settings are applied to engine."""
         settings = DatabaseSettings(url="sqlite:///test.db", pool_size=10, pool_timeout=30, echo=True)
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            mock_engine = Mock()
-            mock_create_engine.return_value = mock_engine
+            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+                mock_engine = Mock()
+                mock_create_engine.return_value = mock_engine
 
-            result = create_engine_from_settings(settings)
+                result = create_engine_from_settings(settings)
 
-            assert result == mock_engine
-            # Verify pool settings were applied
-            call_kwargs = mock_create_engine.call_args[1]
-            assert call_kwargs["pool_size"] == 10
-            assert call_kwargs["pool_timeout"] == 30
-            assert call_kwargs["echo"] is True
-            assert call_kwargs["future"] is True
-            assert call_kwargs["pool_pre_ping"] is True
+                assert result == mock_engine
+                # Verify pool settings were applied
+                call_kwargs = mock_create_engine.call_args[1]
+                assert call_kwargs["pool_size"] == 10
+                assert call_kwargs["pool_timeout"] == 30
+                assert call_kwargs["echo"] is True
+                assert call_kwargs["future"] is True
+                assert call_kwargs["pool_pre_ping"] is True
 
     def test_create_engine_from_settings_sqlite_sets_connect_args(self) -> None:
         """Test that SQLite connect arguments are set correctly."""
         settings = DatabaseSettings(url="sqlite:///test.db")
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            mock_engine = Mock()
-            mock_create_engine.return_value = mock_engine
+            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+                mock_engine = Mock()
+                mock_create_engine.return_value = mock_engine
 
-            result = create_engine_from_settings(settings)
+                result = create_engine_from_settings(settings)
 
-            assert result == mock_engine
-            # Verify connect_args were set
-            call_kwargs = mock_create_engine.call_args[1]
-            assert "connect_args" in call_kwargs
-            assert call_kwargs["connect_args"]["check_same_thread"] is False
+                assert result == mock_engine
+                # Verify connect_args were set
+                call_kwargs = mock_create_engine.call_args[1]
+                assert "connect_args" in call_kwargs
+                assert call_kwargs["connect_args"]["check_same_thread"] is False
 
 
 class TestCreateEngineWithFallback:

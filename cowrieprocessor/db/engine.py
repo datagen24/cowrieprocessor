@@ -80,6 +80,10 @@ def _sqlite_on_connect(settings: DatabaseSettings) -> Callable[[sqlite3.Connecti
 
             cursor.execute(f"PRAGMA synchronous={settings.sqlite_synchronous}")
             cursor.execute(f"PRAGMA cache_size={settings.sqlite_cache_size}")
+        except sqlite3.DatabaseError:
+            # Silently handle database errors during PRAGMA configuration
+            # Connection will still be usable even if some PRAGMAs fail
+            pass
         finally:
             cursor.close()
 
