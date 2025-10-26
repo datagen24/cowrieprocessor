@@ -223,7 +223,7 @@ class TestRateLimitingIntegration:
         from pathlib import Path
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from enrichment_handlers import EnrichmentService
+        from cowrieprocessor.enrichment.handlers import EnrichmentService
 
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
@@ -248,7 +248,7 @@ class TestRateLimitingIntegration:
         from pathlib import Path
 
         from cowrieprocessor.enrichment import EnrichmentCacheManager
-        from enrichment_handlers import EnrichmentService
+        from cowrieprocessor.enrichment.handlers import EnrichmentService
 
         cache_dir = Path(tempfile.mkdtemp())
         cache_manager = EnrichmentCacheManager(cache_dir)
