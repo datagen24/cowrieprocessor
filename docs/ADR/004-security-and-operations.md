@@ -204,50 +204,104 @@ uv run celery -A cowrieprocessor.workers worker \
 
 ### 2. Container Image Security
 
-#### Decision: Multi-Layered Security with Distroless Base Images
+#### Decision: Red Hat UBI 9 Base Images (Aligned with ADR 002)
 
-**Base Image Strategy**:
+**Rationale for UBI 9**:
+- **Long-term Support**: 10-year lifecycle (May 2032 EOL for RHEL 9)
+- **Security Team**: Red Hat Security Response Team maintains base image
+- **Educational Value**: Shell access for students learning container security
+- **Balance**: Security-first without sacrificing debuggability
+- **Consistency**: Matches ADR 002 container specifications
+
+**Base Image Strategy** (in priority order):
 ```dockerfile
-# Option A: Distroless (Recommended for production)
+# Option A: Red Hat UBI 9 Minimal (RECOMMENDED - Default for V4.0)
+FROM registry.access.redhat.com/ubi9-minimal:9.3
+# Pros: Long-term support (10yr), security-focused, debuggable (~100MB)
+# Cons: Larger than distroless, RHEL-centric
+# Best for: Educational deployments, production needing long support
+
+# Option B: Red Hat UBI 9 Python (Development/CI)
+FROM registry.access.redhat.com/ubi9/python-311:latest
+# Pros: Python pre-installed, dev tools included (~400MB)
+# Cons: Larger attack surface
+# Best for: Local development, debugging
+
+# Option C: Distroless (Advanced Production Hardening)
 FROM gcr.io/distroless/python3-debian12:latest
-# Pros: Minimal attack surface, no shell, ~50MB
-# Cons: Harder to debug (no shell access)
+# Pros: Minimal attack surface, no shell (~50MB)
+# Cons: Harder to debug (no shell), Google-maintained
+# Best for: Security-critical deployments, advanced users
 
-# Option B: Alpine (Development/debugging)
+# Option D: Alpine (NOT RECOMMENDED - Compatibility Issues)
 FROM python:3.13-alpine
-# Pros: Small (~100MB), includes shell for debugging
-# Cons: Slightly larger attack surface
-
-# Option C: Debian Slim (Legacy compatibility)
-FROM python:3.13-slim-bookworm
-# Pros: Full glibc compatibility, debugging tools
-# Cons: Larger (~150MB), more vulnerabilities
+# Cons: musl libc causes Python wheel incompatibilities
+# Use only if size critical and testing is extensive
 ```
 
-**Multi-Stage Build Pattern**:
+**Multi-Stage Build Pattern** (UBI 9):
 ```dockerfile
 # cowrieprocessor/docker/Dockerfile.mcp-api
 
 # Stage 1: Build dependencies
-FROM python:3.13-slim-bookworm AS builder
+FROM registry.access.redhat.com/ubi9/python-311:latest AS builder
 WORKDIR /build
-RUN pip install uv
+
+# Install uv package manager
+RUN pip install --no-cache-dir uv
+
+# Copy dependency definitions
 COPY pyproject.toml uv.lock ./
+
+# Install production dependencies only
 RUN uv sync --no-dev
 
-# Stage 2: Runtime (distroless)
+# Stage 2: Minimal runtime (UBI 9 Minimal)
+FROM registry.access.redhat.com/ubi9-minimal:9.3 AS runtime
+WORKDIR /app
+
+# Install Python 3.11 runtime (minimal)
+RUN microdnf install -y python3.11 python3.11-pip && \
+    microdnf clean all
+
+# Copy virtual environment from builder
+COPY --from=builder /build/.venv /app/.venv
+
+# Copy application code
+COPY cowrieprocessor/ /app/cowrieprocessor/
+
+# Create non-root user (UID 1000 for consistency)
+RUN useradd -u 1000 -m -s /bin/bash cowrie
+USER cowrie
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health').read()"]
+
+# Environment
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
+# Security hardening
+# - Read-only root filesystem (add tmpfs for /tmp in k8s)
+# - Drop all capabilities (add back NET_BIND_SERVICE if needed)
+
+EXPOSE 8081
+CMD ["uvicorn", "cowrieprocessor.mcp.api:app", "--host", "0.0.0.0", "--port", "8081"]
+```
+
+**Alternative: Distroless for Advanced Users** (documented but not default):
+```dockerfile
+# Stage 1: Same builder as above
+FROM registry.access.redhat.com/ubi9/python-311:latest AS builder
+# ... (same build steps)
+
+# Stage 2: Distroless runtime (maximum hardening)
 FROM gcr.io/distroless/python3-debian12:latest
 WORKDIR /app
 COPY --from=builder /build/.venv /app/.venv
 COPY cowrieprocessor/ /app/cowrieprocessor/
-
-# Non-root user
 USER nonroot:nonroot
-
-# Health check (distroless doesn't have curl, use Python)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health').read()"]
-
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8081
 CMD ["uvicorn", "cowrieprocessor.mcp.api:app", "--host", "0.0.0.0", "--port", "8081"]
@@ -354,6 +408,41 @@ spec:
         [Your Cosign Public Key]
         -----END PUBLIC KEY-----
 ```
+
+#### Cross-ADR Consistency: Why UBI 9 Over Distroless?
+
+**Alignment with ADR 002** (Multi-Container Architecture):
+- ADR 002 specifies `registry.access.redhat.com/ubi9/python-311` as base image
+- All 5 container types (MCP API, UI, Coordinator, Loader, Worker) use UBI 9
+- This ADR (004) provides security justification for that choice
+
+**Educational vs Production Trade-offs**:
+
+| Consideration | UBI 9 Minimal | Distroless | Decision |
+|---------------|--------------|------------|----------|
+| **Attack Surface** | ~100MB, has shell | ~50MB, no shell | Distroless wins |
+| **Debuggability** | Full shell, package manager | No shell, no debugging | UBI 9 wins |
+| **Long-term Support** | 10 years (RHEL 9 lifecycle) | Google release cadence | UBI 9 wins |
+| **Educational Value** | Students can exec into container | Black box to students | UBI 9 wins |
+| **Security Patches** | RHEL Security Response Team | Google Container Team | Tie |
+| **Size on Disk** | 100MB base + 200MB app ≈ 300MB | 50MB base + 200MB app ≈ 250MB | Distroless wins |
+
+**Conclusion**: For bachelor's level students in home labs, **UBI 9 is the pragmatic choice**:
+- Allows students to `docker exec` and explore container internals (learning objective)
+- 10-year support matches typical student project lifespans (undergrad + grad school)
+- Debuggable without compromising security (still non-root, minimal packages)
+- Distroless remains available for advanced users (documented as Option C)
+
+**When to Use Distroless Instead**:
+- Internet-facing deployments without Tailscale protection
+- Compliance requirements (PCI-DSS, HIPAA) demanding minimal attack surface
+- Production deployments with mature container debugging practices (distributed tracing, logs)
+- Advanced users comfortable with distroless debugging techniques
+
+**Implementation Timeline**:
+- **V4.0**: UBI 9 as default, Distroless documented alternative
+- **V4.1**: Distroless option tested and officially supported
+- **V4.2+**: User choice via build-time argument (`--build-arg BASE_IMAGE=distroless`)
 
 ### 3. Network Security
 
