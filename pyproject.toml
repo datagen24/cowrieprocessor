@@ -98,6 +98,16 @@ exclude = [
 module = ["dateutil.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+# Allow missing type annotations in tests
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+# But still catch real type errors
+check_untyped_defs = true
+# Don't warn about unused ignores (common in tests)
+warn_unused_ignores = false
+
 [tool.coverage.run]
 source = ["cowrieprocessor"]
 omit = [

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 import pytest
 
@@ -221,31 +221,31 @@ class TestSessionMetrics:
     def test_update_tracks_min_first_seen(self) -> None:
         """Test update keeps earliest first_seen."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        metrics.update({"timestamp": 1000}, None)
-        metrics.update({"timestamp": 500}, None)  # Earlier
-        metrics.update({"timestamp": 1500}, None)
+        metrics.update(cast(dict[str, object], {"timestamp": 1000}), None)
+        metrics.update(cast(dict[str, object], {"timestamp": 500}), None)  # Earlier
+        metrics.update(cast(dict[str, object], {"timestamp": 1500}), None)
         assert metrics.first_seen == 500
 
     def test_update_tracks_max_last_seen(self) -> None:
         """Test update keeps latest last_seen."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        metrics.update({"timestamp": 1000}, None)
-        metrics.update({"timestamp": 1500}, None)  # Later
-        metrics.update({"timestamp": 500}, None)
+        metrics.update(cast(dict[str, object], {"timestamp": 1000}), None)
+        metrics.update(cast(dict[str, object], {"timestamp": 1500}), None)  # Later
+        metrics.update(cast(dict[str, object], {"timestamp": 500}), None)
         assert metrics.last_seen == 1500
 
     def test_update_counts_commands(self) -> None:
         """Test update counts command events."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        metrics.update({"eventid": "cowrie.command.success"}, None)
-        metrics.update({"eventid": "cowrie.command.failed"}, None)
+        metrics.update(cast(dict[str, object], {"eventid": "cowrie.command.success"}), None)
+        metrics.update(cast(dict[str, object], {"eventid": "cowrie.command.failed"}), None)
         assert metrics.command_count == 2
 
     def test_update_counts_login_attempts(self) -> None:
         """Test update counts login events."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        metrics.update({"eventid": "cowrie.login.success"}, None)
-        metrics.update({"eventid": "cowrie.login.failed"}, None)
+        metrics.update(cast(dict[str, object], {"eventid": "cowrie.login.success"}), None)
+        metrics.update(cast(dict[str, object], {"eventid": "cowrie.login.failed"}), None)
         assert metrics.login_attempts == 2
 
     def test_update_captures_protocol_from_connect(self) -> None:
