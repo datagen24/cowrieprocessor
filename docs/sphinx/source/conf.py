@@ -13,10 +13,10 @@ sys.path.insert(0, os.path.abspath('../../../'))
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Cowrie Processor'
-copyright = '2025, DShield Team'
+copyright = '2025, Steven Peterson'
 author = 'DShield Team'
-release = '3.0.0'
-version = '3.0'
+release = '3.1.0'
+version = '3.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
