@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
-import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 # Import only the functions we can safely test without sklearn dependencies
@@ -32,6 +31,7 @@ class TestStorageFunctions:
 
     def test_serialize_for_json_with_numpy_scalar(self) -> None:
         """Test _serialize_for_json handles numpy scalars."""
+
         # Mock numpy scalar
         class MockNumpyScalar:
             def item(self) -> int:
@@ -43,32 +43,18 @@ class TestStorageFunctions:
 
     def test_serialize_for_json_with_dict(self) -> None:
         """Test _serialize_for_json handles nested dictionaries."""
-        test_dict = {
-            "key1": "value1",
-            "key2": {"nested": datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC)}
-        }
+        test_dict = {"key1": "value1", "key2": {"nested": datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC)}}
         result = _serialize_for_json(test_dict)
 
-        expected = {
-            "key1": "value1",
-            "key2": {"nested": "2025-01-15T10:30:45+00:00"}
-        }
+        expected = {"key1": "value1", "key2": {"nested": "2025-01-15T10:30:45+00:00"}}
         assert result == expected
 
     def test_serialize_for_json_with_list(self) -> None:
         """Test _serialize_for_json handles lists."""
-        test_list = [
-            "string",
-            datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC),
-            {"nested": "dict"}
-        ]
+        test_list = ["string", datetime(2025, 1, 15, 10, 30, 45, tzinfo=UTC), {"nested": "dict"}]
         result = _serialize_for_json(test_list)
 
-        expected = [
-            "string",
-            "2025-01-15T10:30:45+00:00",
-            {"nested": "dict"}
-        ]
+        expected = ["string", "2025-01-15T10:30:45+00:00", {"nested": "dict"}]
         assert result == expected
 
     def test_serialize_for_json_with_other_types(self) -> None:
@@ -146,10 +132,7 @@ class TestStorageFunctions:
         """Test _create_detection_sessions_links with session metadata."""
         mock_session = Mock(spec=Session)
         detection_id = 1
-        sessions_metadata = [
-            {"session_id": "session1"},
-            {"session_id": "session2"}
-        ]
+        sessions_metadata = [{"session_id": "session1"}, {"session_id": "session2"}]
 
         # Should not raise an exception and should execute SQL
         _create_detection_sessions_links(mock_session, detection_id, sessions_metadata)
@@ -240,9 +223,10 @@ class TestStorageFunctions:
         mock_analyzer = Mock()
         mock_sessions = [Mock()]
 
-        with patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check, \
-             patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger:
-
+        with (
+            patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check,
+            patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger,
+        ):
             mock_check.return_value = False
 
             _store_command_vectors(mock_session, mock_analyzer, mock_sessions, 1)
@@ -255,9 +239,10 @@ class TestStorageFunctions:
         mock_analyzer = Mock()
         mock_sessions = [Mock()]
 
-        with patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check, \
-             patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger:
-
+        with (
+            patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check,
+            patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger,
+        ):
             mock_check.return_value = True
             # Remove vectorizer attribute
             del mock_analyzer.command_vectorizer
@@ -272,9 +257,10 @@ class TestStorageFunctions:
         mock_analyzer = Mock()
         mock_sessions = [Mock()]
 
-        with patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check, \
-             patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger:
-
+        with (
+            patch('cowrieprocessor.threat_detection.storage._check_pgvector_available') as mock_check,
+            patch('cowrieprocessor.threat_detection.storage.logger') as mock_logger,
+        ):
             mock_check.return_value = True
             mock_analyzer.command_vectorizer = Mock()
             # Remove transform method

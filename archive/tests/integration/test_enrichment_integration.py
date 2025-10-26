@@ -9,9 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from enrichment_handlers import EnrichmentService
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
-from enrichment_handlers import EnrichmentService
 from tests.fixtures.enrichment_fixtures import (
     get_dshield_response,
     get_spur_response,

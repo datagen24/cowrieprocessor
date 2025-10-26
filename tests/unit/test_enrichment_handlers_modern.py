@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from cowrieprocessor.enrichment.handlers import (
+    DEFAULT_CACHE_BASE,
     EnrichmentService,
     _cache_path,
     _coerce_int,
@@ -22,7 +22,6 @@ from cowrieprocessor.enrichment.handlers import (
     _parse_urlhaus_tags,
     _resolve_cache_base,
     _stringify,
-    DEFAULT_CACHE_BASE,
 )
 
 

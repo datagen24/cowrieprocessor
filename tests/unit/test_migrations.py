@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import Engine, inspect, text
-from sqlalchemy.engine import Connection
 
 from cowrieprocessor.db import create_engine_from_settings
 from cowrieprocessor.db.migrations import (

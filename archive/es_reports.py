@@ -17,7 +17,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, cast
 
 from elasticsearch import Elasticsearch
-
 from secrets_resolver import is_reference, resolve_secret
 
 # Configure logging

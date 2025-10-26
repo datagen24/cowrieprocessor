@@ -73,7 +73,7 @@ def monitor_progress(db_url: str) -> dict:
         }
 
 
-def main():
+def main() -> None:
     """Main monitoring function."""
     if len(sys.argv) != 2:
         print("Usage: uv run python scripts/monitor_rebuild.py <database_url>")

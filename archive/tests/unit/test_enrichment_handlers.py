@@ -9,10 +9,9 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
+import enrichment_handlers
 import pytest
 import requests
-
-import enrichment_handlers
 
 
 class DummySession:

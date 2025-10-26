@@ -1,6 +1,7 @@
 """Tests for the status emitter."""
 
 from __future__ import annotations
+from pathlib import Path
 
 import json
 from datetime import datetime
@@ -9,7 +10,7 @@ from cowrieprocessor.loader.bulk import BulkLoaderMetrics, LoaderCheckpoint
 from cowrieprocessor.status_emitter import StatusEmitter
 
 
-def test_status_emitter_writes_metrics_and_checkpoint(tmp_path) -> None:
+def test_status_emitter_writes_metrics_and_checkpoint(tmp_path: Path) -> None:
     """Status emitter should persist metrics, checkpoints, and DLQ data."""
     status_dir = tmp_path / "status"
     emitter = StatusEmitter("delta", status_dir=status_dir)

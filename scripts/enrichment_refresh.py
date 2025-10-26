@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from enrichment_handlers import EnrichmentService  # noqa: E402
 from sqlalchemy import text  # noqa: E402
 from sqlalchemy.engine import Engine  # noqa: E402
 
@@ -36,7 +37,6 @@ from cowrieprocessor.db.json_utils import get_dialect_name_from_engine  # noqa: 
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 from cowrieprocessor.settings import DatabaseSettings, load_database_settings  # noqa: E402
 from cowrieprocessor.status_emitter import StatusEmitter  # noqa: E402
-from enrichment_handlers import EnrichmentService  # noqa: E402
 
 # Try config/ directory first, then fall back to project root
 SENSORS_FILE_DEFAULT = (
@@ -206,7 +206,7 @@ def update_session(
 def track_enrichment_stats(enrichment: dict, stats: dict) -> None:
     """Track enrichment service usage and failures."""
     if not isinstance(enrichment, dict):
-        return
+        return  # type: ignore[unreachable]
 
     # Track DShield usage
     dshield_data = enrichment.get("dshield", {})

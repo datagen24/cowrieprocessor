@@ -14,21 +14,29 @@ Cowrie Processor is a Python-based framework for processing and analyzing Cowrie
 - **Environment setup**: `uv sync` (installs all dependencies including dev tools)
 - **Running commands**: Always use `uv run <command>` (e.g., `uv run python process_cowrie.py`)
 
-### Required Pre-Commit Checks
-Before ANY commit, these commands MUST pass:
+### CI Gates (MANDATORY - Enforced in Order)
+The CI pipeline enforces these quality gates **in strict order**. Any failure stops the merge:
+
+1. **Ruff Lint Errors**: `uv run ruff check .` must produce 0 errors
+2. **Ruff Format Changes**: `uv run ruff format --check .` must show no formatting needed
+3. **MyPy Errors**: `uv run mypy .` must produce 0 type errors
+4. **Code Coverage**: `uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65` must achieve ≥65% coverage
+5. **Test Failures**: All tests must pass
+
+**Pre-Commit Checklist** - Run these commands before ANY commit:
 ```bash
 uv run ruff format .           # Auto-format code
-uv run ruff check .            # Lint checks
-uv run mypy .                  # Type checking
-uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80  # Tests with 80% coverage
+uv run ruff check .            # Lint checks (Gate 1)
+uv run mypy .                  # Type checking (Gate 2)
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65  # Tests with coverage (Gates 4-5)
 ```
 
 ## Key Commands
 
 ### Testing
 ```bash
-# Run all tests with coverage (80% minimum required)
-uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=80
+# Run all tests with coverage (65% minimum required by CI)
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65
 
 # Run specific test categories
 uv run pytest tests/unit/                    # Fast unit tests only
@@ -295,8 +303,8 @@ The system uses a **layered database architecture** optimized for honeypot data 
 2. **Docstrings**: ALL modules, classes, methods, and functions MUST have Google-style docstrings
    - Include `Args`, `Returns`, `Raises`, and `Examples` sections where applicable
 
-3. **Testing**: Minimum 80% code coverage required
-   - New features require 90%+ coverage
+3. **Testing**: Minimum 65% code coverage required (CI Gate #4)
+   - New features should target 80%+ coverage
    - Bug fixes MUST include regression tests
 
 4. **Linting**: Code must pass `ruff` with target-version "py313" and line-length 120

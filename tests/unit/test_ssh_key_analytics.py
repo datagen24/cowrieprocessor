@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cowrieprocessor.db import create_engine_from_settings
 from cowrieprocessor.db.migrations import apply_migrations
-from cowrieprocessor.db.models import SSHKeyIntelligence, SessionSSHKeys, SSHKeyAssociations
-from cowrieprocessor.enrichment.ssh_key_analytics import SSHKeyAnalytics, CampaignInfo, KeyTimeline
+from cowrieprocessor.db.models import SessionSSHKeys, SSHKeyAssociations, SSHKeyIntelligence
+from cowrieprocessor.enrichment.ssh_key_analytics import CampaignInfo, KeyTimeline, SSHKeyAnalytics
 from cowrieprocessor.settings import DatabaseSettings
 
 

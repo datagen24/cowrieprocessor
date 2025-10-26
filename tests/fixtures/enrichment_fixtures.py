@@ -354,8 +354,8 @@ def create_mock_session(response_text: str, status_code: int = 200) -> Any:
 
     class MockSession:
         def __init__(self) -> None:
-            self.headers = {}
-            self.calls = []
+            self.headers: dict[str, str] = {}
+            self.calls: list[tuple[Any, ...]] = []
             self.closed = False
 
         def get(self, url: str, timeout: float = 30) -> Any:

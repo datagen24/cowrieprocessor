@@ -1,6 +1,7 @@
 """Tests for the reporting CLI."""
 
 from __future__ import annotations
+import pytest
 
 import json
 from datetime import UTC, datetime
@@ -38,7 +39,7 @@ def _seed_db(path: Path) -> str:
     return f"sqlite:///{path}"
 
 
-def test_report_cli_dry_run(tmp_path, capsys) -> None:
+def test_report_cli_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """CLI should emit report JSON and status file in dry-run mode."""
     db_path = tmp_path / "report.sqlite"
     db_url = _seed_db(db_path)
@@ -77,7 +78,7 @@ def test_report_cli_dry_run(tmp_path, capsys) -> None:
     assert "sensors" in status_payload["metrics"]
 
 
-def test_report_cli_all_sensors(tmp_path, capsys) -> None:
+def test_report_cli_all_sensors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """CLI should handle --all-sensors by emitting reports for each sensor."""
     db_path = tmp_path / "report.sqlite"
     engine = create_engine(f"sqlite:///{db_path}")
@@ -149,7 +150,7 @@ def test_report_cli_all_sensors(tmp_path, capsys) -> None:
 # ==============================================================================
 
 
-def test_generate_longtail_report_last_day_json(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_last_day_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() with last-day period and JSON output.
 
     Given: A database with longtail analysis data
@@ -206,7 +207,7 @@ def test_generate_longtail_report_last_day_json(tmp_path: Path, capsys) -> None:
     assert "summary" in data
 
 
-def test_generate_longtail_report_quarter_format(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_quarter_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() with quarter format (Q12024).
 
     Given: A database with longtail analysis data
@@ -240,7 +241,7 @@ def test_generate_longtail_report_quarter_format(tmp_path: Path, capsys) -> None
     assert "2024" in data["start_date"]
 
 
-def test_generate_longtail_report_month_format(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_month_format(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() with month format (YYYY-MM).
 
     Given: A database with longtail analysis data
@@ -274,7 +275,7 @@ def test_generate_longtail_report_month_format(tmp_path: Path, capsys) -> None:
     assert "2024-01" in data["start_date"]
 
 
-def test_generate_longtail_report_text_format_with_threats(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_text_format_with_threats(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() with text format and threats option.
 
     Given: A database with longtail analysis data
@@ -331,7 +332,7 @@ def test_generate_longtail_report_text_format_with_threats(tmp_path: Path, capsy
     assert "Total Analyses:" in captured.out
 
 
-def test_generate_longtail_report_with_vectors_and_trends(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_with_vectors_and_trends(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() with text format.
 
     Given: A database with analysis data
@@ -384,7 +385,7 @@ def test_generate_longtail_report_with_vectors_and_trends(tmp_path: Path, capsys
     assert "SUMMARY" in captured.out
 
 
-def test_generate_longtail_report_error_invalid_period(tmp_path: Path, capsys) -> None:
+def test_generate_longtail_report_error_invalid_period(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test generate_longtail_report() error handling with invalid period format.
 
     Given: A database setup
@@ -415,7 +416,7 @@ def test_generate_longtail_report_error_invalid_period(tmp_path: Path, capsys) -
     assert "Error:" in captured.err or "error" in captured.err.lower()
 
 
-def test_main_traditional_subcommand_routing(tmp_path: Path, capsys) -> None:
+def test_main_traditional_subcommand_routing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test main() routes traditional subcommand correctly.
 
     Given: A database with session data
@@ -448,7 +449,7 @@ def test_main_traditional_subcommand_routing(tmp_path: Path, capsys) -> None:
     assert "report_type" in data or "reports" in data or isinstance(data, list)
 
 
-def test_main_ssh_keys_subcommand_routing(tmp_path: Path, capsys) -> None:
+def test_main_ssh_keys_subcommand_routing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test main() routes ssh-keys subcommand correctly.
 
     Given: A database with SSH key data
@@ -480,7 +481,7 @@ def test_main_ssh_keys_subcommand_routing(tmp_path: Path, capsys) -> None:
     assert data["report_type"] == "ssh_key_summary"
 
 
-def test_main_longtail_subcommand_routing(tmp_path: Path, capsys) -> None:
+def test_main_longtail_subcommand_routing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test main() routes longtail subcommand correctly.
 
     Given: A database with longtail data
@@ -512,7 +513,7 @@ def test_main_longtail_subcommand_routing(tmp_path: Path, capsys) -> None:
     assert data["period"] == "last-day"
 
 
-def test_main_no_command_shows_help(capsys) -> None:
+def test_main_no_command_shows_help(capsys: pytest.CaptureFixture[str]) -> None:
     """Test main() with no command shows help.
 
     Given: No command provided
@@ -526,7 +527,7 @@ def test_main_no_command_shows_help(capsys) -> None:
     assert exit_code == 1
 
 
-def test_generate_traditional_report_daily_mode(tmp_path: Path, capsys) -> None:
+def test_generate_traditional_report_daily_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test _generate_traditional_report() with daily mode.
 
     Given: A database with session data for a specific day
@@ -564,7 +565,7 @@ def test_generate_traditional_report_daily_mode(tmp_path: Path, capsys) -> None:
         assert exit_code == 0
 
 
-def test_generate_traditional_report_weekly_mode(tmp_path: Path, capsys) -> None:
+def test_generate_traditional_report_weekly_mode(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test _generate_traditional_report() with weekly mode.
 
     Given: A database with session data
@@ -602,7 +603,7 @@ def test_generate_traditional_report_weekly_mode(tmp_path: Path, capsys) -> None
         assert exit_code == 0
 
 
-def test_generate_traditional_report_with_sensor_filter(tmp_path: Path, capsys) -> None:
+def test_generate_traditional_report_with_sensor_filter(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test _generate_traditional_report() with sensor filter.
 
     Given: A database with sessions from multiple sensors
@@ -771,7 +772,7 @@ def test_generate_ssh_key_summary_with_file_output(tmp_path: Path) -> None:
     assert "generated_at" in data
 
 
-def test_generate_ssh_key_campaigns_report_basic(tmp_path: Path, capsys) -> None:
+def test_generate_ssh_key_campaigns_report_basic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test SSH key campaigns report generation.
 
     Given: A database with SSH key intelligence data
@@ -838,7 +839,7 @@ def test_generate_ssh_key_campaigns_report_basic(tmp_path: Path, capsys) -> None
     assert isinstance(data["campaigns"], list)
 
 
-def test_generate_ssh_key_detail_report_basic(tmp_path: Path, capsys) -> None:
+def test_generate_ssh_key_detail_report_basic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test SSH key detail report generation.
 
     Given: A database with SSH key intelligence data
@@ -901,7 +902,7 @@ def test_generate_ssh_key_detail_report_basic(tmp_path: Path, capsys) -> None:
     assert "geographic_spread" in data
 
 
-def test_generate_ssh_key_detail_report_missing_fingerprint(tmp_path: Path, capsys) -> None:
+def test_generate_ssh_key_detail_report_missing_fingerprint(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test SSH key detail report with missing fingerprint argument.
 
     Given: A valid database
@@ -930,7 +931,7 @@ def test_generate_ssh_key_detail_report_missing_fingerprint(tmp_path: Path, caps
     assert "fingerprint is required" in captured.err.lower()
 
 
-def test_generate_ssh_key_detail_report_key_not_found(tmp_path: Path, capsys) -> None:
+def test_generate_ssh_key_detail_report_key_not_found(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test SSH key detail report with non-existent fingerprint.
 
     Given: A database with SSH key data
@@ -961,7 +962,7 @@ def test_generate_ssh_key_detail_report_key_not_found(tmp_path: Path, capsys) ->
     assert "not found" in captured.err.lower()
 
 
-def test_generate_ssh_key_report_invalid_report_type(tmp_path: Path, capsys) -> None:
+def test_generate_ssh_key_report_invalid_report_type(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Test SSH key report with invalid report type.
 
     Given: A valid database
@@ -974,8 +975,9 @@ def test_generate_ssh_key_report_invalid_report_type(tmp_path: Path, capsys) -> 
     Base.metadata.create_all(engine)
 
     # When: Call generate_ssh_key_report with invalid type via internal import
-    from cowrieprocessor.cli.report import generate_ssh_key_report
     import argparse
+
+    from cowrieprocessor.cli.report import generate_ssh_key_report
 
     args = argparse.Namespace(
         db=f"sqlite:///{db_path}",

@@ -1,6 +1,7 @@
 """Unit tests for settings module - comprehensive coverage of all settings classes."""
 
 from __future__ import annotations
+import pytest
 
 from pathlib import Path
 
@@ -135,7 +136,7 @@ class TestDatabaseSettings:
         assert settings.pool_size is None  # Default value, not overridden
         assert settings.sqlite_cache_size == -32000
 
-    def test_database_settings_from_sources_env_override(self, monkeypatch) -> None:
+    def test_database_settings_from_sources_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test DatabaseSettings.from_sources with environment variable overrides."""
         monkeypatch.setenv("COWRIEPROC_DB_URL", "postgresql://localhost/env_test")
         monkeypatch.setenv("COWRIEPROC_DB_ECHO", "true")
@@ -149,7 +150,7 @@ class TestDatabaseSettings:
         assert settings.pool_size == 15
         assert settings.sqlite_cache_size == -16000
 
-    def test_database_settings_from_sources_env_path_override(self, monkeypatch, tmp_path) -> None:
+    def test_database_settings_from_sources_env_path_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Test DatabaseSettings.from_sources with DB_PATH environment variable."""
         db_path = tmp_path / "custom.sqlite"
         monkeypatch.delenv("COWRIEPROC_DB_URL", raising=False)
@@ -160,7 +161,7 @@ class TestDatabaseSettings:
         assert settings.url.endswith(str(db_path))
         assert settings.url.startswith("sqlite:///")
 
-    def test_database_settings_from_sources_custom_env_prefix(self, monkeypatch) -> None:
+    def test_database_settings_from_sources_custom_env_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test DatabaseSettings.from_sources with custom environment prefix."""
         monkeypatch.setenv("CUSTOM_DB_URL", "postgresql://localhost/custom")
         monkeypatch.setenv("CUSTOM_DB_ECHO", "true")
@@ -170,7 +171,7 @@ class TestDatabaseSettings:
         assert settings.url == "postgresql://localhost/custom"
         assert settings.echo is True
 
-    def test_database_settings_env_bool_coercion(self, monkeypatch) -> None:
+    def test_database_settings_env_bool_coercion(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test environment variable boolean coercion."""
         test_cases = [
             ("COWRIEPROC_DB_ECHO", "true", True),
@@ -191,7 +192,7 @@ class TestDatabaseSettings:
             elif env_var == "COWRIEPROC_DB_SQLITE_WAL":
                 assert settings.sqlite_wal is expected
 
-    def test_database_settings_env_int_coercion(self, monkeypatch) -> None:
+    def test_database_settings_env_int_coercion(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test environment variable integer coercion."""
         test_cases = [
             ("COWRIEPROC_DB_POOL_SIZE", "10", 10),
@@ -214,7 +215,7 @@ class TestDatabaseSettings:
             elif env_var == "COWRIEPROC_DB_SQLITE_CACHE_SIZE":
                 assert settings.sqlite_cache_size == expected
 
-    def test_database_settings_env_string_override(self, monkeypatch) -> None:
+    def test_database_settings_env_string_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test environment variable string overrides."""
         monkeypatch.setenv("COWRIEPROC_DB_SQLITE_SYNCHRONOUS", "full")
         monkeypatch.setenv("COWRIEPROC_DB_SQLITE_JOURNAL_FALLBACK", "wal")
@@ -224,7 +225,7 @@ class TestDatabaseSettings:
         assert settings.sqlite_synchronous == "FULL"  # Uppercased
         assert settings.sqlite_journal_fallback == "WAL"  # Uppercased
 
-    def test_database_settings_precedence_config_over_env(self, monkeypatch) -> None:
+    def test_database_settings_precedence_config_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that config mapping takes precedence over environment variables."""
         config = {"echo": False, "pool_size": 5}
         monkeypatch.setenv("COWRIEPROC_DB_ECHO", "true")
@@ -235,7 +236,7 @@ class TestDatabaseSettings:
         assert settings.echo is False  # Config wins
         assert settings.pool_size == 5  # Config wins
 
-    def test_database_settings_precedence_env_over_defaults(self, monkeypatch) -> None:
+    def test_database_settings_precedence_env_over_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that environment variables take precedence over defaults."""
         monkeypatch.setenv("COWRIEPROC_DB_URL", "postgresql://localhost/env")
         monkeypatch.setenv("COWRIEPROC_DB_ECHO", "true")
@@ -307,14 +308,14 @@ class TestLoadDatabaseSettings:
         assert settings.echo is True
         assert settings.pool_size == 10
 
-    def test_load_database_settings_with_env_prefix(self, monkeypatch) -> None:
+    def test_load_database_settings_with_env_prefix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test load_database_settings with custom environment prefix."""
         monkeypatch.setenv("TEST_DB_URL", "postgresql://localhost/test")
         settings = load_database_settings(env_prefix="TEST_")
 
         assert settings.url == "postgresql://localhost/test"
 
-    def test_load_database_settings_with_both_args(self, monkeypatch) -> None:
+    def test_load_database_settings_with_both_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test load_database_settings with both config and env_prefix."""
         config = {"echo": False}
         monkeypatch.setenv("TEST_DB_ECHO", "true")
@@ -383,7 +384,7 @@ class TestSettingsIntegration:
         assert settings.sqlite_cache_size == -128000
         assert settings.sqlite_synchronous == "NORMAL"
 
-    def test_settings_with_development_config(self, monkeypatch) -> None:
+    def test_settings_with_development_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test settings with typical development configuration."""
         monkeypatch.setenv("COWRIEPROC_DB_ECHO", "true")
         monkeypatch.setenv("COWRIEPROC_DB_SQLITE_WAL", "false")
@@ -393,7 +394,7 @@ class TestSettingsIntegration:
         assert settings.echo is True
         assert settings.sqlite_wal is False
 
-    def test_settings_with_mixed_override_scenarios(self, monkeypatch, tmp_path) -> None:
+    def test_settings_with_mixed_override_scenarios(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Test settings with mixed config and environment overrides."""
         db_path = tmp_path / "mixed.sqlite"
         config = {"echo": True, "pool_size": 5}

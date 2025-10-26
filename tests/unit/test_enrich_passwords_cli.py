@@ -315,8 +315,9 @@ def test_enrich_passwords_handles_missing_date_range_gracefully(temp_dir: Path, 
         temp_dir: Temporary directory fixture
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
 
     # Given: Arguments without date range
     args = argparse.Namespace(
@@ -353,8 +354,9 @@ def test_enrich_passwords_handles_invalid_database_schema_gracefully(
         temp_dir: Temporary directory fixture
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
 
     # Given: Arguments with valid date range but old schema
     args = argparse.Namespace(
@@ -389,8 +391,9 @@ def test_enrich_passwords_handles_last_days_parameter_correctly(temp_dir: Path, 
         temp_dir: Temporary directory fixture
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
 
     # Given: Arguments with last_days
     args = argparse.Namespace(
@@ -427,8 +430,9 @@ def test_enrich_passwords_handles_start_end_date_parameters_correctly(
         temp_dir: Temporary directory fixture
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import enrich_passwords
 
     # Given: Arguments with start_date and end_date
     args = argparse.Namespace(
@@ -465,8 +469,9 @@ def test_refresh_enrichment_handles_missing_credentials_gracefully(
         temp_dir: Temporary directory fixture
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import refresh_enrichment
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import refresh_enrichment
 
     # Given: Arguments without API credentials
     args = argparse.Namespace(
@@ -497,8 +502,9 @@ def test_refresh_enrichment_handles_database_connection_gracefully(temp_dir: Pat
     Args:
         temp_dir: Temporary directory fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import refresh_enrichment
     import argparse
+
+    from cowrieprocessor.cli.enrich_passwords import refresh_enrichment
 
     # Given: Arguments with invalid database
     args = argparse.Namespace(
@@ -533,7 +539,7 @@ def test_track_password_creates_new_password_record(test_db: sessionmaker[Sessio
         db_session_with_data: Database session with test data
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
-    from cowrieprocessor.db.models import PasswordTracking, PasswordSessionUsage
+    from cowrieprocessor.db.models import PasswordSessionUsage, PasswordTracking
 
     # Given: Database without existing password record
     db_session = test_db()
@@ -596,7 +602,7 @@ def test_track_password_updates_existing_password_record(test_db: sessionmaker[S
         db_session_with_data: Database session with test data
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
-    from cowrieprocessor.db.models import PasswordTracking, PasswordSessionUsage
+    from cowrieprocessor.db.models import PasswordSessionUsage, PasswordTracking
 
     # Given: Create existing password record
     db_session = test_db()
@@ -770,11 +776,12 @@ def test_enrich_session_processes_password_attempts_correctly(test_db: sessionma
     Args:
         test_db: Database session fixture
     """
-    from cowrieprocessor.cli.enrich_passwords import _enrich_session
-    from cowrieprocessor.db.models import RawEvent, SessionSummary, PasswordTracking
-    from cowrieprocessor.enrichment.password_extractor import PasswordExtractor
-    from cowrieprocessor.enrichment.hibp_client import HIBPPasswordEnricher
     from unittest.mock import Mock
+
+    from cowrieprocessor.cli.enrich_passwords import _enrich_session
+    from cowrieprocessor.db.models import PasswordTracking, RawEvent, SessionSummary
+    from cowrieprocessor.enrichment.hibp_client import HIBPPasswordEnricher
+    from cowrieprocessor.enrichment.password_extractor import PasswordExtractor
 
     # Given: Database session and test data
     db_session = test_db()
@@ -890,11 +897,12 @@ def test_enrich_session_handles_no_password_attempts_gracefully(test_db: session
     Args:
         test_db: Database session fixture
     """
+    from unittest.mock import Mock
+
     from cowrieprocessor.cli.enrich_passwords import _enrich_session
     from cowrieprocessor.db.models import RawEvent, SessionSummary
-    from cowrieprocessor.enrichment.password_extractor import PasswordExtractor
     from cowrieprocessor.enrichment.hibp_client import HIBPPasswordEnricher
-    from unittest.mock import Mock
+    from cowrieprocessor.enrichment.password_extractor import PasswordExtractor
 
     # Given: Database session and test data
     db_session = test_db()
@@ -968,7 +976,7 @@ def test_aggregate_daily_stats_aggregates_password_statistics_correctly(test_db:
         test_db: Database session fixture
     """
     from cowrieprocessor.cli.enrich_passwords import _aggregate_daily_stats
-    from cowrieprocessor.db.models import SessionSummary, PasswordStatistics
+    from cowrieprocessor.db.models import PasswordStatistics, SessionSummary
 
     # Given: Database session and test data
     db_session = test_db()
@@ -1086,7 +1094,6 @@ def test_update_session_persists_enrichment_data_correctly(test_db: sessionmaker
     """
     from cowrieprocessor.cli.enrich_passwords import update_session
     from cowrieprocessor.db.models import SessionSummary
-    from sqlalchemy import create_engine
 
     # Given: Database session and test data
     db_session = test_db()
@@ -1157,7 +1164,6 @@ def test_update_session_handles_no_existing_enrichment(test_db: sessionmaker[Ses
     """
     from cowrieprocessor.cli.enrich_passwords import update_session
     from cowrieprocessor.db.models import SessionSummary
-    from sqlalchemy import create_engine
 
     # Given: Database session and test data
     db_session = test_db()
@@ -1220,7 +1226,6 @@ def test_update_file_persists_virustotal_data_correctly(test_db: sessionmaker[Se
     """
     from cowrieprocessor.cli.enrich_passwords import update_file
     from cowrieprocessor.db.models import Files
-    from sqlalchemy import create_engine
 
     # Given: Database session and test data
     db_session = test_db()
@@ -1287,7 +1292,6 @@ def test_update_file_handles_no_virustotal_data_gracefully(test_db: sessionmaker
     """
     from cowrieprocessor.cli.enrich_passwords import update_file
     from cowrieprocessor.db.models import Files
-    from sqlalchemy import create_engine
 
     # Given: Database session and test data
     db_session = test_db()

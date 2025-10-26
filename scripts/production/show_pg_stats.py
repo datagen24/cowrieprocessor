@@ -41,7 +41,8 @@ def get_postgresql_stats(engine: Engine) -> dict:
             # Get database size
             size_query = text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
             size_result = conn.execute(size_query)
-            db_size = size_result.fetchone().size
+            size_row = size_result.fetchone()
+            db_size = size_row.size if size_row else 'Unknown'
 
             # Get connections
             conn_query = text("""
@@ -58,8 +59,8 @@ def get_postgresql_stats(engine: Engine) -> dict:
                 'timestamp': datetime.now(timezone.utc),
                 'database_size': db_size,
                 'total_inserts': total_inserts,
-                'active_connections': conn_row.active,
-                'total_connections': conn_row.total,
+                'active_connections': conn_row.active if conn_row else 0,
+                'total_connections': conn_row.total if conn_row else 0,
                 'table_stats': table_stats,
             }
 
@@ -75,7 +76,7 @@ def get_postgresql_stats(engine: Engine) -> dict:
         }
 
 
-def print_stats(stats: dict):
+def print_stats(stats: dict) -> None:
     """Print statistics in a nice format."""
     print(f"⏰ {stats['timestamp'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
@@ -92,7 +93,7 @@ def print_stats(stats: dict):
         print(f"   {table}: {data['live_tuples']:,} tuples ({data['total_inserts']:,} total inserts)")
 
 
-def main():
+def main() -> None:
     """Main entry point for the PostgreSQL stats viewer."""
     parser = argparse.ArgumentParser(description='Show current PostgreSQL statistics')
     parser.add_argument('--db-url', help='PostgreSQL connection URL')
