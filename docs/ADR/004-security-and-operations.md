@@ -1453,9 +1453,9 @@ spec:
               fi
 ```
 
-### 8a. Filesystem Export Security (Recommended for Students)
+### 8a. Filesystem Export Security (K3s)
 
-**Context**: Per ADR 002, filesystem-based exports are the **default recommendation** for students (no cloud budget assumptions). This section provides security guidance for simple export methods.
+**Context**: Per ADR 002, K3s deployment with Kubernetes-native storage is the **default recommendation** for students. This section provides security guidance for K3s volume-based exports.
 
 #### Dropbox Integration - Dead Code (No Security Guidance Needed)
 
@@ -1465,63 +1465,86 @@ The Dropbox integration hasn't been maintained since V1.5 and only worked with t
 
 **Action**: V4.0 will evaluate for removal. No security guidance provided (feature is already broken).
 
-#### Local Volume Mount Security
+#### 1. HostPath Volume Security
 
-**Most Common Deployment** (students running on local machine):
+**Most Common Deployment** (single-node K3s):
 
 ```yaml
-# docker-compose.yml
-services:
-  coordinator:
-    user: "1000:1000"  # Match host user UID/GID
-    volumes:
-      - ./exports:/app/exports:rw  # Read-write for export
+# k8s/coordinator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coordinator
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000  # Ensures volume ownership
+      containers:
+      - name: coordinator
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true  # Except mounted volumes
+        volumeMounts:
+        - name: exports
+          mountPath: /app/exports
+      volumes:
+      - name: exports
+        hostPath:
+          path: /opt/cowrie/exports
+          type: DirectoryOrCreate
 ```
 
-**Security Checklist**:
-1. **Directory Permissions** (on host):
+**On K3s node**:
 ```bash
-mkdir -p exports
-chmod 700 exports  # Only owner can read/write
-chown 1000:1000 exports  # Match container user
+# Set proper permissions on host
+sudo mkdir -p /opt/cowrie/exports
+sudo chown 1000:1000 /opt/cowrie/exports
+sudo chmod 700 /opt/cowrie/exports  # Only container user can access
 ```
 
-2. **Container User Mapping**:
-```dockerfile
-# In Dockerfile
-RUN useradd -u 1000 -m -s /bin/bash cowrie
-USER cowrie
+#### 2. PersistentVolume Security
 
-# Prevents container root from accessing files as root on host
+```yaml
+# k8s/storage.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: cowrie-exports-pv
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteOnce  # Only one pod at a time
+  persistentVolumeReclaimPolicy: Retain  # Don't delete data on PVC deletion
+  storageClassName: local-storage
+  local:
+    path: /mnt/ssd/cowrie-exports
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - storage-server
 ```
 
-3. **Sensitive Data Handling**:
-```python
-# cowrieprocessor/exports/base.py
-class FilesystemExporter(ReportExporter):
-    def export(self, report: dict, filename: str) -> bool:
-        output_file = self.export_path / filename
-
-        # Write with restricted permissions (owner-only)
-        with open(output_file, 'w') as f:
-            os.chmod(output_file, 0o600)  # rw------- (owner only)
-            json.dump(report, f, indent=2)
-
-        return True
-```
-
-#### NFS Security (If Used)
+#### 3. NFS Security (If Used)
 
 **For home lab with NAS**:
 
 ```bash
-# /etc/exports on NFS server
-/mnt/shared/cowrie 192.168.1.0/24(rw,sync,no_subtree_check,root_squash)
+# On NFS server (/etc/exports)
+/volume1/cowrie-exports 192.168.1.0/24(rw,sync,no_subtree_check,root_squash,all_squash,anonuid=1000,anongid=1000)
 
-# Security notes:
-# - root_squash: Prevents root in container from accessing as root on NFS
-# - Limit to specific subnet (192.168.1.0/24, not 0.0.0.0/0)
-# - Use firewall to restrict NFS port 2049 to Tailscale network only
+# Explanation:
+# - root_squash: root in container ≠ root on NFS
+# - all_squash: all users mapped to anonymous
+# - anonuid=1000: map to specific UID
+# - Limit to specific subnet (not entire network)
 ```
 
 **Network Policies** (if using NFSv4 with Kerberos):
@@ -1545,54 +1568,58 @@ spec:
     server: nas.local.tailscale.net  # Use Tailscale hostname
 ```
 
-#### SSHFS Security (If Used)
-
-**For remote server access**:
+#### 4. SSH Export CronJob Security
 
 ```bash
-# Use SSH keys, not passwords
-sshfs -o IdentityFile=~/.ssh/cowrie-backup-key \
-      -o StrictHostKeyChecking=yes \
-      -o ServerAliveInterval=15 \
-      -o ServerAliveCountMax=3 \
-      user@backup-server:/exports /mnt/remote-exports
+# Generate dedicated SSH key for backups
+ssh-keygen -t ed25519 -f backup-key -C "cowrie-backup"
 
-# Security checklist:
-# 1. Use dedicated SSH key (not personal key)
-# 2. Restrict SSH key permissions: chmod 600 ~/.ssh/cowrie-backup-key
-# 3. Limit key to specific command (on remote server)
+# On backup server (~/.ssh/authorized_keys)
+# Restrict key to rsync only
+command="rsync --server --daemon .",restrict ssh-ed25519 AAAA...
+
+# Create Kubernetes secret
+kubectl create secret generic backup-ssh-key \
+  --from-file=backup-key \
+  --namespace=cowrie
 ```
 
-**SSH Key Restriction** (on remote server `~/.ssh/authorized_keys`):
-```bash
-# Limit key to SFTP only (no shell access)
-command="internal-sftp" ssh-ed25519 AAAA... cowrie-backup-key
-
-# Or limit to specific directory
-command="internal-sftp",no-pty,no-X11-forwarding ssh-ed25519 AAAA...
-```
-
-#### MinIO Security (If Self-Hosted)
-
-**For students wanting S3-compatible storage locally**:
+#### 5. MinIO Security (If Self-Hosted in K3s)
 
 ```yaml
-# docker-compose.yml
-services:
-  minio:
-    image: minio/minio:latest
-    environment:
-      # Use secrets, not hardcoded passwords
-      MINIO_ROOT_USER: ${MINIO_USER}  # From .env file
-      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}  # Strong password (20+ chars)
-    volumes:
-      - minio-data:/data
-    # IMPORTANT: Don't expose port 9000 to internet
-    # Only expose to other containers or Tailscale network
-    expose:
-      - "9000"  # Internal only
+# k8s/minio-secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-credentials
+  namespace: cowrie
+type: Opaque
+stringData:
+  root-user: admin
+  root-password: <CHANGE_ME_20+_CHARACTERS>
+
+---
+# k8s/minio-network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: minio-access
+  namespace: cowrie
+spec:
+  podSelector:
+    matchLabels:
+      app: minio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: coordinator  # Only coordinator can access
     ports:
-      - "127.0.0.1:9001:9001"  # Web UI on localhost only
+    - protocol: TCP
+      port: 9000
+  # Console (port 9001) not exposed - only for troubleshooting via kubectl port-forward
 ```
 
 **MinIO Access Policy** (least privilege):
@@ -1614,50 +1641,40 @@ services:
 }
 ```
 
-**MinIO TLS** (optional, for exposed deployments):
-```bash
-# Generate self-signed cert (or use Let's Encrypt)
-openssl req -new -x509 -days 365 -nodes \
-  -out /mnt/minio/certs/public.crt \
-  -keyout /mnt/minio/certs/private.key
-
-# Mount certs in MinIO container
-services:
-  minio:
-    volumes:
-      - /mnt/minio/certs:/root/.minio/certs
-```
-
 #### Security Comparison: Export Methods
 
 | Method | Confidentiality | Integrity | Availability | Recommended For |
 |--------|----------------|-----------|--------------|-----------------|
-| **Local volume** | Medium (file perms) | High (local disk) | High | Single machine |
+| **HostPath (K3s)** | Medium (file perms) | High (local disk) | High | Single-node K3s |
+| **PVC + Local Storage** | Medium (file perms) | High (dedicated SSD) | High | K3s with SSD |
 | **NFS** | Low (network exposure) | Medium (checksums) | Medium (network) | Home lab with NAS |
 | **NFS + Kerberos** | High (auth) | Medium | Medium | Advanced home lab |
-| **SSHFS** | High (SSH encryption) | High (SSH) | Medium (network) | Remote backup |
-| **MinIO local** | Medium (passwords) | High | High | S3-compatible local |
-| **MinIO + TLS** | High (encryption) | High | High | Exposed deployments |
+| **CronJob SSH** | High (SSH encryption) | High (SSH) | Medium (network) | Remote backup |
+| **MinIO in K3s** | Medium (passwords) | High | High | S3-compatible local |
+| **MinIO + NetworkPolicy** | High (isolation) | High | High | K3s production |
 
 #### Key Security Principles for Students
 
 **Teach Concepts, Not Just Configuration**:
-1. **Principle of Least Privilege**: Container user matches host user (UID 1000), not root
-2. **Defense in Depth**: Filesystem permissions (700) + container user isolation + Tailscale encryption
-3. **Simplicity > Complexity**: Local volume mount is secure enough for educational use
-4. **Clear Warnings**: If exposing NFS/MinIO to internet, document risks clearly
+1. **Principle of Least Privilege**: Pod security contexts (runAsUser, fsGroup), not root
+2. **Defense in Depth**: Pod security + volume permissions + NetworkPolicies + Tailscale
+3. **Simplicity > Complexity**: HostPath volume is secure enough for single-node K3s
+4. **Kubernetes-Native Security**: Use SecurityContext, NetworkPolicy, Secrets (not env vars)
 
 **What to Avoid**:
 - ❌ Exposing NFS port 2049 to internet (use Tailscale or firewall)
-- ❌ Hardcoding MinIO passwords in docker-compose.yml (use .env files)
-- ❌ Running containers as root (always specify `user:` in docker-compose.yml)
-- ❌ Chmod 777 on export directories (only owner should access)
+- ❌ Hardcoding passwords in YAML manifests (use Secrets)
+- ❌ Running pods as root (always specify securityContext)
+- ❌ Chmod 777 on host directories (only owner should access)
+- ❌ Using default service accounts (create dedicated service accounts)
 
 **What to Encourage**:
-- ✅ File permissions (700/600)
-- ✅ SSH keys for remote access (not passwords)
+- ✅ Pod security contexts (runAsUser: 1000, fsGroup: 1000)
+- ✅ File permissions on host (700/600)
+- ✅ SSH keys for remote backups (not passwords)
+- ✅ Kubernetes NetworkPolicies (default deny)
 - ✅ Tailscale overlay for network encryption
-- ✅ Local-first deployments (no internet exposure by default)
+- ✅ K3s-first deployments (Docker Compose only for dev)
 
 ### 9. Disaster Recovery RPO/RTO Targets
 
