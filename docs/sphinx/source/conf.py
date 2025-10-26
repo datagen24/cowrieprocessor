@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath('../../../'))
 
 project = 'Cowrie Processor'
 copyright = '2025, Steven Peterson'
-author = 'DShield Team'
+author = 'Steven Peterson'
 release = '3.1.0'
 version = '3.1'
 
