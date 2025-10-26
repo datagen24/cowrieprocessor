@@ -1453,6 +1453,212 @@ spec:
               fi
 ```
 
+### 8a. Filesystem Export Security (Recommended for Students)
+
+**Context**: Per ADR 002, filesystem-based exports are the **default recommendation** for students (no cloud budget assumptions). This section provides security guidance for simple export methods.
+
+#### Dropbox Integration - Dead Code (No Security Guidance Needed)
+
+**V4.0 Status**: 🔴 **Dead Code - Scheduled for Removal**
+
+The Dropbox integration hasn't been maintained since V1.5 and only worked with the legacy monolithic `process_cowrie.py` script (removed in V3.0). It likely doesn't function in modern versions.
+
+**Action**: V4.0 will evaluate for removal. No security guidance provided (feature is already broken).
+
+#### Local Volume Mount Security
+
+**Most Common Deployment** (students running on local machine):
+
+```yaml
+# docker-compose.yml
+services:
+  coordinator:
+    user: "1000:1000"  # Match host user UID/GID
+    volumes:
+      - ./exports:/app/exports:rw  # Read-write for export
+```
+
+**Security Checklist**:
+1. **Directory Permissions** (on host):
+```bash
+mkdir -p exports
+chmod 700 exports  # Only owner can read/write
+chown 1000:1000 exports  # Match container user
+```
+
+2. **Container User Mapping**:
+```dockerfile
+# In Dockerfile
+RUN useradd -u 1000 -m -s /bin/bash cowrie
+USER cowrie
+
+# Prevents container root from accessing files as root on host
+```
+
+3. **Sensitive Data Handling**:
+```python
+# cowrieprocessor/exports/base.py
+class FilesystemExporter(ReportExporter):
+    def export(self, report: dict, filename: str) -> bool:
+        output_file = self.export_path / filename
+
+        # Write with restricted permissions (owner-only)
+        with open(output_file, 'w') as f:
+            os.chmod(output_file, 0o600)  # rw------- (owner only)
+            json.dump(report, f, indent=2)
+
+        return True
+```
+
+#### NFS Security (If Used)
+
+**For home lab with NAS**:
+
+```bash
+# /etc/exports on NFS server
+/mnt/shared/cowrie 192.168.1.0/24(rw,sync,no_subtree_check,root_squash)
+
+# Security notes:
+# - root_squash: Prevents root in container from accessing as root on NFS
+# - Limit to specific subnet (192.168.1.0/24, not 0.0.0.0/0)
+# - Use firewall to restrict NFS port 2049 to Tailscale network only
+```
+
+**Network Policies** (if using NFSv4 with Kerberos):
+```yaml
+# k8s/nfs-security.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-exports
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+  - ReadWriteMany
+  mountOptions:
+  - sec=krb5  # Kerberos authentication
+  - hard      # Don't lose data on network errors
+  - intr      # Allow interrupts
+  nfs:
+    path: /mnt/shared/cowrie
+    server: nas.local.tailscale.net  # Use Tailscale hostname
+```
+
+#### SSHFS Security (If Used)
+
+**For remote server access**:
+
+```bash
+# Use SSH keys, not passwords
+sshfs -o IdentityFile=~/.ssh/cowrie-backup-key \
+      -o StrictHostKeyChecking=yes \
+      -o ServerAliveInterval=15 \
+      -o ServerAliveCountMax=3 \
+      user@backup-server:/exports /mnt/remote-exports
+
+# Security checklist:
+# 1. Use dedicated SSH key (not personal key)
+# 2. Restrict SSH key permissions: chmod 600 ~/.ssh/cowrie-backup-key
+# 3. Limit key to specific command (on remote server)
+```
+
+**SSH Key Restriction** (on remote server `~/.ssh/authorized_keys`):
+```bash
+# Limit key to SFTP only (no shell access)
+command="internal-sftp" ssh-ed25519 AAAA... cowrie-backup-key
+
+# Or limit to specific directory
+command="internal-sftp",no-pty,no-X11-forwarding ssh-ed25519 AAAA...
+```
+
+#### MinIO Security (If Self-Hosted)
+
+**For students wanting S3-compatible storage locally**:
+
+```yaml
+# docker-compose.yml
+services:
+  minio:
+    image: minio/minio:latest
+    environment:
+      # Use secrets, not hardcoded passwords
+      MINIO_ROOT_USER: ${MINIO_USER}  # From .env file
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}  # Strong password (20+ chars)
+    volumes:
+      - minio-data:/data
+    # IMPORTANT: Don't expose port 9000 to internet
+    # Only expose to other containers or Tailscale network
+    expose:
+      - "9000"  # Internal only
+    ports:
+      - "127.0.0.1:9001:9001"  # Web UI on localhost only
+```
+
+**MinIO Access Policy** (least privilege):
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cowrie-reports/*"
+      ]
+    }
+  ]
+}
+```
+
+**MinIO TLS** (optional, for exposed deployments):
+```bash
+# Generate self-signed cert (or use Let's Encrypt)
+openssl req -new -x509 -days 365 -nodes \
+  -out /mnt/minio/certs/public.crt \
+  -keyout /mnt/minio/certs/private.key
+
+# Mount certs in MinIO container
+services:
+  minio:
+    volumes:
+      - /mnt/minio/certs:/root/.minio/certs
+```
+
+#### Security Comparison: Export Methods
+
+| Method | Confidentiality | Integrity | Availability | Recommended For |
+|--------|----------------|-----------|--------------|-----------------|
+| **Local volume** | Medium (file perms) | High (local disk) | High | Single machine |
+| **NFS** | Low (network exposure) | Medium (checksums) | Medium (network) | Home lab with NAS |
+| **NFS + Kerberos** | High (auth) | Medium | Medium | Advanced home lab |
+| **SSHFS** | High (SSH encryption) | High (SSH) | Medium (network) | Remote backup |
+| **MinIO local** | Medium (passwords) | High | High | S3-compatible local |
+| **MinIO + TLS** | High (encryption) | High | High | Exposed deployments |
+
+#### Key Security Principles for Students
+
+**Teach Concepts, Not Just Configuration**:
+1. **Principle of Least Privilege**: Container user matches host user (UID 1000), not root
+2. **Defense in Depth**: Filesystem permissions (700) + container user isolation + Tailscale encryption
+3. **Simplicity > Complexity**: Local volume mount is secure enough for educational use
+4. **Clear Warnings**: If exposing NFS/MinIO to internet, document risks clearly
+
+**What to Avoid**:
+- ❌ Exposing NFS port 2049 to internet (use Tailscale or firewall)
+- ❌ Hardcoding MinIO passwords in docker-compose.yml (use .env files)
+- ❌ Running containers as root (always specify `user:` in docker-compose.yml)
+- ❌ Chmod 777 on export directories (only owner should access)
+
+**What to Encourage**:
+- ✅ File permissions (700/600)
+- ✅ SSH keys for remote access (not passwords)
+- ✅ Tailscale overlay for network encryption
+- ✅ Local-first deployments (no internet exposure by default)
+
 ### 9. Disaster Recovery RPO/RTO Targets
 
 **Recovery Point Objective (RPO)**: 1 hour
