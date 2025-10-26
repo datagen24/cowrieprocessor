@@ -92,26 +92,26 @@ class TestLegacyEnrichmentAdapter:
 
         # Should return from cache without calling service
         assert result == {"ip": {"asname": "Test ASN", "ascountry": "US"}}
-        adapter.service.enrich_session.assert_not_called()
+        adapter.service.enrich_session.assert_not_called()  # type: ignore[attr-defined]
 
     def test_dshield_method_with_service_call(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test dshield method with service call."""
         # Setup service mock
-        adapter.service.enrich_session.return_value = {
+        adapter.service.enrich_session.return_value = {  # type: ignore[attr-defined]
             "enrichment": {"dshield": {"ip": {"asname": "New ASN", "ascountry": "CA"}}}
         }
 
         result = adapter.dshield("10.0.0.1")
 
         # Should call service and cache result
-        adapter.service.enrich_session.assert_called_once_with("10.0.0.1", "10.0.0.1")
+        adapter.service.enrich_session.assert_called_once_with("10.0.0.1", "10.0.0.1")  # type: ignore[attr-defined]
         assert result == {"ip": {"asname": "New ASN", "ascountry": "CA"}}
         assert adapter._session_cache["10.0.0.1"]["dshield"] == {"ip": {"asname": "New ASN", "ascountry": "CA"}}
 
     def test_dshield_method_with_missing_enrichment(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test dshield method with missing enrichment data."""
         # Setup service mock with no dshield data
-        adapter.service.enrich_session.return_value = {"enrichment": {}}
+        adapter.service.enrich_session.return_value = {"enrichment": {}}  # type: ignore[attr-defined]
 
         result = adapter.dshield("10.0.0.1")
 
@@ -131,7 +131,7 @@ class TestLegacyEnrichmentAdapter:
     def test_urlhaus_method_with_single_tag(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test urlhaus method with single tag."""
         # Setup service mock
-        adapter.service.enrich_session.return_value = {"enrichment": {"urlhaus": "malware"}}
+        adapter.service.enrich_session.return_value = {"enrichment": {"urlhaus": "malware"}}  # type: ignore[attr-defined]
 
         result = adapter.urlhaus("10.0.0.1")
 
@@ -140,7 +140,7 @@ class TestLegacyEnrichmentAdapter:
     def test_urlhaus_method_with_empty_tags(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test urlhaus method with empty tags."""
         # Setup service mock with empty urlhaus data
-        adapter.service.enrich_session.return_value = {"enrichment": {"urlhaus": []}}
+        adapter.service.enrich_session.return_value = {"enrichment": {"urlhaus": []}}  # type: ignore[attr-defined]
 
         result = adapter.urlhaus("10.0.0.1")
 
@@ -162,7 +162,7 @@ class TestLegacyEnrichmentAdapter:
     def test_spur_method_with_incorrect_format(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test spur method with incorrectly formatted data."""
         # Setup service mock with wrong format (not 18 elements)
-        adapter.service.enrich_session.return_value = {"enrichment": {"spur": ["wrong", "format", "data"]}}
+        adapter.service.enrich_session.return_value = {"enrichment": {"spur": ["wrong", "format", "data"]}}  # type: ignore[attr-defined]
 
         result = adapter.spur("10.0.0.1")
 
@@ -173,7 +173,7 @@ class TestLegacyEnrichmentAdapter:
     def test_spur_method_with_non_list_data(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test spur method with non-list data."""
         # Setup service mock with non-list data
-        adapter.service.enrich_session.return_value = {"enrichment": {"spur": "not_a_list"}}
+        adapter.service.enrich_session.return_value = {"enrichment": {"spur": "not_a_list"}}  # type: ignore[attr-defined]
 
         result = adapter.spur("10.0.0.1")
 
@@ -184,7 +184,7 @@ class TestLegacyEnrichmentAdapter:
     def test_virustotal_method_with_success(self, adapter: LegacyEnrichmentAdapter, mock_cache_dir: Path) -> None:
         """Test virustotal method with successful enrichment."""
         # Setup service mock
-        adapter.service.enrich_file.return_value = {
+        adapter.service.enrich_file.return_value = {  # type: ignore[attr-defined]
             "enrichment": {
                 "virustotal": {"data": {"attributes": {"last_analysis_stats": {"malicious": 5, "suspicious": 2}}}}
             }
@@ -193,7 +193,7 @@ class TestLegacyEnrichmentAdapter:
         result = adapter.virustotal("test_hash", "test_file.exe")
 
         # Should call service and cache result
-        adapter.service.enrich_file.assert_called_once_with("test_hash", "test_file.exe")
+        adapter.service.enrich_file.assert_called_once_with("test_hash", "test_file.exe")  # type: ignore[attr-defined]
         assert result is not None
         assert "data" in result  # The virustotal data is returned directly
 
@@ -206,7 +206,7 @@ class TestLegacyEnrichmentAdapter:
     def test_virustotal_method_with_no_enrichment(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test virustotal method with no enrichment data."""
         # Setup service mock with no enrichment
-        adapter.service.enrich_file.return_value = {"enrichment": {}}
+        adapter.service.enrich_file.return_value = {"enrichment": {}}  # type: ignore[attr-defined]
 
         result = adapter.virustotal("test_hash")
 
@@ -215,7 +215,7 @@ class TestLegacyEnrichmentAdapter:
     def test_virustotal_method_with_non_dict_enrichment(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test virustotal method with non-dict enrichment."""
         # Setup service mock with non-dict enrichment
-        adapter.service.enrich_file.return_value = {"enrichment": "not_a_dict"}
+        adapter.service.enrich_file.return_value = {"enrichment": "not_a_dict"}  # type: ignore[attr-defined]
 
         result = adapter.virustotal("test_hash")
 
@@ -224,7 +224,7 @@ class TestLegacyEnrichmentAdapter:
     def test_virustotal_method_handles_file_write_errors(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test virustotal method handles file write errors gracefully."""
         # Setup service mock
-        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "data"}}}
+        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "data"}}}  # type: ignore[attr-defined]
 
         # Mock file write to fail
         with patch.object(Path, 'open', side_effect=OSError("Permission denied")):
@@ -237,17 +237,17 @@ class TestLegacyEnrichmentAdapter:
     def test_cache_snapshot_method(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test cache_snapshot method delegates to service."""
         # Setup service mock
-        adapter.service.cache_snapshot.return_value = {"test": 42}
+        adapter.service.cache_snapshot.return_value = {"test": 42}  # type: ignore[attr-defined]
 
         result = adapter.cache_snapshot()
 
-        adapter.service.cache_snapshot.assert_called_once()
+        adapter.service.cache_snapshot.assert_called_once()  # type: ignore[attr-defined]
         assert result == {"test": 42}
 
     def test_get_session_enrichment_caches_results(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test _get_session_enrichment caches results correctly."""
         # Setup service mock
-        adapter.service.enrich_session.return_value = {
+        adapter.service.enrich_session.return_value = {  # type: ignore[attr-defined]
             "enrichment": {
                 "dshield": {"ip": {"asname": "Test", "ascountry": "US"}},
                 "urlhaus": ["malware"],
@@ -257,28 +257,28 @@ class TestLegacyEnrichmentAdapter:
 
         # First call should hit service
         result1 = adapter._get_session_enrichment("192.168.1.1")
-        adapter.service.enrich_session.assert_called_once_with("192.168.1.1", "192.168.1.1")
+        adapter.service.enrich_session.assert_called_once_with("192.168.1.1", "192.168.1.1")  # type: ignore[attr-defined]
 
         # Second call should use cache
-        adapter.service.enrich_session.reset_mock()
+        adapter.service.enrich_session.reset_mock()  # type: ignore[attr-defined]
         result2 = adapter._get_session_enrichment("192.168.1.1")
-        adapter.service.enrich_session.assert_not_called()
+        adapter.service.enrich_session.assert_not_called()  # type: ignore[attr-defined]
 
         assert result1 == result2
 
     def test_get_file_enrichment_caches_results(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test _get_file_enrichment caches results correctly."""
         # Setup service mock
-        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "data"}}}
+        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "data"}}}  # type: ignore[attr-defined]
 
         # First call should hit service
         result1 = adapter._get_file_enrichment("test_hash", "test.exe")
-        adapter.service.enrich_file.assert_called_once_with("test_hash", "test.exe")
+        adapter.service.enrich_file.assert_called_once_with("test_hash", "test.exe")  # type: ignore[attr-defined]
 
         # Second call should use cache
-        adapter.service.enrich_file.reset_mock()
+        adapter.service.enrich_file.reset_mock()  # type: ignore[attr-defined]
         result2 = adapter._get_file_enrichment("test_hash", "test.exe")
-        adapter.service.enrich_file.assert_not_called()
+        adapter.service.enrich_file.assert_not_called()  # type: ignore[attr-defined]
 
         assert result1 == result2
 
@@ -327,8 +327,8 @@ class TestLegacyEnrichmentAdapter:
     def test_adapter_cache_independence(self, adapter: LegacyEnrichmentAdapter) -> None:
         """Test session and file caches are independent."""
         # Setup different data for session and file caches
-        adapter.service.enrich_session.return_value = {"enrichment": {"dshield": {"test": "session"}}}
-        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "file"}}}
+        adapter.service.enrich_session.return_value = {"enrichment": {"dshield": {"test": "session"}}}  # type: ignore[attr-defined]
+        adapter.service.enrich_file.return_value = {"enrichment": {"virustotal": {"test": "file"}}}  # type: ignore[attr-defined]
 
         # Cache session data
         adapter._get_session_enrichment("192.168.1.1")

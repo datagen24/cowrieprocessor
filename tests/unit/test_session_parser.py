@@ -117,7 +117,7 @@ class TestMatchFullDelimited:
 
     def test_match_with_delimiters(self) -> None:
         """Test matching session ID with both - and /."""
-        entry = {"session": "sensor-a/2025-10-25/abc-123"}
+        entry: Dict[str, object] = {"session": "sensor-a/2025-10-25/abc-123"}
         result = _match_full_delimited(entry)
         assert result == "sensor-a/2025-10-25/abc-123"
 
@@ -128,28 +128,28 @@ class TestMatchFullDelimited:
 
     def test_match_non_string_session(self) -> None:
         """Test with non-string session value."""
-        entry = {"session": 12345}
+        entry: Dict[str, object] = {"session": 12345}
         assert _match_full_delimited(entry) is None
 
     def test_match_missing_hyphen(self) -> None:
         """Test session without hyphen."""
-        entry = {"session": "sensor/2025/abc"}
+        entry: Dict[str, object] = {"session": "sensor/2025/abc"}
         assert _match_full_delimited(entry) is None
 
     def test_match_missing_slash(self) -> None:
         """Test session without slash."""
-        entry = {"session": "sensor-abc-123"}
+        entry: Dict[str, object] = {"session": "sensor-abc-123"}
         assert _match_full_delimited(entry) is None
 
     def test_match_whitespace_trimmed(self) -> None:
         """Test that whitespace is trimmed."""
-        entry = {"session": "  sensor-a/session-123  "}
+        entry: Dict[str, object] = {"session": "  sensor-a/session-123  "}
         result = _match_full_delimited(entry)
         assert result == "sensor-a/session-123"
 
     def test_match_empty_string(self) -> None:
         """Test empty session string."""
-        entry = {"session": ""}
+        entry: Dict[str, object] = {"session": ""}
         assert _match_full_delimited(entry) is None
 
 
@@ -158,24 +158,24 @@ class TestMatchSessionId:
 
     def test_match_valid_session(self) -> None:
         """Test matching any non-empty session string."""
-        entry = {"session": "abc123"}
+        entry: Dict[str, object] = {"session": "abc123"}
         result = _match_session_id(entry)
         assert result == "abc123"
 
     def test_match_with_whitespace(self) -> None:
         """Test trimming whitespace."""
-        entry = {"session": "  abc123  "}
+        entry: Dict[str, object] = {"session": "  abc123  "}
         result = _match_session_id(entry)
         assert result == "abc123"
 
     def test_match_empty_session(self) -> None:
         """Test empty session returns None."""
-        entry = {"session": ""}
+        entry: Dict[str, object] = {"session": ""}
         assert _match_session_id(entry) is None
 
     def test_match_whitespace_only(self) -> None:
         """Test whitespace-only session returns None."""
-        entry = {"session": "   "}
+        entry: Dict[str, object] = {"session": "   "}
         assert _match_session_id(entry) is None
 
     def test_match_no_session_field(self) -> None:
@@ -206,7 +206,7 @@ class TestSessionMetrics:
     def test_update_sets_first_seen(self) -> None:
         """Test update sets first_seen timestamp."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        entry = {"timestamp": "2025-10-25T12:00:00Z"}
+        entry: Dict[str, object] = {"timestamp": "2025-10-25T12:00:00Z"}
         metrics.update(entry, None)
         assert metrics.first_seen is not None
         assert isinstance(metrics.first_seen, int)
@@ -214,7 +214,7 @@ class TestSessionMetrics:
     def test_update_sets_last_seen(self) -> None:
         """Test update sets last_seen timestamp."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        entry = {"timestamp": "2025-10-25T12:00:00Z"}
+        entry: Dict[str, object] = {"timestamp": "2025-10-25T12:00:00Z"}
         metrics.update(entry, None)
         assert metrics.last_seen is not None
 
@@ -251,7 +251,7 @@ class TestSessionMetrics:
     def test_update_captures_protocol_from_connect(self) -> None:
         """Test update captures protocol from session connect."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        entry = {"eventid": "cowrie.session.connect", "protocol": "ssh", "src_ip": "192.168.1.100"}
+        entry: Dict[str, object] = {"eventid": "cowrie.session.connect", "protocol": "ssh", "src_ip": "192.168.1.100"}
         metrics.update(entry, None)
         assert metrics.protocol == "ssh"
         assert metrics.src_ip == "192.168.1.100"
@@ -259,7 +259,7 @@ class TestSessionMetrics:
     def test_update_captures_login_success_data(self) -> None:
         """Test update captures username/password from login success."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        entry = {
+        entry: Dict[str, object] = {
             "eventid": "cowrie.login.success",
             "username": "root",
             "password": "password123",
@@ -276,7 +276,7 @@ class TestSessionMetrics:
     def test_update_captures_session_duration(self) -> None:
         """Test update captures duration from session closed."""
         metrics = SessionMetrics(session_id="test-123", match_type="session_id")
-        entry = {"eventid": "cowrie.session.closed", "duration": "00:05:30"}
+        entry: Dict[str, object] = {"eventid": "cowrie.session.closed", "duration": "00:05:30"}
         metrics.update(entry, None)
         assert metrics.duration_seconds == 330  # 5*60 + 30
 
@@ -293,21 +293,21 @@ class TestMatchSession:
 
     def test_match_full_delimited(self) -> None:
         """Test matching with full delimited format."""
-        entry = {"session": "sensor-a/2025-10-25/abc-123"}
+        entry: Dict[str, object] = {"session": "sensor-a/2025-10-25/abc-123"}
         session_id, match_type = match_session(entry)
         assert session_id == "sensor-a/2025-10-25/abc-123"
         assert match_type == "full_delimited"
 
     def test_match_sessionid_field(self) -> None:
         """Test matching with sessionid field."""
-        entry = {"sessionid": "abc-123"}
+        entry: Dict[str, object] = {"sessionid": "abc-123"}
         session_id, match_type = match_session(entry)
         assert session_id == "abc-123"
         # Match type depends on matcher order, could be 'event_derived' or 'sessionid'
 
     def test_match_fallback_to_session(self) -> None:
         """Test fallback to session field."""
-        entry = {"session": "simple-session-id"}
+        entry: Dict[str, object] = {"session": "simple-session-id"}
         session_id, match_type = match_session(entry)
         assert session_id == "simple-session-id"
 
@@ -324,7 +324,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_empty(self) -> None:
         """Test enumerating empty entry list."""
-        result = enumerate_sessions([])
+        result = enumerate_sessions(cast(list[Dict[str, object]], []))
         assert isinstance(result, SessionEnumerationResult)
         assert len(result.by_session) == 0
         assert len(result.metrics) == 0
@@ -332,7 +332,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_single_session(self) -> None:
         """Test enumerating single session with multiple events."""
-        entries = [
+        entries: list[Dict[str, object]] = [
             {"session": "test-123", "eventid": "cowrie.session.connect"},
             {"session": "test-123", "eventid": "cowrie.command.success"},
             {"session": "test-123", "eventid": "cowrie.session.closed"},
@@ -345,7 +345,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_multiple_sessions(self) -> None:
         """Test enumerating multiple distinct sessions."""
-        entries = [
+        entries: list[Dict[str, object]] = [
             {"session": "session-1", "eventid": "cowrie.session.connect"},
             {"session": "session-2", "eventid": "cowrie.session.connect"},
             {"session": "session-1", "eventid": "cowrie.command.success"},
@@ -357,7 +357,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_creates_metrics(self) -> None:
         """Test enumeration creates metrics for each session."""
-        entries = [
+        entries: list[Dict[str, object]] = [
             {"session": "test-123", "eventid": "cowrie.command.success"},
         ]
         result = enumerate_sessions(entries)
@@ -369,7 +369,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_tracks_match_counts(self) -> None:
         """Test enumeration tracks matcher usage counts."""
-        entries = [
+        entries: list[Dict[str, object]] = [
             {"session": "sensor-a/2025/abc"},  # full_delimited
             {"session": "simple-id"},  # session_id
         ]
@@ -379,7 +379,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_with_progress_callback(self) -> None:
         """Test enumeration calls progress callback."""
-        entries = [{"session": f"session-{i}"} for i in range(100)]
+        entries: list[Dict[str, object]] = [{"session": f"session-{i}"} for i in range(100)]
         progress_calls = []
 
         def progress_callback(data: Dict[str, object]) -> None:
@@ -391,7 +391,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_with_checkpoint_callback(self) -> None:
         """Test enumeration calls checkpoint callback."""
-        entries = [{"session": f"session-{i}"} for i in range(100)]
+        entries: list[Dict[str, object]] = [{"session": f"session-{i}"} for i in range(100)]
         checkpoint_calls = []
 
         def checkpoint_callback(data: Dict[str, object]) -> None:
@@ -402,7 +402,7 @@ class TestEnumerateSessions:
 
     def test_enumerate_with_source_getter(self) -> None:
         """Test enumeration uses source_getter for tracking files."""
-        entries = [
+        entries: list[Dict[str, object]] = [
             {"session": "test-123", "__source": "/path/to/log.json"},
         ]
 
