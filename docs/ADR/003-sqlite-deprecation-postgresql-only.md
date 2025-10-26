@@ -113,22 +113,22 @@ The multi-container architecture proposed in ADR 002 introduces fundamental requ
 
 **Description**: Phased deprecation over 3 releases with strong migration tooling and documentation.
 
-**Phase 1 - V4.0.0 (Q1 2026)**: Deprecation Warning
-- ✅ SQLite still works fully
-- ⚠️ Prominent warning on startup: "SQLite deprecated, migrate to PostgreSQL by V5.0"
-- ⚠️ Documentation banner: "SQLite support ends in V5.0 (estimated Q4 2026)"
-- ✅ Release automated migration tooling
-- ✅ Provide Docker Compose templates for easy PostgreSQL setup
-- ⚠️ New features (pgvector, advanced threat detection) PostgreSQL-only
+**Phase 1 - V4.0.0 (Q1 2026)**: Multi-Container Requires PostgreSQL
+- ✅ SQLite works fully **in monolithic mode** (single-process `cowrie-loader`)
+- ❌ Multi-container architecture (Docker Compose, K8s) requires PostgreSQL
+- ℹ️ Documentation: "SQLite for monolithic only, use PostgreSQL for containers"
+- ✅ Existing migration script available in codebase
+- ✅ Provide Docker Compose templates for PostgreSQL container
 
-**Phase 2 - V4.5.0 (Q3 2026)**: Read-Only SQLite
-- ⚠️ SQLite can only read existing data
-- ❌ Cannot write new events (ingestion fails with error)
-- ✅ Users forced to migrate to continue operation
-- ✅ Migration tooling mature and well-tested
+**Phase 2 - V4.5.0 (Q3 2026)**: Deprecation Warning for Monolithic SQLite
+- ⚠️ SQLite works in monolithic mode with deprecation warning
+- ⚠️ Warning: "SQLite deprecated, migrate to PostgreSQL before V5.0"
+- ✅ Release automated migration tooling (improved version)
+- ✅ PostgreSQL container setup guide in README
+- ❌ Multi-container still requires PostgreSQL
 
 **Phase 3 - V5.0.0 (Q4 2026)**: Complete Removal
-- ❌ SQLite support removed entirely
+- ❌ SQLite support removed entirely (monolithic and containerized)
 - ✅ Dialect-switching code removed (~1000 lines)
 - ✅ Single database, simplified codebase
 - ✅ Documentation updated
@@ -151,23 +151,29 @@ The multi-container architecture proposed in ADR 002 introduces fundamental requ
 ### Rationale
 
 1. **User Respect**: 20-30% of users currently on SQLite deserve migration support and time
-2. **Risk Mitigation**: Phased approach allows us to identify migration issues early
-3. **Education Sector**: Students/researchers need time to adapt workflows
-4. **Migration Complexity**: Some users have years of historical data to migrate
-5. **Community Goodwill**: Aggressive deprecation damages trust
+2. **Natural Forcing Function**: Multi-container architecture requires PostgreSQL (technical necessity, not artificial deprecation)
+3. **Monolithic Escape Hatch**: SQLite remains available for users who don't need multi-container features (V4.0-V4.5)
+4. **Migration Simplicity**: Existing migration script in codebase provides foundation
+5. **PostgreSQL Flexibility**: Users can run PostgreSQL in K3s, native, managed service, or dedicated container host
 
 ### Implementation Timeline
 
+**UPDATED**: Based on user feedback, SQLite deprecation is less aggressive than initially proposed.
+
 | Version | Release Date | SQLite Status | Key Actions |
 |---------|--------------|---------------|-------------|
-| **V4.0.0** | Q1 2026 | Fully supported with warnings | Ship migration tools, docs |
-| **V4.1.0** | Q2 2026 | Supported, louder warnings | Monitor migration progress |
-| **V4.5.0** | Q3 2026 | Read-only | Force migration, support users |
+| **V4.0.0** | Q1 2026 | Fully supported (no warnings) | Multi-container requires PostgreSQL |
+| **V4.1.0** | Q2 2026 | Supported, monolithic only | Document monolithic vs containerized |
+| **V4.5.0** | Q3 2026 | Deprecated, monolithic only with warnings | Migration tools, PostgreSQL container guide |
 | **V5.0.0** | Q4 2026 | Removed | Simplify codebase |
+
+**Key Decision**: SQLite remains available for **monolithic deployments only**. Multi-container architecture (Docker Compose, Kubernetes) requires PostgreSQL from V4.0.0 onward.
 
 ### Migration Tools and Documentation
 
 #### 1. Automated Migration Script
+
+**Note**: Existing migration script in codebase provides foundation. This enhanced version adds verification and progress tracking.
 
 ```bash
 # One-command migration with progress tracking
@@ -212,7 +218,110 @@ class DatabaseMigrator:
         self.verify_data_integrity()
 ```
 
-#### 2. Docker Compose for Easy PostgreSQL
+#### 2. PostgreSQL Container Setup
+
+**User Feedback**: "I run it as a container on a dedicated database host with SSD storage"
+
+Multiple deployment options supported:
+
+##### Option A: Dedicated PostgreSQL Container Host (User's Setup)
+
+**Infrastructure**:
+```
+┌─────────────────────────────────────────┐
+│  Dedicated Database Host (SSD Storage)  │
+│  ┌────────────────────────────────────┐ │
+│  │  PostgreSQL Container              │ │
+│  │  - docker run postgres:16-alpine   │ │
+│  │  - Volume: /ssd/pgdata             │ │
+│  │  - Port: 5432                      │ │
+│  │  - Accessible via Tailscale        │ │
+│  └────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+**Deployment**:
+```bash
+# On dedicated DB host
+docker run -d \
+  --name cowrie-postgres \
+  --restart unless-stopped \
+  -e POSTGRES_DB=cowrie \
+  -e POSTGRES_USER=cowrie \
+  -e POSTGRES_PASSWORD=changeme \
+  -v /ssd/pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  postgres:16-alpine
+```
+
+##### Option B: PostgreSQL in K3s
+
+**Deployment** (`k8s/postgres.yaml`):
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path  # K3s default
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - name: POSTGRES_DB
+          value: cowrie
+        - name: POSTGRES_USER
+          value: cowrie
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+  selector:
+    app: postgres
+```
+
+##### Option C: Single-Sensor Docker Compose
 
 **Single-Sensor Replacement** (`docker-compose-simple.yml`):
 ```yaml
@@ -518,17 +627,29 @@ This decision balances:
 
 ### Communication Plan
 
-**V4.0.0-beta Release** (Q4 2025):
-- Blog post: "SQLite Deprecation: What It Means and How to Migrate"
-- GitHub Discussion: Pinned migration help thread
-- Documentation: Prominent banner on all pages
-- Release notes: Clear timeline and rationale
+**User Requirement**: "In the docs and README"
 
-**Quarterly Updates**:
-- Q1 2026 (V4.0.0): "Migration tooling released, please migrate"
-- Q2 2026 (V4.1.0): "50% migrated, support available"
-- Q3 2026 (V4.5.0): "Read-only mode activated, final warning"
-- Q4 2026 (V5.0.0): "SQLite support removed, thank you for migrating"
+**V4.0.0 Release** (Q1 2026):
+- **README.md**: Add "Database Requirements" section
+  - "Multi-container deployments require PostgreSQL"
+  - "Monolithic deployments support SQLite (deprecated in V4.5)"
+- **Documentation**: Update all deployment guides
+  - "Running with Docker Compose" → PostgreSQL required
+  - "Running Monolithic" → SQLite supported (with future deprecation note)
+- **Release Notes**: Clarify PostgreSQL requirement for containers
+
+**V4.5.0 Release** (Q3 2026):
+- **README.md**: Prominent deprecation warning
+  - "⚠️ SQLite deprecated, migrate to PostgreSQL before V5.0"
+  - Link to migration guide
+- **Startup Warning**: Log message in monolithic mode
+  - "WARNING: SQLite support will be removed in V5.0, migrate to PostgreSQL"
+- **Migration Guide**: docs/migration/sqlite-to-postgresql.md
+
+**V5.0.0 Release** (Q4 2026):
+- **README.md**: Remove SQLite references
+- **Documentation**: PostgreSQL-only guides
+- **Release Notes**: Breaking change notice
 
 ### Success Metrics
 
