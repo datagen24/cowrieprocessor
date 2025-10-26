@@ -47,7 +47,7 @@ def _load_sensors_config() -> dict[str, str] | None:
             import tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
-            import tomli as tomllib
+            import tomli as tomllib  # type: ignore[no-redef]
 
         with sensors_file.open("rb") as handle:
             data = tomllib.load(handle)
@@ -288,7 +288,7 @@ class SessionSummaryRebuilder:
         self.status_emitter.record_metrics(self._current_metrics)
 
     def _sample_events_for_verification(
-        self, session, sample_count: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None
+        self, session: Session, sample_count: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None
     ) -> None:
         """Sample events for verification and display summary statistics."""
         logger.info(f"Sampling {sample_count} events for verification...")
@@ -505,8 +505,8 @@ class SessionSummaryRebuilder:
                         if key not in command_aggregates:
                             # Convert string timestamp to datetime if needed
                             ts = event.event_timestamp
-                            if isinstance(ts, str):
-                                try:
+                            if isinstance(ts, str):  # type: ignore[unreachable]
+                                try:  # type: ignore[unreachable]
                                     ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                                 except ValueError:
                                     try:
@@ -530,8 +530,8 @@ class SessionSummaryRebuilder:
                         if event.event_timestamp:
                             # Convert string timestamp to datetime if needed
                             ts = event.event_timestamp
-                            if isinstance(ts, str):
-                                try:
+                            if isinstance(ts, str):  # type: ignore[unreachable]
+                                try:  # type: ignore[unreachable]
                                     ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                                 except ValueError:
                                     try:
@@ -635,11 +635,11 @@ class SessionSummaryRebuilder:
 
     def _extract_command_from_event(self, event: RawEvent) -> Optional[str]:
         """Extract command string from event payload."""
-        if not event.payload or not isinstance(event.payload, dict):
+        if not event.payload or not isinstance(event.payload, dict):  # type: ignore[unreachable]
             return None
 
         # Look for command input in various fields
-        command = (
+        command = (  # type: ignore[unreachable]
             event.payload.get('input')
             or event.payload.get('command')
             or event.payload.get('cmd')
@@ -659,8 +659,8 @@ class SessionSummaryRebuilder:
             return str(event.session_id)
 
         # Fallback to manual extraction
-        if event.payload and isinstance(event.payload, dict):
-            return event.payload.get('session') or event.payload.get('session_id')
+        if event.payload and isinstance(event.payload, dict):  # type: ignore[unreachable]
+            return event.payload.get('session') or event.payload.get('session_id')  # type: ignore[unreachable]
 
         return None
 
@@ -688,8 +688,8 @@ class SessionSummaryRebuilder:
         # Extract timestamp
         if event.event_timestamp:
             ts = event.event_timestamp
-            if isinstance(ts, str):
-                try:
+            if isinstance(ts, str):  # type: ignore[unreachable]
+                try:  # type: ignore[unreachable]
                     ts = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                 except ValueError:
                     # Try without timezone
@@ -723,8 +723,8 @@ class SessionSummaryRebuilder:
             aggregate['source_files'].add(event.source)
 
         # Extract sensor and IPs
-        if event.payload and isinstance(event.payload, dict):
-            sensor = event.payload.get('sensor')
+        if event.payload and isinstance(event.payload, dict):  # type: ignore[unreachable]
+            sensor = event.payload.get('sensor')  # type: ignore[unreachable]
             if sensor and not aggregate['sensor']:
                 aggregate['sensor'] = sensor
 
@@ -812,7 +812,7 @@ class SessionSummaryRebuilder:
             }
 
 
-def main():
+def main() -> None:
     """Main entry point for the rebuild script."""
     parser = argparse.ArgumentParser(description='Rebuild session_summaries from raw_events')
     parser.add_argument('--db', help='Database URL (uses config if not specified)')
