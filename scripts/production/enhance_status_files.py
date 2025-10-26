@@ -9,7 +9,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -25,7 +25,7 @@ class StatusEnhancer:
     def __init__(self, engine: Engine):
         """Initialize the status file enhancer."""
         self.engine = engine
-        self.last_stats = {}
+        self.last_stats: Dict[str, Any] = {}
 
     def get_postgresql_stats(self) -> Dict[str, Any]:
         """Get PostgreSQL statistics."""
@@ -56,7 +56,8 @@ class StatusEnhancer:
                 # Get database size
                 size_query = text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
                 size_result = conn.execute(size_query)
-                db_size = size_result.fetchone().size
+                size_row = size_result.fetchone()
+                db_size = size_row.size if size_row else 'Unknown'
 
                 # Get connections
                 conn_query = text("""
@@ -82,8 +83,8 @@ class StatusEnhancer:
                     'database_size': db_size,
                     'total_inserts': total_inserts,
                     'tuples_per_second': tuples_per_second,
-                    'active_connections': conn_row.active,
-                    'total_connections': conn_row.total,
+                    'active_connections': conn_row.active if conn_row else 0,
+                    'total_connections': conn_row.total if conn_row else 0,
                     'table_stats': table_stats,
                 }
 
@@ -99,12 +100,12 @@ class StatusEnhancer:
                 'table_stats': {},
             }
 
-    def enhance_status_file(self, status_file: Path):
+    def enhance_status_file(self, status_file: Path) -> Dict[str, Any]:
         """Enhance a status file with PostgreSQL stats."""
         try:
             # Read existing status
             with status_file.open('r') as f:
-                status_data = json.load(f)
+                status_data = cast(Dict[str, Any], json.load(f))
         except (FileNotFoundError, json.JSONDecodeError):
             status_data = {}
 
@@ -119,7 +120,7 @@ class StatusEnhancer:
 
         return status_data
 
-    def enhance_all_status_files(self, status_dir: Path = Path(".")):
+    def enhance_all_status_files(self, status_dir: Path = Path(".")) -> None:
         """Enhance all status files in a directory."""
         status_files = list(status_dir.glob("*.json"))
 
@@ -141,7 +142,7 @@ class StatusEnhancer:
                 print(f"❌ Error enhancing {status_file.name}: {e}")
 
 
-def monitor_status_files(engine: Engine, status_dir: Path = Path("."), interval: int = 5):
+def monitor_status_files(engine: Engine, status_dir: Path = Path("."), interval: int = 5) -> None:
     """Monitor and enhance status files continuously."""
     enhancer = StatusEnhancer(engine)
 
@@ -161,7 +162,7 @@ def monitor_status_files(engine: Engine, status_dir: Path = Path("."), interval:
         print(f"\n🛑 Status enhancement stopped at {datetime.now(timezone.utc).isoformat()}")
 
 
-def main():
+def main() -> None:
     """Main entry point for the status file enhancer."""
     parser = argparse.ArgumentParser(
         description='Enhance existing status files with PostgreSQL statistics',
@@ -241,7 +242,7 @@ def _load_sensors_config() -> dict[str, str] | None:
             import tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
-            import tomli as tomllib
+            import tomli as tomllib  # type: ignore[no-redef]
 
         with sensors_file.open("rb") as handle:
             data = tomllib.load(handle)

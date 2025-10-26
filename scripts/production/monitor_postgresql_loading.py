@@ -24,7 +24,7 @@ class PostgreSQLLoadingMonitor:
     def __init__(self, engine: Engine):
         """Initialize the PostgreSQL loading monitor."""
         self.engine = engine
-        self.last_stats = {}
+        self.last_stats: Dict[str, Any] = {}
         self.start_time = datetime.now(timezone.utc)
 
     def get_table_stats(self) -> Dict[str, Any]:
@@ -80,6 +80,12 @@ class PostgreSQLLoadingMonitor:
 
             result = conn.execute(size_query)
             size_row = result.fetchone()
+            if not size_row:
+                return {
+                    'database_size_pretty': 'Unknown',
+                    'database_size_bytes': 0,
+                    'table_sizes': {},
+                }
 
             # Table sizes
             table_size_query = text("""
@@ -155,10 +161,10 @@ class PostgreSQLLoadingMonitor:
             row = result.fetchone()
 
             return {
-                'total_connections': row.total_connections,
-                'active_connections': row.active_connections,
-                'idle_connections': row.idle_connections,
-                'idle_in_transaction': row.idle_in_transaction,
+                'total_connections': row.total_connections if row else 0,
+                'active_connections': row.active_connections if row else 0,
+                'idle_connections': row.idle_connections if row else 0,
+                'idle_in_transaction': row.idle_in_transaction if row else 0,
             }
 
     def get_current_queries(self) -> list[Dict[str, Any]]:
@@ -212,6 +218,11 @@ class PostgreSQLLoadingMonitor:
 
             result = conn.execute(checkpoint_query)
             checkpoint_row = result.fetchone()
+            if not checkpoint_row:
+                return {
+                    'checkpoints': {},
+                    'wal': {},
+                }
 
             # WAL stats
             wal_query = text("""
@@ -229,6 +240,19 @@ class PostgreSQLLoadingMonitor:
 
             result = conn.execute(wal_query)
             wal_row = result.fetchone()
+            if not wal_row:
+                return {
+                    'checkpoints': {
+                        'timed': checkpoint_row.checkpoints_timed,
+                        'requested': checkpoint_row.checkpoints_req,
+                        'write_time_ms': checkpoint_row.checkpoint_write_time,
+                        'sync_time_ms': checkpoint_row.checkpoint_sync_time,
+                        'buffers_checkpoint': checkpoint_row.buffers_checkpoint,
+                        'buffers_clean': checkpoint_row.buffers_clean,
+                        'buffers_backend': checkpoint_row.buffers_backend,
+                    },
+                    'wal': {},
+                }
 
             return {
                 'checkpoints': {
@@ -252,7 +276,7 @@ class PostgreSQLLoadingMonitor:
                 },
             }
 
-    def print_stats(self, interval: int = 5):
+    def print_stats(self, interval: int = 5) -> None:
         """Print statistics in a loop."""
         print(f"🚀 PostgreSQL Loading Monitor Started at {self.start_time.isoformat()}")
         print(f"📊 Monitoring every {interval} seconds...")
@@ -296,7 +320,7 @@ class PostgreSQLLoadingMonitor:
         except KeyboardInterrupt:
             print(f"\n🛑 Monitoring stopped at {datetime.now(timezone.utc).isoformat()}")
 
-    def save_stats_to_file(self, filename: str):
+    def save_stats_to_file(self, filename: str) -> None:
         """Save comprehensive statistics to JSON file."""
         stats = {
             'timestamp': datetime.now(timezone.utc).isoformat(),
@@ -315,7 +339,7 @@ class PostgreSQLLoadingMonitor:
         print(f"📄 Statistics saved to {filename}")
 
 
-def main():
+def main() -> None:
     """Main entry point for the PostgreSQL loading monitor."""
     parser = argparse.ArgumentParser(
         description='Monitor PostgreSQL loading statistics in real-time',
