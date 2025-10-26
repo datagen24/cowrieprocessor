@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -22,16 +22,21 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_create_stored_procedures_with_postgresql(self, mock_engine_from_settings) -> None:
         """Test create_stored_procedures with PostgreSQL."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine.dialect.name = 'postgresql'
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures') as mock_create, \
              patch('builtins.print') as mock_print:
 
             create_stored_procedures(mock_engine)
 
-            mock_create.assert_called_once_with(mock_engine.connect.return_value)
+            mock_create.assert_called_once_with(mock_connection)
             mock_print.assert_any_call("✅ Stored procedures created successfully")
 
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
@@ -49,9 +54,14 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_create_stored_procedures_handles_exceptions(self, mock_engine_from_settings) -> None:
         """Test create_stored_procedures handles exceptions gracefully."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine.dialect.name = 'postgresql'
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.create_dlq_processing_procedures') as mock_create, \
              patch('builtins.print') as mock_print:
@@ -65,8 +75,13 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_process_dlq_stored_proc_with_results(self, mock_engine_from_settings) -> None:
         """Test process_dlq_stored_proc displays results correctly."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc') as mock_process, \
              patch('builtins.print') as mock_print:
@@ -80,7 +95,7 @@ class TestDLQStoredProcCLI:
 
             process_dlq_stored_proc(mock_engine, limit=50, reason_filter="json_parsing_failed")
 
-            mock_process.assert_called_once_with(mock_engine.connect.return_value, 50, "json_parsing_failed")
+            mock_process.assert_called_once_with(mock_connection, 50, "json_parsing_failed")
             mock_print.assert_any_call("=== DLQ Processing (Stored Procedures) ===")
             mock_print.assert_any_call("Processed: 100")
             mock_print.assert_any_call("Repaired: 80")
@@ -91,8 +106,13 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_process_dlq_stored_proc_with_zero_processed(self, mock_engine_from_settings) -> None:
         """Test process_dlq_stored_proc handles zero processed events."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.process_dlq_events_stored_proc') as mock_process, \
              patch('builtins.print') as mock_print:
@@ -113,8 +133,13 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_get_dlq_stats_stored_proc_with_results(self, mock_engine_from_settings) -> None:
         """Test get_dlq_stats_stored_proc displays statistics correctly."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
              patch('builtins.print') as mock_print:
@@ -133,7 +158,7 @@ class TestDLQStoredProcCLI:
 
             get_dlq_stats_stored_proc(mock_engine)
 
-            mock_stats.assert_called_once_with(mock_engine.connect.return_value)
+            mock_stats.assert_called_once_with(mock_connection)
             mock_print.assert_any_call("=== DLQ Statistics (Stored Procedures) ===")
             mock_print.assert_any_call("Total Events: 1000")
             mock_print.assert_any_call("Unresolved Events: 150")
@@ -147,8 +172,13 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_get_dlq_stats_stored_proc_with_empty_reasons(self, mock_engine_from_settings) -> None:
         """Test get_dlq_stats_stored_proc handles empty top reasons."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
              patch('builtins.print') as mock_print:
@@ -171,8 +201,13 @@ class TestDLQStoredProcCLI:
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_cleanup_dlq_stored_proc_with_results(self, mock_engine_from_settings) -> None:
         """Test cleanup_dlq_stored_proc displays cleanup results."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc') as mock_cleanup, \
              patch('builtins.print') as mock_print:
@@ -181,15 +216,20 @@ class TestDLQStoredProcCLI:
 
             cleanup_dlq_stored_proc(mock_engine, older_than_days=7)
 
-            mock_cleanup.assert_called_once_with(mock_engine.connect.return_value, 7)
+            mock_cleanup.assert_called_once_with(mock_connection, 7)
             mock_print.assert_any_call("=== DLQ Cleanup (Older than 7 days) ===")
             mock_print.assert_any_call("Deleted 42 resolved DLQ events")
 
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_cleanup_dlq_stored_proc_with_zero_deleted(self, mock_engine_from_settings) -> None:
         """Test cleanup_dlq_stored_proc handles zero deleted events."""
-        mock_engine = Mock()
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
+
+        # Set up context manager for engine.connect()
+        mock_connection = MagicMock()
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.cleanup_resolved_dlq_events_stored_proc') as mock_cleanup, \
              patch('builtins.print') as mock_print:
@@ -203,8 +243,8 @@ class TestDLQStoredProcCLI:
 
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_test_stored_procedures_with_results(self, mock_engine_from_settings) -> None:
-        """Test test_stored_procedures displays test results."""
-        mock_engine = Mock()
+        """Test verify_stored_procedures displays test results."""
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
 
         # Mock both stored procedure calls
@@ -214,9 +254,10 @@ class TestDLQStoredProcCLI:
         mock_stats_result = Mock()
         mock_stats_result.fetchone.return_value = (100, 10, 90, {"error": 10}, "2025-01-01", "2025-01-15")
 
-        mock_connection = Mock()
+        mock_connection = MagicMock()
         mock_connection.execute.side_effect = [mock_repair_result, mock_stats_result]
-        mock_engine.connect.return_value = mock_connection
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('cowrieprocessor.loader.dlq_stored_proc_cli.DLQStoredProcedures.get_dlq_statistics_stored_proc') as mock_stats, \
              patch('builtins.print') as mock_print:
@@ -238,17 +279,18 @@ class TestDLQStoredProcCLI:
 
     @patch('cowrieprocessor.loader.dlq_stored_proc_cli.create_engine_from_settings')
     def test_test_stored_procedures_with_no_repair_result(self, mock_engine_from_settings) -> None:
-        """Test test_stored_procedures handles no repair result."""
-        mock_engine = Mock()
+        """Test verify_stored_procedures handles no repair result."""
+        mock_engine = MagicMock()
         mock_engine_from_settings.return_value = mock_engine
 
         # Mock repair result as None
         mock_repair_result = Mock()
         mock_repair_result.fetchone.return_value = None
 
-        mock_connection = Mock()
+        mock_connection = MagicMock()
         mock_connection.execute.return_value = mock_repair_result
-        mock_engine.connect.return_value = mock_connection
+        mock_engine.connect.return_value.__enter__.return_value = mock_connection
+        mock_engine.connect.return_value.__exit__.return_value = None
 
         with patch('builtins.print') as mock_print:
             verify_stored_procedures(mock_engine)
@@ -326,7 +368,7 @@ class TestDLQStoredProcCLI:
         mock_engine = Mock()
         mock_engine_from_settings.return_value = mock_engine
 
-        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.test_stored_procedures') as mock_test:
+        with patch('cowrieprocessor.loader.dlq_stored_proc_cli.verify_stored_procedures') as mock_test:
             result = main()
 
             assert result == 0
@@ -396,10 +438,11 @@ class TestDLQStoredProcCLI:
         assert 'engine' in sig.parameters
         assert 'older_than_days' in sig.parameters
 
-        # Check test_stored_procedures
-        sig = inspect.signature(test_stored_procedures)
+        # Check verify_stored_procedures
+        sig = inspect.signature(verify_stored_procedures)
         assert 'engine' in sig.parameters
 
         # Check main
         sig = inspect.signature(main)
-        assert sig.return_annotation == int
+        # Compare string representation of annotation to handle type vs class differences
+        assert str(sig.return_annotation) == 'int'
