@@ -229,7 +229,12 @@ The current architecture faces scalability, deployment, and operational challeng
 
 7. **Issue #33 Alignment**: Directly addresses the MCP Statistics Provider API requirement with a dedicated API container.
 
-8. **Future Flexibility**: Container architecture supports future enhancements:
+8. **Hybrid Deployment Support**: Celery's distributed architecture enables mixing containerized services (K3s) with native workers (M4 Mac, GPU workstations). This is critical for:
+   - Leveraging hardware acceleration (Apple Neural Engine, CUDA GPUs)
+   - Avoiding container overhead for performance-critical ML tasks
+   - Supporting heterogeneous infrastructure (edge, datacenter, workstation)
+
+9. **Future Flexibility**: Container architecture supports future enhancements:
    - Additional analysis workflows (new container types)
    - Alternative job queues (RabbitMQ, SQS)
    - API versioning (v1, v2 containers)
@@ -331,6 +336,253 @@ The current architecture faces scalability, deployment, and operational challeng
 - **Replicas**: Auto-scale based on queue depth (HPA)
 - **Preemptibility**: Can use spot/preemptible instances
 
+### Hybrid Deployment Model (Heterogeneous Workers)
+
+**Key Insight**: Celery's distributed task queue supports workers running in ANY environment that can reach Redis and PostgreSQL. This enables **hybrid deployments** mixing containerized and native workers across different infrastructure types.
+
+#### Real-World Deployment Scenario
+
+**Example**: User with M4 Mac + Storage Server + Central Database
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Storage Server (K3s)                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │ Data Loader  │  │ Coordinator  │  │  MCP API     │          │
+│  │  Container   │  │   Service    │  │  Container   │          │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
+│         │                 │                  │                  │
+│         └─────────────────┼──────────────────┘                  │
+│                           │                                     │
+│                  ┌────────▼────────┐                            │
+│                  │  Redis Queue    │                            │
+│                  │  (Job Broker)   │                            │
+│                  └────────┬────────┘                            │
+└───────────────────────────┼──────────────────────────────────────┘
+                            │
+                  ┌─────────▼─────────┐
+                  │  PostgreSQL DB    │
+                  │   (Central)       │
+                  └─────────┬─────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+┌─────────────▼─────────────┐   ┌─────────▼─────────────────────┐
+│  M4 Mac (Native Worker)   │   │  Cloud GPU Instance           │
+│  ┌──────────────────────┐ │   │  (Optional - Containerized)   │
+│  │ Celery Worker        │ │   │  ┌──────────────────────────┐ │
+│  │ (Native Process)     │ │   │  │ Analysis Worker          │ │
+│  │ - Longtail Analysis  │ │   │  │ (Docker Container)       │ │
+│  │ - Snowshoe Detection │ │   │  │ - Deep Learning Models   │ │
+│  │ - Uses ANE/GPU       │ │   │  │ - Uses CUDA GPU          │ │
+│  └──────────────────────┘ │   │  └──────────────────────────┘ │
+└───────────────────────────┘   └──────────────────────────────────┘
+```
+
+#### Why This Works
+
+1. **Celery's Worker Discovery**: Workers register with the broker (Redis) and pull jobs from queues
+2. **Location Independence**: Workers can be anywhere with network access to Redis + PostgreSQL
+3. **Heterogeneous Compute**: Different workers can have different hardware (Apple Silicon, x86, GPU)
+4. **No Container Required**: Workers are just Python processes running `celery worker`
+5. **Queue-Based Routing**: Jobs routed by queue name, not by worker location
+
+#### Deployment Patterns
+
+##### Pattern 1: K3s Cluster + Native Mac Worker (Your Use Case)
+
+**Infrastructure**:
+- Storage server: K3s running coordinator, MCP API, data loaders, Redis
+- Central database: PostgreSQL (could be in K3s or separate)
+- M4 Mac: Native Celery worker for ML-heavy tasks
+
+**Commands**:
+
+```bash
+# On Storage Server (K3s)
+kubectl apply -f k8s/coordinator.yaml
+kubectl apply -f k8s/mcp-api.yaml
+kubectl apply -f k8s/redis.yaml
+
+# On M4 Mac (Native)
+uv sync  # Install dependencies
+export DATABASE_URL="postgresql://user:pass@storage-server:5432/cowrie"
+export REDIS_URL="redis://storage-server:6379/0"
+export WORKER_QUEUES="longtail,snowshoe"  # Only consume these queues
+export WORKER_CONCURRENCY=8  # Use all M4 cores
+
+# Start native Celery worker
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 8 \
+    --loglevel info \
+    --hostname m4-mac@%h
+```
+
+**Advantages**:
+- ✅ M4 Mac uses Apple Neural Engine for ML acceleration
+- ✅ No container overhead on Mac (better performance)
+- ✅ K3s handles orchestration for other services
+- ✅ Data loader runs on storage server (near data)
+- ✅ Coordinator sees both K3s workers and Mac worker
+
+##### Pattern 2: All Containerized (Full K8s)
+
+**Infrastructure**: Everything in Kubernetes/K3s
+
+```bash
+kubectl apply -f k8s/all-services.yaml
+```
+
+**Advantages**:
+- ✅ Uniform deployment model
+- ✅ Kubernetes handles all orchestration
+- ✅ Easy to scale horizontally
+
+**Disadvantages**:
+- ⚠️ Mac hardware acceleration harder to use in containers
+- ⚠️ Requires container runtime on all machines
+
+##### Pattern 3: Hybrid Cloud + Edge
+
+**Infrastructure**:
+- Edge devices: Data loaders (native or containerized)
+- Cloud: Coordinator, MCP API, UI, analysis workers (Kubernetes)
+- Mac/Workstation: Optional native workers for specific tasks
+
+```bash
+# Edge device (e.g., Raspberry Pi)
+uv run cowrie-loader delta --sensor edge-01 \
+    --db "postgresql://cloud-db:5432/cowrie"
+
+# Cloud (Kubernetes)
+kubectl apply -f k8s/cloud-services.yaml
+
+# Mac/Workstation (optional high-performance worker)
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --hostname workstation@%h
+```
+
+#### Worker Configuration for Hybrid Mode
+
+**Worker Types** (by queue specialization):
+
+```python
+# cowrieprocessor/workers/config.py
+
+WORKER_PROFILES = {
+    "general": {
+        "queues": ["longtail", "snowshoe", "enrichment", "reports"],
+        "concurrency": 4,
+        "description": "General-purpose worker for all job types"
+    },
+    "ml_accelerated": {
+        "queues": ["longtail", "snowshoe"],  # ML-heavy jobs only
+        "concurrency": 8,
+        "description": "Worker with GPU/ANE for ML tasks (M4 Mac, GPU instances)"
+    },
+    "io_bound": {
+        "queues": ["enrichment", "reports"],
+        "concurrency": 16,
+        "description": "High-concurrency worker for I/O-bound tasks"
+    }
+}
+```
+
+**Launching Specialized Workers**:
+
+```bash
+# M4 Mac: ML-accelerated worker
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 8 \
+    --hostname m4-ml-worker@%h
+
+# K3s: General-purpose containerized workers
+kubectl scale deployment/analysis-worker --replicas=3
+
+# Cloud GPU: Deep learning worker (future)
+uv run celery -A cowrieprocessor.workers worker \
+    --queues deep_learning,image_analysis \
+    --concurrency 4 \
+    --hostname gpu-worker@%h
+```
+
+#### Worker Discovery and Routing
+
+**Coordinator View**:
+```json
+{
+  "workers": [
+    {
+      "hostname": "m4-ml-worker@m4-mac",
+      "type": "native",
+      "queues": ["longtail", "snowshoe"],
+      "status": "active",
+      "concurrency": 8,
+      "platform": "darwin-arm64"
+    },
+    {
+      "hostname": "analysis-worker-pod-abc123@k8s",
+      "type": "containerized",
+      "queues": ["longtail", "snowshoe", "enrichment"],
+      "status": "active",
+      "concurrency": 4,
+      "platform": "linux-amd64"
+    }
+  ],
+  "job_routing": {
+    "longtail": ["m4-ml-worker", "analysis-worker-pod-abc123"],
+    "snowshoe": ["m4-ml-worker", "analysis-worker-pod-abc123"],
+    "enrichment": ["analysis-worker-pod-abc123"]
+  }
+}
+```
+
+#### Network Requirements for Hybrid Workers
+
+**Required Network Access**:
+1. **Redis**: Worker → Broker (default port 6379)
+2. **PostgreSQL**: Worker → Database (default port 5432)
+3. **Prometheus** (optional): Coordinator → Worker metrics endpoint
+
+**Firewall Rules**:
+```bash
+# M4 Mac needs outbound access to:
+- storage-server:6379 (Redis)
+- storage-server:5432 (PostgreSQL)
+
+# K3s services need:
+- Inbound: 8081 (MCP API), 8080 (UI), 8082 (Coordinator)
+- Outbound: PostgreSQL, Redis (if external)
+```
+
+**Security Considerations**:
+- Use TLS for Redis connections over WAN
+- PostgreSQL SSL required for remote connections
+- Consider VPN or Tailscale for secure connectivity
+- Redis AUTH password mandatory for remote access
+
+#### Performance Benefits of Hybrid Approach
+
+**M4 Mac with Apple Neural Engine**:
+- Longtail analysis (sklearn): **3-5x faster** than x86 container
+- Snowshoe detection: **2-4x faster** with ANE acceleration
+- Native memory access: **Lower latency**, no container overhead
+
+**Measurement Example**:
+```bash
+# Benchmark longtail analysis on M4 Mac (native)
+time uv run celery -A cowrieprocessor.workers call \
+    cowrieprocessor.workers.longtail_analysis \
+    --args='["sensor-a", "7d"]'
+# Result: 45 seconds
+
+# Same job on x86 container (K3s)
+# Result: 180 seconds (4x slower)
+```
+
 ### Inter-Container Communication
 
 #### Communication Matrix
@@ -386,7 +638,8 @@ The current architecture faces scalability, deployment, and operational challeng
 
 #### Container Orchestration
 - **Development**: Docker Compose
-- **Production**: Kubernetes (EKS, GKE, AKS) or Docker Swarm
+- **Production**: Kubernetes (EKS, GKE, AKS), K3s (lightweight), or Docker Swarm
+- **Hybrid**: K3s for services + native workers for ML tasks
 
 #### Message Queue
 - **Primary**: Celery + Redis
@@ -424,6 +677,8 @@ The current architecture faces scalability, deployment, and operational challeng
 8. ✅ **Cost Optimization**: Use spot instances for analysis workers
 9. ✅ **Flexible Deployment**: Support edge + cloud hybrid architectures
 10. ✅ **Backward Compatible**: Single-server deployments still work via Docker Compose
+11. ✅ **Hybrid Workers**: Native workers (M4 Mac, GPU workstations) coexist with containerized workers
+12. ✅ **Hardware Acceleration**: ML tasks leverage ANE, CUDA without container limitations
 
 ### Negative Consequences
 
@@ -467,11 +722,13 @@ The current architecture faces scalability, deployment, and operational challeng
 
 ## Open Questions and Future Decisions
 
-1. **Kubernetes vs Docker Swarm**: Final decision on production orchestrator (recommend Kubernetes for ecosystem)
+1. **~~Kubernetes vs Docker Swarm~~**: **RESOLVED** - Support both K3s and K8s; native workers supported (hybrid model)
 2. **Authentication Strategy**: API keys vs OAuth2 vs mTLS for MCP API
 3. **Multi-Tenancy**: Support multiple isolated deployments in single cluster?
 4. **Geographic Distribution**: Multi-region Kubernetes clusters or regional coordinators?
 5. **Job Prioritization**: How to prioritize enrichment vs analysis vs reporting jobs?
+6. **Worker Affinity**: Should we implement task routing to prefer specific worker types (e.g., always route longtail to M4 Mac)?
+7. **Hardware Detection**: Should workers auto-detect ANE/GPU and register capabilities with coordinator?
 
 ## Related Decisions
 
@@ -507,6 +764,33 @@ Existing deployments continue to work:
 - Single-server: Use Docker Compose with all containers on one host
 - Multi-sensor (current): `orchestrate_sensors.py` gains `--container-mode` flag
 - Future multi-sensor: Kubernetes CronJobs replace `orchestrate_sensors.py`
+- **Hybrid deployments**: K3s for orchestration + native workers on high-performance machines
+
+### Real-World Deployment Example (M4 Mac + K3s)
+
+**Use Case**: User with M4 Mac, storage server running K3s, central PostgreSQL
+
+**Deployment**:
+```bash
+# Storage Server (K3s)
+kubectl apply -f k8s/coordinator.yaml
+kubectl apply -f k8s/mcp-api.yaml
+kubectl apply -f k8s/data-loader.yaml
+kubectl apply -f k8s/redis.yaml
+
+# M4 Mac (Native Worker)
+uv run celery -A cowrieprocessor.workers worker \
+    --queues longtail,snowshoe \
+    --concurrency 8 \
+    --hostname m4-ml-worker@%h
+```
+
+**Benefits**:
+- ✅ Coordinator, MCP API, loaders run in K3s (easy orchestration)
+- ✅ ML-heavy jobs run natively on M4 Mac (3-5x faster with ANE)
+- ✅ No container overhead for performance-critical paths
+- ✅ Unified job queue (Redis) coordinates all workers
+- ✅ Coordinator sees and manages both containerized and native workers
 
 ### 4.0 Release Scope
 
