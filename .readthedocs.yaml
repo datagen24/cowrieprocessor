@@ -19,10 +19,10 @@ build:
   tools:
     python: "3.13"
   jobs:
-    post_checkout:
+    pre_build:
       # Install project dependencies
-      - pip install -e .
+      - python -m pip install -e .
       # Install Sphinx and documentation requirements
-      - pip install -r docs/sphinx/requirements.txt
+      - python -m pip install -r docs/sphinx/requirements.txt
       # Ensure submodules are checked out if any
       - git submodule update --init --recursive
