@@ -303,7 +303,7 @@ The current architecture faces scalability, deployment, and operational challeng
 ### Container Specifications
 
 #### 1. MCP API Container
-- **Base Image**: `python:3.13-slim`
+- **Base Image**: `registry.access.redhat.com/ubi9/python-311` (Red Hat UBI 9)
 - **Entrypoint**: `uvicorn cowrieprocessor.mcp.api:app`
 - **Port**: 8081
 - **Resources**: 0.5-2 CPU, 512MB-2GB RAM
@@ -311,28 +311,28 @@ The current architecture faces scalability, deployment, and operational challeng
 - **Database**: Read replica (read-only queries)
 
 #### 2. UI Container
-- **Base Image**: `python:3.13-slim` + Node.js (frontend build)
+- **Base Image**: `registry.access.redhat.com/ubi9/python-311` + Node.js (frontend build)
 - **Entrypoint**: `uvicorn cowrieprocessor.ui.app:app`
 - **Port**: 8080
 - **Resources**: 0.5-1 CPU, 512MB-1GB RAM
 - **Replicas**: 2 (high availability)
 
 #### 3. Coordinator Service
-- **Base Image**: `python:3.13-slim`
+- **Base Image**: `registry.access.redhat.com/ubi9/python-311`
 - **Entrypoint**: `python -m cowrieprocessor.coordinator.server`
 - **Port**: 8082 (management API)
 - **Resources**: 0.5-1 CPU, 1GB RAM
 - **Replicas**: 1 (stateful, may become 2 with leader election)
 
 #### 4. Data Loader Containers
-- **Base Image**: `python:3.13-slim`
+- **Base Image**: `registry.access.redhat.com/ubi9/python-311`
 - **Entrypoint**: `cowrie-loader delta --sensor $SENSOR_NAME`
 - **Resources**: 0.25-0.5 CPU, 256MB-512MB RAM
 - **Deployment**: Near sensors (edge devices, regional clusters)
 - **Schedule**: CronJob (every 15 minutes) or continuous
 
 #### 5. Analysis Worker Containers
-- **Base Image**: `python:3.13-slim`
+- **Base Image**: `registry.access.redhat.com/ubi9/python-311`
 - **Entrypoint**: `celery -A cowrieprocessor.workers worker`
 - **Resources**: 2-4 CPU, 2-4GB RAM
 - **Replicas**: Auto-scale based on queue depth (HPA)
@@ -1341,6 +1341,142 @@ async def longtail_analysis_with_progress(sensor: str, time_window_days: int):
 ```
 
 **UI displays progress bar**: "Analyzing sessions: 4,500 / 7,000 (64%) - ETA: 2 minutes"
+
+## Security Architecture
+
+### Threat Model & User Profiles
+
+**Primary Users**: Cybersecurity students (bachelor's level) and individual researchers
+**Data Classification**: Non-PII threat intelligence from distributed honeypots
+**Deployment Environments**:
+- Home labs (majority)
+- University research networks
+- Personal cloud instances
+
+**Threat Scenarios**:
+1. **Recommended Deployment** (Tailscale + internal network):
+   - Primary threats: Credential leakage, supply chain attacks
+   - Network already encrypted via WireGuard
+   - Blast radius limited to Tailscale network
+
+2. **Direct Internet Exposure** (NAT port forwarding):
+   - ⚠️ **Not recommended but acknowledged as learning scenario**
+   - All container vulnerabilities exploitable
+   - Credential stuffing attacks likely
+   - Potential pivot to home network
+   - **Educational value**: Students learn consequences of poor network architecture
+
+### V4.0 Security Baseline
+
+**Required** (enforced in default configs):
+1. **Secrets Management**:
+   - 1Password CLI integration documented (`op run --env-file=.env`)
+   - `.env` files with 600 permissions (validated on startup)
+   - Kubernetes Secrets for K8s deployments
+   - HashiCorp Vault integration documented (optional)
+
+2. **Database Security**:
+   - PostgreSQL password authentication (SCRAM-SHA-256)
+   - Minimum 20-character passwords (enforced by setup script)
+   - Connection pooling via PgBouncer (recommended, not required)
+   - Sample `pg_hba.conf` restricting to specific networks
+
+3. **Redis Authentication**:
+   - `requirepass` enabled by default
+   - Password auto-generated if not provided
+   - ACL support documented (optional for advanced users)
+
+4. **Network Isolation**:
+   - **Tailscale Recommended**: Setup guide in docs
+   - K3s installs with network policy support (via built-in support)
+   - NetworkPolicy manifests provided (default-deny + explicit allows)
+   - **Direct NAT Warning**: Prominent documentation about risks
+
+5. **Container Security**:
+   - Red Hat UBI 9 base images (security-first, long-term support)
+   - Non-root user in all containers (`USER 1000`)
+   - Read-only root filesystem where possible
+   - Dependabot scanning (GitHub Actions)
+   - Drop all capabilities except required
+
+**Example NetworkPolicy** (applied by default in K3s/K8s):
+```yaml
+# Default deny ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: cowrie
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+---
+# Allow MCP API → PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mcp-to-postgres
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: mcp-api
+    ports:
+    - protocol: TCP
+      port: 5432
+```
+
+### Educational Security Guidance
+
+**Documentation Philosophy**: Teach defense-in-depth without overwhelming students
+
+1. **Security Runbook** (`docs/security/README.md`):
+   - "Good, Better, Best" deployment tiers
+   - Consequence examples for each security decision
+   - Real attack scenarios from honeypot data
+
+2. **Interactive Security Checklist**:
+   - `cowrie-security-check` CLI command
+   - Scans deployment for common misconfigurations
+   - Rates security posture (A-F grade)
+   - Provides remediation steps
+
+3. **Deployment Templates**:
+   - `docker-compose.secure.yml` (Tailscale + secrets)
+   - `docker-compose.exposed.yml` (internet-facing, all hardening enabled)
+   - `k3s-secure/` (NetworkPolicies, PodSecurityStandards)
+
+### Security Non-Goals (V4.0)
+
+Explicitly **out of scope** to avoid complexity:
+- mTLS between services (Tailscale provides encryption)
+- Service mesh (Istio/Linkerd)
+- Advanced RBAC (single-user assumption)
+- SIEM integration (future: V4.2+)
+- Intrusion detection on containers (future: V4.3+)
+
+### Future Security Enhancements
+
+**V4.1** (Q2 2026):
+- mTLS option for non-Tailscale deployments
+- API key rotation automation
+- Audit logging for MCP API
+
+**V4.2** (Q3 2026):
+- Container runtime security (Falco integration)
+- Automated CVE scanning in CI/CD
+- Secrets rotation tooling
+
+**V4.3+** (Q4 2026):
+- Multi-tenancy support (university shared clusters)
+- SIEM integration (Wazuh, Elastic Security)
+- Advanced threat detection on containers
 
 ## Consequences
 
