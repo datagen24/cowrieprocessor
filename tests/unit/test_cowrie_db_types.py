@@ -314,52 +314,68 @@ class TestCowrieDatabaseTypes:
 
     def test_analyze_data_quality_return_type(self):
         """Test that analyze_data_quality method returns proper Dict[str, Any] type."""
-        with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_connection = MagicMock()
-            mock_engine.connect.return_value.__enter__.return_value = mock_connection
-            mock_get_engine.return_value = mock_engine
+        # Mock all the helper methods that make database calls
+        with patch.object(CowrieDatabase, '_analyze_database_overview') as mock_overview:
+            with patch.object(CowrieDatabase, '_analyze_json_sample') as mock_json:
+                with patch.object(CowrieDatabase, '_analyze_boolean_fields') as mock_boolean:
+                    with patch.object(CowrieDatabase, '_analyze_missing_fields') as mock_missing:
+                        with patch.object(
+                            CowrieDatabase, '_generate_quality_recommendations'
+                        ) as mock_recommendations:
+                            # Configure return values
+                            mock_overview.return_value = {'total_events': 1000}
+                            mock_json.return_value = {'valid_json': 900}
+                            mock_boolean.return_value = {'vt_flagged': 50}
+                            mock_missing.return_value = {'missing_session_id': 10}
+                            mock_recommendations.return_value = ['Recommendation 1', 'Recommendation 2']
 
-            with patch('cowrieprocessor.cli.cowrie_db.get_dialect_name_from_engine', return_value="sqlite"):
-                mock_connection.execute.return_value.fetchall.return_value = []
-                mock_connection.execute.return_value.scalar_one.return_value = 1000
+                            db = CowrieDatabase("sqlite:///test.db")
+                            result = db.analyze_data_quality(sample_size=100)
 
-                db = CowrieDatabase("sqlite:///test.db")
-                result = db.analyze_data_quality(sample_size=100)
-
-                assert isinstance(result, dict)
-                assert 'database_overview' in result
-                assert 'json_analysis' in result
-                assert 'boolean_fields' in result
-                assert 'missing_fields' in result
-                assert 'recommendations' in result
-                assert isinstance(result['database_overview'], dict)
-                assert isinstance(result['json_analysis'], dict)
-                assert isinstance(result['boolean_fields'], dict)
-                assert isinstance(result['missing_fields'], dict)
-                assert isinstance(result['recommendations'], list)
+                            assert isinstance(result, dict)
+                            assert 'overview' in result
+                            assert 'json_analysis' in result
+                            assert 'boolean_analysis' in result
+                            assert 'missing_analysis' in result
+                            assert 'recommendations' in result
+                            assert isinstance(result['overview'], dict)
+                            assert isinstance(result['json_analysis'], dict)
+                            assert isinstance(result['boolean_analysis'], dict)
+                            assert isinstance(result['missing_analysis'], dict)
+                            assert isinstance(result['recommendations'], list)
 
     def test_repair_data_quality_return_type(self):
         """Test that repair_data_quality method returns proper Dict[str, Any] type."""
-        with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
-            mock_engine = MagicMock()
-            mock_connection = MagicMock()
-            mock_engine.connect.return_value.__enter__.return_value = mock_connection
-            mock_get_engine.return_value = mock_engine
+        with patch.object(CowrieDatabase, '_repair_missing_fields') as mock_repair:
+            mock_repair.return_value = {
+                'records_processed': 100,
+                'fields_backfilled': 50,
+                'total_missing': 75,
+                'errors': 0,
+                'generated_columns': {},
+                'duration_seconds': 1.5,
+            }
 
-            with patch.object(CowrieDatabase, '_repair_missing_fields') as mock_repair:
-                mock_repair.return_value = {'records_processed': 100, 'fields_backfilled': 50, 'errors': 0}
+            db = CowrieDatabase("sqlite:///test.db")
+            result = db.repair_data_quality(batch_size=1000, dry_run=True)
 
-                db = CowrieDatabase("sqlite:///test.db")
-                result = db.repair_data_quality(batch_size=1000, dry_run=True)
-
-                assert isinstance(result, dict)
-                assert 'dry_run' in result
-                assert 'missing_fields' in result
-                assert 'recommendations' in result
-                assert isinstance(result['dry_run'], bool)
-                assert isinstance(result['missing_fields'], dict)
-                assert isinstance(result['recommendations'], list)
+            assert isinstance(result, dict)
+            assert 'dry_run' in result
+            assert 'total_missing' in result
+            assert 'records_processed' in result
+            assert 'fields_backfilled' in result
+            assert 'unrepairable_records' in result
+            assert 'errors' in result
+            assert 'duration_seconds' in result
+            assert 'recommendations' in result
+            assert isinstance(result['dry_run'], bool)
+            assert isinstance(result['total_missing'], int)
+            assert isinstance(result['records_processed'], int)
+            assert isinstance(result['fields_backfilled'], int)
+            assert isinstance(result['unrepairable_records'], int)
+            assert isinstance(result['errors'], int)
+            assert isinstance(result['duration_seconds'], float)
+            assert isinstance(result['recommendations'], list)
 
     def test_migrate_to_postgresql_return_type(self):
         """Test that migrate_to_postgresql method returns proper Dict[str, Any] type."""
@@ -371,38 +387,45 @@ class TestCowrieDatabaseTypes:
 
             with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
                 with patch('cowrieprocessor.cli.cowrie_db.create_engine_from_settings') as mock_create:
-                    mock_postgres_engine = Mock()
+                    mock_postgres_engine = MagicMock()
+                    # Configure postgres_engine to support context manager
+                    mock_postgres_engine.begin.return_value.__enter__ = MagicMock()
+                    mock_postgres_engine.begin.return_value.__exit__ = MagicMock()
                     mock_create.return_value = mock_postgres_engine
 
-                    with patch.object(CowrieDatabase, '_perform_data_migration') as mock_migrate:
-                        mock_migrate.return_value = {
-                            'total_records_migrated': 1000,
-                            'tables_migrated': ['raw_events', 'session_summaries'],
-                            'errors': 0,
-                        }
+                    # Mock apply_migrations to avoid context manager issues
+                    with patch('cowrieprocessor.cli.cowrie_db.apply_migrations') as mock_apply:
+                        mock_apply.return_value = None
 
-                        with patch.object(CowrieDatabase, '_validate_migration') as mock_validate:
-                            mock_validate.return_value = {'is_valid': True, 'mismatches': []}
+                        with patch.object(CowrieDatabase, '_perform_data_migration') as mock_migrate:
+                            mock_migrate.return_value = {
+                                'total_records_migrated': 1000,
+                                'tables_migrated': ['raw_events', 'session_summaries'],
+                                'errors': 0,
+                            }
 
-                            db = CowrieDatabase("sqlite:///test.db")
-                            result = db.migrate_to_postgresql(
-                                postgres_url="postgresql://user:pass@host/db",
-                                batch_size=1000,
-                                validate_only=False,
-                                skip_schema=False,
-                            )
+                            with patch.object(CowrieDatabase, '_validate_migration') as mock_validate:
+                                mock_validate.return_value = {'is_valid': True, 'mismatches': []}
 
-                            assert isinstance(result, dict)
-                            assert 'success' in result
-                            assert 'total_records_migrated' in result
-                            assert 'tables_migrated' in result
-                            assert 'errors' in result
-                            assert 'validation' in result
-                            assert isinstance(result['success'], bool)
-                            assert isinstance(result['total_records_migrated'], int)
-                            assert isinstance(result['tables_migrated'], list)
-                            assert isinstance(result['errors'], int)
-                            assert isinstance(result['validation'], dict)
+                                db = CowrieDatabase("sqlite:///test.db")
+                                result = db.migrate_to_postgresql(
+                                    postgres_url="postgresql://user:pass@host/db",
+                                    batch_size=1000,
+                                    validate_only=False,
+                                    skip_schema=False,
+                                )
+
+                                assert isinstance(result, dict)
+                                assert 'success' in result
+                                assert 'total_records_migrated' in result
+                                assert 'tables_migrated' in result
+                                assert 'errors' in result
+                                assert 'validation' in result
+                                assert isinstance(result['success'], bool)
+                                assert isinstance(result['total_records_migrated'], int)
+                                assert isinstance(result['tables_migrated'], list)
+                                assert isinstance(result['errors'], int)
+                                assert isinstance(result['validation'], dict)
 
     def test_longtail_migrate_return_type(self):
         """Test that longtail_migrate method returns proper Dict[str, Any] type."""
@@ -421,9 +444,11 @@ class TestCowrieDatabaseTypes:
 
                     assert isinstance(result, dict)
                     assert 'success' in result
-                    assert 'message' in result
+                    assert 'migration_applied' in result
+                    assert 'new_version' in result
                     assert isinstance(result['success'], bool)
-                    assert isinstance(result['message'], str)
+                    assert isinstance(result['migration_applied'], str)
+                    assert isinstance(result['new_version'], int)
 
     def test_longtail_rollback_return_type(self):
         """Test that longtail_rollback method returns proper Dict[str, Any] type."""
@@ -442,9 +467,11 @@ class TestCowrieDatabaseTypes:
 
                     assert isinstance(result, dict)
                     assert 'success' in result
-                    assert 'message' in result
+                    assert 'rollback_performed' in result
+                    assert 'new_version' in result
                     assert isinstance(result['success'], bool)
-                    assert isinstance(result['message'], str)
+                    assert isinstance(result['rollback_performed'], str)
+                    assert isinstance(result['new_version'], int)
 
     def test_validate_longtail_schema_return_type(self):
         """Test that validate_longtail_schema method returns proper Dict[str, Any] type."""
@@ -454,19 +481,24 @@ class TestCowrieDatabaseTypes:
             mock_engine.connect.return_value.__enter__.return_value = mock_connection
             mock_get_engine.return_value = mock_engine
 
-            with patch.object(CowrieDatabase, '_table_exists', return_value=True):
-                with patch('cowrieprocessor.cli.cowrie_db.has_pgvector', return_value=True):
-                    with patch('cowrieprocessor.cli.cowrie_db.detect_database_features') as mock_features:
-                        mock_features.return_value = {'pgvector': True}
+            with patch.object(CowrieDatabase, 'get_schema_version', return_value=9):
+                with patch.object(CowrieDatabase, '_table_exists', return_value=True):
+                    with patch('cowrieprocessor.db.engine.has_pgvector', return_value=True):
+                        with patch('cowrieprocessor.db.engine.detect_database_features') as mock_features:
+                            mock_features.return_value = {'pgvector': True}
 
-                        db = CowrieDatabase("sqlite:///test.db")
-                        result = db.validate_longtail_schema()
+                            db = CowrieDatabase("sqlite:///test.db")
+                            result = db.validate_longtail_schema()
 
-                        assert isinstance(result, dict)
-                        assert 'success' in result
-                        assert 'message' in result
-                        assert isinstance(result['success'], bool)
-                        assert isinstance(result['message'], str)
+                            assert isinstance(result, dict)
+                            assert 'success' in result
+                            assert 'schema_version' in result
+                            assert 'tables_validated' in result
+                            assert 'table_info' in result
+                            assert isinstance(result['success'], bool)
+                            assert isinstance(result['schema_version'], int)
+                            assert isinstance(result['tables_validated'], list)
+                            assert isinstance(result['table_info'], dict)
 
 
 class TestSQLAlchemy20Compatibility:

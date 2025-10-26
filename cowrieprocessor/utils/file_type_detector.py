@@ -86,7 +86,8 @@ class FileTypeDetector:
             if any(line.strip().startswith('{') for line in sample_content):
                 # Count lines that look like JSON structure
                 json_like_lines = sum(
-                    1 for line in sample_content
+                    1
+                    for line in sample_content
                     if any(pattern in line for pattern in ['{', '}', '": ', '",', '":', ': "', ': {', ': ['])
                 )
                 if json_like_lines >= len(sample_content) * 0.5:
