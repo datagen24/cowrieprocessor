@@ -87,6 +87,7 @@ class RawEvent(Base):
         return self.session_id or (self.payload.get("session") if self.payload else None)
 
     @session_id_computed.expression
+    @classmethod
     def session_id_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed session_id.
 
@@ -105,6 +106,7 @@ class RawEvent(Base):
         return self.event_type or (self.payload.get("eventid") if self.payload else None)
 
     @event_type_computed.expression
+    @classmethod
     def event_type_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed event_type.
 
@@ -123,6 +125,7 @@ class RawEvent(Base):
         return self.event_timestamp or (self.payload.get("timestamp") if self.payload else None)
 
     @event_timestamp_computed.expression
+    @classmethod
     def event_timestamp_computed_expr(cls) -> Case:
         """SQL expression for backward compatibility with computed event_timestamp.
 
