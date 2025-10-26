@@ -380,18 +380,191 @@ jobs:
 
 #### Image Signing with Cosign
 
+**Context**: This is a learning system where students build images locally. Image signing teaches supply chain security while allowing manual builds for educational purposes.
+
+##### Key Management Strategies (Educational Focus)
+
+**Strategy 1: Local Signing for Students (Recommended for V4.0)**
+
+Students build and sign images on their workstations:
+
 ```bash
-# Generate signing key (once)
+# 1. Generate signing key pair (once per student)
 cosign generate-key-pair
+# Enter password when prompted (store in 1Password)
+# Creates: cosign.key (private), cosign.pub (public)
 
-# Sign image after build
-cosign sign --key cosign.key ghcr.io/user/cowrieprocessor/mcp-api:v4.0.0
+# 2. Backup private key to 1Password
+op item create \
+  --category=password \
+  --title="Cosign Signing Key - Cowrie" \
+  --vault="Student Projects" \
+  cosign.key[password]="$(cat cosign.key)"
 
-# Verify before deployment
-cosign verify --key cosign.pub ghcr.io/user/cowrieprocessor/mcp-api:v4.0.0
+# 3. Build image locally
+docker build -t ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0 \
+  -f docker/Dockerfile.mcp-api .
+
+# 4. Push to registry
+docker push ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0
+
+# 5. Sign the image
+cosign sign --key cosign.key ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0
+# Enter password when prompted
+
+# 6. Verify signature before deploying
+cosign verify --key cosign.pub ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0
 ```
 
-**Kubernetes Policy Enforcement**:
+**Security Considerations for Local Keys**:
+- ✅ **DO**: Store private key encrypted with strong password
+- ✅ **DO**: Backup to 1Password (encrypted vault)
+- ✅ **DO**: Rotate key every 90 days (learning exercise)
+- ❌ **DON'T**: Commit `cosign.key` to Git (add to `.gitignore`)
+- ❌ **DON'T**: Share private key between students (individual accountability)
+- ❌ **DON'T**: Store unencrypted key on disk (always password-protected)
+
+**Key Rotation Workflow** (every 90 days):
+```bash
+# 1. Generate new key pair
+cosign generate-key-pair --output-key-pair cosign-new
+
+# 2. Sign existing images with new key
+for tag in v4.0.0 v4.0.1 latest; do
+  cosign sign --key cosign-new.key ghcr.io/username/cowrieprocessor/mcp-api:$tag
+done
+
+# 3. Update 1Password with new key
+op item edit "Cosign Signing Key - Cowrie" cosign.key[password]="$(cat cosign-new.key)"
+
+# 4. Archive old key (do not delete - verify old signatures)
+mv cosign.key cosign-$(date +%Y%m%d)-archived.key
+mv cosign-new.key cosign.key
+mv cosign-new.pub cosign.pub
+
+# 5. Update Kubernetes policy with new public key
+kubectl edit clusterimagepolicy cowrieprocessor-signed-images
+```
+
+**Strategy 2: GitHub Actions Signing (For Automated Builds)**
+
+For students learning CI/CD pipelines:
+
+```yaml
+# .github/workflows/docker-build-sign.yml
+name: Build and Sign Container Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-sign:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # For OIDC token (keyless signing alternative)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.mcp-api
+          push: true
+          tags: ghcr.io/${{ github.repository }}/mcp-api:${{ github.ref_name }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image with Cosign (Key-based)
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+          cosign sign --key cosign.key ghcr.io/${{ github.repository }}/mcp-api:${{ github.ref_name }}
+          rm cosign.key
+
+      # Alternative: Keyless signing (OIDC, no key management)
+      - name: Sign image with Cosign (Keyless - Advanced)
+        run: |
+          cosign sign ghcr.io/${{ github.repository }}/mcp-api:${{ github.ref_name }} --yes
+```
+
+**GitHub Secrets Setup** (for Strategy 2):
+```bash
+# 1. Generate key pair locally
+cosign generate-key-pair
+
+# 2. Store in GitHub Secrets (Settings → Secrets → Actions)
+# COSIGN_PRIVATE_KEY: Contents of cosign.key
+# COSIGN_PASSWORD: Password used to encrypt cosign.key
+# COSIGN_PUBLIC_KEY: Contents of cosign.pub (for verification)
+
+# 3. Backup to 1Password (recovery if GitHub org compromised)
+op document create cosign.key \
+  --title "Cosign Key - GitHub Actions - Cowrie" \
+  --vault "CI/CD Secrets"
+
+op document create cosign.pub \
+  --title "Cosign Pub - GitHub Actions - Cowrie" \
+  --vault "CI/CD Secrets"
+```
+
+**Strategy 3: Cloud KMS (Production - Out of Scope for V4.0)**
+
+For reference only (enterprise deployments, not educational):
+
+```yaml
+# .github/workflows/docker-sign-kms.yml (NOT IMPLEMENTED IN V4.0)
+- name: Sign with Google Cloud KMS
+  env:
+    COSIGN_KMS: gcpkms://projects/$PROJECT_ID/locations/global/keyRings/cowrie/cryptoKeys/image-signing
+  run: |
+    gcloud auth login --cred-file=${{ secrets.GCP_CREDENTIALS }}
+    cosign sign --key ${COSIGN_KMS} ${IMAGE_URI}
+
+# AWS KMS alternative
+- name: Sign with AWS KMS
+  env:
+    COSIGN_KMS: awskms:///arn:aws:kms:us-east-1:123456789:key/abcd-1234
+  run: |
+    aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    cosign sign --key ${COSIGN_KMS} ${IMAGE_URI}
+```
+
+**Deferred to V4.2+**: KMS signing adds operational complexity inappropriate for educational environments.
+
+##### Verification Before Deployment
+
+**Local Verification** (students deploying to their clusters):
+```bash
+# Verify image signature before deploying
+cosign verify --key cosign.pub ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0
+
+# Expected output:
+# Verification for ghcr.io/username/cowrieprocessor/mcp-api:v4.0.0 --
+# The following checks were performed on each of these signatures:
+#   - The cosign claims were validated
+#   - The signatures were verified against the specified public key
+```
+
+**Kubernetes Policy Enforcement** (optional for advanced students):
 ```yaml
 # k8s/policy-controller.yaml (Sigstore Policy Controller)
 apiVersion: policy.sigstore.dev/v1beta1
@@ -400,14 +573,32 @@ metadata:
   name: cowrieprocessor-signed-images
 spec:
   images:
-  - glob: "ghcr.io/user/cowrieprocessor/**"
+  - glob: "ghcr.io/*/cowrieprocessor/**"
   authorities:
   - key:
       data: |
         -----BEGIN PUBLIC KEY-----
-        [Your Cosign Public Key]
+        MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE...
         -----END PUBLIC KEY-----
 ```
+
+**Educational Value**:
+- Students learn supply chain security concepts
+- Understand public key cryptography in practice
+- Experience key rotation and revocation workflows
+- Optional: Explore keyless signing with OIDC (Sigstore)
+
+##### Key Management Comparison
+
+| Method | Complexity | Security | Educational Value | V4.0 Status |
+|--------|-----------|---------|------------------|-------------|
+| **Local Keys** | Low | Medium | High (hands-on) | ✅ Recommended |
+| **GitHub Secrets** | Medium | High | Medium (automated) | ✅ Documented |
+| **1Password Backup** | Low | Medium | High (recovery) | ✅ Recommended |
+| **Cloud KMS** | High | Very High | Low (abstracted) | ❌ Deferred V4.2+ |
+| **Keyless (OIDC)** | Medium | High | Medium (advanced) | 📋 Optional V4.1 |
+
+**V4.0 Recommendation**: Local keys with 1Password backup strikes the right balance for educational environments.
 
 #### Cross-ADR Consistency: Why UBI 9 Over Distroless?
 
