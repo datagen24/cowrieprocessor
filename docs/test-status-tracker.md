@@ -250,6 +250,100 @@ Coverage: 68% (exceeds 65% requirement by 3%)
 ### Next Steps
 
 - [x] Commit test fixes with conventional commit message (58ba54b)
+- [x] Resolve Scripts Folder MyPy Errors ✅ (Day 29 Session 5)
+- [ ] Resolve Remaining MyPy Errors (470 errors remain in tests/)
+- [ ] Resolve Ruff Format Errors
+- [ ] Resolve Ruff Check Errors
+- [ ] Ensure all CI gates are met
 - [ ] Address integration test failures (if any)
 - [ ] Consider increasing coverage targets for new code
 - [ ] Keep unit tests passing as development continues!
+
+---
+
+## Day 29 Session 5: MyPy Typing Error Fixes - Scripts Folder
+
+**Session Goal**: Fix all MyPy typing errors in scripts/ folder to achieve 0 errors
+**Errors Fixed**: 94 errors across 9 script files
+**Status**: ✅ **COMPLETE** - Scripts folder now has 0 MyPy errors!
+
+### Scripts Fixed (in order)
+
+1. **scripts/production/show_pg_stats.py** (5 errors) - ✅ Complete
+   - Fixed Row | None union-attr errors (.size, .active, .total)
+   - Added return type annotations (-> None)
+
+2. **scripts/production/quick_pg_stats.py** (6 errors) - ✅ Complete
+   - Fixed Row | None union-attr errors
+   - Added type: ignore[unreachable] for defensive last_stats check
+   - Added return type annotations
+
+3. **scripts/production/enhance_status_files.py** (9 errors) - ✅ Complete
+   - Added type annotation to last_stats: Dict[str, Any]
+   - Fixed Row | None errors for size_row
+   - Added cast for json.load() to avoid no-any-return
+   - Fixed tomllib redefinition
+
+4. **scripts/production/monitor_postgresql_loading.py** (25 errors) - ✅ Complete
+   - Added type annotation to last_stats
+   - Fixed size_row, checkpoint_row, wal_row with early returns for None
+   - Added Connection row checks for active_connections, etc.
+
+5. **scripts/production/collect_postgresql_stats.py** (10 errors) - ✅ Complete
+   - Added Connection type import
+   - Added type annotations to all helper methods
+   - Fixed Row | None errors for connection stats
+
+6. **scripts/rebuild_session_summaries.py** (15 errors) - ✅ Complete
+   - Fixed tomllib redefinition
+   - Added Session type to _sample_events_for_verification
+   - Added type: ignore[unreachable] for defensive isinstance checks on:
+     * isinstance(ts, str) for timestamp conversion (3 instances)
+     * isinstance(event.payload, dict) for payload checks (3 instances)
+
+7. **scripts/validate_longtail_analysis.py** (10 errors) - ✅ Complete
+   - Added session_factory: Any type annotation
+   - Added explicit type annotation to results: Dict[str, Any]
+
+8. **scripts/deploy_longtail_analysis.py** (7 errors) - ✅ Complete
+   - Added Dict import from typing
+   - Added explicit type annotation to results: Dict[str, Any]
+
+9. **scripts/test_longtail_with_database.py** (2 errors) - ✅ Complete
+   - Added text() wrapper for conn.execute("SELECT 1")
+   - Fixed return type: dict[str, any] → dict[str, Any]
+
+### Common Error Patterns Fixed
+
+1. **Row | None Union Errors**: Check if row exists before accessing attributes
+   ```python
+   row = result.fetchone()
+   value = row.attribute if row else default_value
+   ```
+
+2. **Unreachable Code**: Add type: ignore[unreachable] for defensive isinstance checks
+
+3. **Missing Type Annotations**: Add -> None or -> Dict[str, Any] to function signatures
+
+4. **tomllib Redefinition**: Add type: ignore[no-redef] to import fallback
+
+5. **Dict Type Inference**: Add explicit Dict[str, Any] annotation when defining complex results
+
+### Commits Made (Session 5)
+
+- `74e71c5` - fix(mypy): resolve 21 type errors in 5 scripts files (checkpoint 1)
+- `217f260` - fix(mypy): resolve 34 type errors in enhance_status_files.py and monitor_postgresql_loading.py (checkpoint 2)
+- `b6b51e0` - fix(mypy): resolve 25 type errors in collect_postgresql_stats.py and rebuild_session_summaries.py (checkpoint 3)
+- `c41c5db` - fix(mypy): resolve final 19 type errors in longtail analysis scripts (final)
+
+### MyPy Status Summary
+
+| Category | Before | After | Change |
+|----------|--------|-------|--------|
+| Scripts folder errors | 94 | 0 | -94 ✅ |
+| Total project errors (excl. archive/) | ~564 | 470 | -94 ✅ |
+| Scripts folder files | 16 | 16 | 100% clean |
+
+**Progress**: Scripts folder is now 100% MyPy clean! Remaining 470 errors are in tests/ folder.
+
+---
