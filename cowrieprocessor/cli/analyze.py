@@ -428,29 +428,19 @@ def main(argv: Iterable[str] | None = None) -> int:
         type=Path,
         help="Cache directory for HIBP prefix responses (default: ~/.cache/cowrieprocessor)",
     )
-    
+
     # Batch processing arguments
     longtail_parser.add_argument(
         "--batch-mode", action="store_true", help="Enable batch processing mode for historical data"
     )
-    longtail_parser.add_argument(
-        "--start-date", help="Start date for batch processing (YYYY-MM-DD)"
-    )
-    longtail_parser.add_argument(
-        "--end-date", help="End date for batch processing (YYYY-MM-DD)"
-    )
-    longtail_parser.add_argument(
-        "--quarters", nargs="+", help="Quarters to process (Q1YYYY Q2YYYY ...)"
-    )
-    longtail_parser.add_argument(
-        "--months", nargs="+", help="Months to process (YYYY-MM YYYY-MM ...)"
-    )
+    longtail_parser.add_argument("--start-date", help="Start date for batch processing (YYYY-MM-DD)")
+    longtail_parser.add_argument("--end-date", help="End date for batch processing (YYYY-MM-DD)")
+    longtail_parser.add_argument("--quarters", nargs="+", help="Quarters to process (Q1YYYY Q2YYYY ...)")
+    longtail_parser.add_argument("--months", nargs="+", help="Months to process (YYYY-MM YYYY-MM ...)")
     longtail_parser.add_argument(
         "--batch-days", type=int, default=30, help="Batch size in days for processing (default: 30)"
     )
-    longtail_parser.add_argument(
-        "--dry-run", action="store_true", help="Show what would be processed without running"
-    )
+    longtail_parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without running")
 
     # Snowshoe report command
     report_parser = subparsers.add_parser("snowshoe-report", help="Generate snowshoe detection reports")
@@ -490,7 +480,7 @@ def longtail_analyze(args: argparse.Namespace) -> int:
         # Handle batch processing mode
         if args.batch_mode:
             return _run_batch_longtail_analysis(args)
-        
+
         # Parse lookback days
         lookback_days = args.lookback_days
         window_delta = timedelta(days=lookback_days)
@@ -601,7 +591,10 @@ def _derive_vocab_path_from_config() -> Optional[Path]:
     Returns:
         Path to vocabulary file, or None to disable persistent vocabulary
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         # No config file, use default cache location
         default_cache = Path.home() / ".cache" / "cowrieprocessor"
@@ -613,10 +606,12 @@ def _derive_vocab_path_from_config() -> Optional[Path]:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+
             toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
             import tomli
+
             toml_loader = tomli
 
         with sensors_file.open("rb") as handle:
@@ -653,7 +648,10 @@ def _load_memory_config_from_sensors() -> Dict[str, Optional[float]]:
     Returns:
         Dictionary with memory_limit_gb and memory_warning_threshold
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         logger.info("No sensors.toml found, using default memory configuration")
         return {
@@ -665,10 +663,12 @@ def _load_memory_config_from_sensors() -> Dict[str, Optional[float]]:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+
             toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
             import tomli
+
             toml_loader = tomli
 
         with sensors_file.open("rb") as handle:
@@ -973,29 +973,29 @@ def _store_botnet_detection_result(
 
 def _run_batch_longtail_analysis(args: argparse.Namespace) -> int:
     """Run batch longtail analysis for historical data.
-    
+
     Args:
         args: Parsed command line arguments
-        
+
     Returns:
         Exit code (0 for success)
     """
     try:
         # Determine date ranges to process
         ranges_to_process = []
-        
+
         if args.start_date:
             if not args.end_date:
                 logger.error("--end-date is required when using --start-date")
                 return 1
             start_date, end_date = _parse_date_range(args.start_date, args.end_date)
             ranges_to_process = _generate_batch_ranges(start_date, end_date, args.batch_days)
-            
+
         elif args.quarters:
             for quarter in args.quarters:
                 start_date, end_date = _parse_quarter(quarter)
                 ranges_to_process.append((start_date, end_date))
-                
+
         elif args.months:
             for month in args.months:
                 start_date, end_date = _parse_month(month)
@@ -1003,36 +1003,36 @@ def _run_batch_longtail_analysis(args: argparse.Namespace) -> int:
         else:
             logger.error("Must specify either --start-date/--end-date, --quarters, or --months")
             return 1
-        
+
         # Show what will be processed
         logger.info(f"Will process {len(ranges_to_process)} batch(es):")
         for i, (start, end) in enumerate(ranges_to_process, 1):
             logger.info(f"  {i}. {start.date()} to {end.date()} ({end - start} days)")
-        
+
         if args.dry_run:
             logger.info("Dry run mode - no analysis will be performed")
             return 0
-        
+
         # Process batches
         successful_batches = 0
         failed_batches = 0
-        
+
         for i, (start_date, end_date) in enumerate(ranges_to_process, 1):
             batch_name = f"batch-{i:03d}"
-            
+
             if _run_single_batch_analysis(args, start_date, end_date, batch_name):
                 successful_batches += 1
             else:
                 failed_batches += 1
-        
+
         # Summary
         logger.info("\nBatch processing complete:")
         logger.info(f"  ✓ Successful: {successful_batches}")
         logger.info(f"  ✗ Failed: {failed_batches}")
         logger.info(f"  Total: {len(ranges_to_process)}")
-        
+
         return 0 if failed_batches == 0 else 1
-        
+
     except Exception as e:
         logger.error(f"Batch processing failed: {e}")
         return 1
@@ -1052,23 +1052,23 @@ def _parse_quarter(quarter_str: str) -> tuple[datetime, datetime]:
     """Parse quarter string (e.g., Q12024) into date range."""
     if not quarter_str.startswith('Q') or len(quarter_str) != 6:
         raise ValueError(f"Invalid quarter format. Use Q1YYYY-Q4YYYY: {quarter_str}")
-    
+
     quarter = int(quarter_str[1])
     year = int(quarter_str[2:])
-    
+
     if quarter not in range(1, 5):
         raise ValueError(f"Invalid quarter number: {quarter}")
-    
+
     # Calculate start and end dates for the quarter
     start_month = (quarter - 1) * 3 + 1
     start_date = datetime(year, start_month, 1, tzinfo=UTC)
-    
+
     if quarter == 4:
         end_date = datetime(year + 1, 1, 1, tzinfo=UTC)
     else:
         end_month = start_month + 3
         end_date = datetime(year, end_month, 1, tzinfo=UTC)
-    
+
     return start_date, end_date
 
 
@@ -1077,59 +1077,63 @@ def _parse_month(month_str: str) -> tuple[datetime, datetime]:
     try:
         year_str, month_str = month_str.split('-')
         year, month = int(year_str), int(month_str)
-        
+
         start_date = datetime(year, month, 1, tzinfo=UTC)
-        
+
         if month == 12:
             end_date = datetime(year + 1, 1, 1, tzinfo=UTC)
         else:
             end_date = datetime(year, month + 1, 1, tzinfo=UTC)
-        
+
         return start_date, end_date
     except ValueError as e:
         raise ValueError(f"Invalid month format. Use YYYY-MM: {e}")
 
 
-def _generate_batch_ranges(start_date: datetime, end_date: datetime, batch_size_days: int) -> List[tuple[datetime, datetime]]:
+def _generate_batch_ranges(
+    start_date: datetime, end_date: datetime, batch_size_days: int
+) -> List[tuple[datetime, datetime]]:
     """Generate batch date ranges for processing."""
     ranges = []
     current_start = start_date
-    
+
     while current_start < end_date:
         current_end = min(current_start + timedelta(days=batch_size_days), end_date)
         ranges.append((current_start, current_end))
         current_start = current_end
-    
+
     return ranges
 
 
-def _run_single_batch_analysis(args: argparse.Namespace, start_date: datetime, end_date: datetime, batch_name: str) -> bool:
+def _run_single_batch_analysis(
+    args: argparse.Namespace, start_date: datetime, end_date: datetime, batch_name: str
+) -> bool:
     """Run longtail analysis for a single batch.
-    
+
     Args:
         args: Parsed command line arguments
         start_date: Batch start date
         end_date: Batch end date
         batch_name: Name for this batch
-        
+
     Returns:
         True if successful, False otherwise
     """
     logger.info(f"Processing batch: {batch_name} ({start_date.date()} to {end_date.date()})")
-    
+
     try:
         # Calculate lookback days
         lookback_days = (end_date - start_date).days
-        
+
         # Setup database
         settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
         apply_migrations(engine)
         session_factory = create_session_maker(engine)
-        
+
         # Run analysis with storage enabled
         from ..threat_detection.longtail import run_longtail_analysis
-        
+
         result = run_longtail_analysis(
             db_url=settings.url,
             lookback_days=lookback_days,
@@ -1143,10 +1147,12 @@ def _run_single_batch_analysis(args: argparse.Namespace, start_date: datetime, e
             window_start=start_date,
             window_end=end_date,
         )
-        
-        logger.info(f"✓ Batch {batch_name} completed: {result.total_sessions_analyzed} sessions, {result.rare_command_count} rare commands")
+
+        logger.info(
+            f"✓ Batch {batch_name} completed: {result.total_sessions_analyzed} sessions, {result.rare_command_count} rare commands"
+        )
         return True
-        
+
     except Exception as e:
         logger.error(f"✗ Batch {batch_name} failed: {e}")
         return False

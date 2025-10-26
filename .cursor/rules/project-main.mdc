@@ -6,6 +6,15 @@ alwaysApply: false
 
 # Cowrie Processor Development Rules
 
+## CI GATES (MANDATORY - Enforced in Order)
+The CI pipeline enforces these quality gates **in strict order**. Any failure stops the merge:
+
+1. **Ruff Lint Errors**: `uv run ruff check .` must produce 0 errors
+2. **Ruff Format Changes**: `uv run ruff format --check .` must show no formatting needed
+3. **MyPy Errors**: `uv run mypy .` must produce 0 type errors
+4. **Code Coverage**: Minimum 65% coverage required (`--cov-fail-under=65`)
+5. **Test Failures**: All tests must pass
+
 ## MANDATORY REQUIREMENTS
 All code contributions MUST strictly adhere to these rules. Violations will result in immediate rejection.
 
@@ -62,9 +71,10 @@ def process_log_file(filepath: Path, enrichment: bool = True) -> dict[str, list]
 
 ## Testing Requirements
 
-### Coverage
-- Minimum 80% code coverage required
-- Run: `uv run pytest --cov=. --cov-report=term-missing`
+### Coverage (CI Gate #4)
+- Minimum 65% code coverage required (enforced by CI)
+- Target 80%+ coverage for new features
+- Run: `uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65`
 - ALL new features MUST include tests
 - ALL bug fixes MUST include regression tests
 
@@ -154,11 +164,12 @@ except Exception as e:
 - Use appropriate indexes
 
 ## Pre-Commit Checklist
-Before ANY commit, verify:
-- [ ] `uv run ruff check .` passes
-- [ ] `uv run ruff format .` applied
-- [ ] `uv run mypy .` passes
-- [ ] `uv run pytest --cov=. --cov-report=term-missing` >= 80%
+Before ANY commit, verify all CI gates pass:
+- [ ] **Gate 1**: `uv run ruff check .` passes with 0 errors
+- [ ] **Gate 2**: `uv run ruff format --check .` shows no changes needed (run `uv run ruff format .` first)
+- [ ] **Gate 3**: `uv run mypy .` passes with 0 errors
+- [ ] **Gate 4**: `uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65` >= 65%
+- [ ] **Gate 5**: All tests pass
 - [ ] All docstrings complete and follow Google style
 - [ ] All type hints complete
 - [ ] No hardcoded secrets

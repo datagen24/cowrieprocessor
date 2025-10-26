@@ -37,3 +37,15 @@ Thumbs.db
 # Secrets configuration
 sensors.toml
 !sensors.example.toml
+
+# Coverage and test output files
+*.json
+!package.json
+!tsconfig.json
+.coverage
+*.cover
+.coverage.*
+
+# Backup and temporary files
+*.bak
+coverage.xml

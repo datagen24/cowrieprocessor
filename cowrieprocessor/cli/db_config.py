@@ -14,7 +14,10 @@ def _load_sensors_config() -> dict[str, str] | None:
     Returns:
         Database configuration dict with 'url' key, or None if not found
     """
-    sensors_file = Path("sensors.toml")
+    # Try config/ directory first, then fall back to current directory
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if not sensors_file.exists():
         return None
 
@@ -22,10 +25,12 @@ def _load_sensors_config() -> dict[str, str] | None:
         # Try tomllib first (Python 3.11+)
         try:
             import tomllib
+
             toml_loader = tomllib
         except ImportError:
             # Fall back to tomli for older Python versions
             import tomli
+
             toml_loader = tomli
 
         with sensors_file.open("rb") as handle:

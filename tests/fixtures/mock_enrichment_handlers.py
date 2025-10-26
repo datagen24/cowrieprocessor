@@ -6,7 +6,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from tests.fixtures.enrichment_fixtures import (
     get_abuseipdb_response,
@@ -38,7 +38,7 @@ class MockOTXHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass  # Fall through to API call
 
@@ -48,7 +48,8 @@ class MockOTXHandler:
             return {"error": "rate_limit"}
 
         # Generate mock response based on IP pattern
-        if ip.startswith("192.168."):
+        result: Dict[str, Any]
+        if ip.startswith(("192.168.", "10.", "127.")):
             # Internal IP - no results
             result = json.loads(get_otx_response("clean_ip"))
         elif ip in ["8.8.8.8", "1.1.1.1", "9.9.9.9"]:
@@ -56,7 +57,7 @@ class MockOTXHandler:
             result = json.loads(get_otx_response("clean_ip"))
         else:
             # Random malicious or clean
-            if random.random() > 0.7:  # 70% chance of malicious
+            if random.random() < 0.7:  # 70% chance of malicious
                 result = json.loads(get_otx_response("malicious_ip"))
                 # Add some variety
                 result["reputation"] = random.randint(5, 10)
@@ -85,12 +86,12 @@ class MockOTXHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass
 
         # Generate mock response
-        if hash_value.startswith("0000") or hash_value.startswith("dead"):
+        if hash_value.startswith(("0000", "dead", "bad")):
             # Known bad hashes
             result = {
                 "pulses": random.randint(1, 10),
@@ -98,7 +99,7 @@ class MockOTXHandler:
                 "first_seen": "2024-01-01T00:00:00Z",
                 "threat_names": ["trojan.generic", "malware.win32"],
             }
-        elif hash_value.startswith("aaaa") or hash_value.startswith("clean"):
+        elif hash_value.startswith(("aaaa", "clean", "good")):
             # Known good hashes
             result = {"pulses": 0, "malware": False, "first_seen": None, "threat_names": []}
         else:
@@ -141,7 +142,7 @@ class MockAbuseIPDBHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass
 
@@ -155,19 +156,21 @@ class MockAbuseIPDBHandler:
             return {"error": "rate_limit"}
 
         # Generate mock response based on IP pattern
+        result: Dict[str, Any]
         if ip.startswith("127.") or ip.startswith("10.") or ip.startswith("192.168."):
-            # Private IPs - no abuse data
+            # Private IPs - no abuse data (but vary slightly by max_age for testing)
             result = json.loads(get_abuseipdb_response("low_risk"))
             result["data"]["abuseConfidenceScore"] = 0
             result["data"]["totalReports"] = 0
+            result["data"]["numDistinctUsers"] = max_age_days  # Vary by max_age for cache testing
         elif ip in ["8.8.8.8", "1.1.1.1", "208.67.222.222"]:
             # Known good IPs
             result = json.loads(get_abuseipdb_response("low_risk"))
         elif ip.startswith("203.0.113.") or ip.startswith("198.51.100."):
-            # Test IPs - high risk
+            # Test IPs - high risk (vary by max_age_days)
             result = json.loads(get_abuseipdb_response("high_risk"))
             result["data"]["abuseConfidenceScore"] = random.randint(80, 100)
-            result["data"]["totalReports"] = random.randint(10, 50)
+            result["data"]["totalReports"] = random.randint(10, 50) + (max_age_days // 10)
         else:
             # Random result
             if random.random() > 0.6:  # 60% chance of being flagged
@@ -214,7 +217,7 @@ class MockAbuseIPDBHandler:
 class MockStatisticalAnalyzer:
     """Mock statistical analysis tools ported from dshield-tooling."""
 
-    def __init__(self, db_connection) -> None:
+    def __init__(self, db_connection: Any) -> None:
         """Initialize mock statistical analyzer.
 
         Args:
@@ -343,7 +346,7 @@ def create_mock_enrichment_handlers(cache_dir: Path) -> Dict[str, Any]:
     }
 
 
-def setup_mock_enrichment_environment(cache_dir: Path, db_connection=None) -> Dict[str, Any]:
+def setup_mock_enrichment_environment(cache_dir: Path, db_connection: Any = None) -> Dict[str, Any]:
     """Setup complete mock enrichment environment for testing."""
     handlers = create_mock_enrichment_handlers(cache_dir)
 

@@ -13,7 +13,7 @@ class _DummyClient:
     pass
 
 
-def test_elasticsearch_publisher_builds_actions(monkeypatch) -> None:
+def test_elasticsearch_publisher_builds_actions(monkeypatch: pytest.MonkeyPatch) -> None:
     """Publisher should generate bulk actions with ILM aliases and doc ids."""
     recorded = {}
 

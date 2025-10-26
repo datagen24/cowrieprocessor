@@ -1,5 +1,9 @@
 """Unit tests for mock enrichment handlers."""
 
+from pathlib import Path
+from typing import Any
+
+
 from __future__ import annotations
 
 import json
@@ -18,7 +22,7 @@ class TestMockOTXHandler:
     """Test mock OTX handler functionality."""
 
     @pytest.fixture
-    def mock_otx(self, tmp_path):
+    def mock_otx(self, tmp_path) -> Any:
         """Create mock OTX handler with temporary cache directory."""
         return MockOTXHandler("test_key", tmp_path)
 
@@ -127,7 +131,7 @@ class TestMockAbuseIPDBHandler:
     """Test mock AbuseIPDB handler functionality."""
 
     @pytest.fixture
-    def mock_abuseipdb(self, tmp_path):
+    def mock_abuseipdb(self, tmp_path) -> Any:
         """Create mock AbuseIPDB handler with temporary cache directory."""
         return MockAbuseIPDBHandler("test_key", tmp_path)
 
@@ -219,7 +223,7 @@ class TestMockStatisticalAnalyzer:
     """Test mock statistical analyzer functionality."""
 
     @pytest.fixture
-    def mock_analyzer(self):
+    def mock_analyzer(self) -> Any:
         """Create mock statistical analyzer."""
         # Mock database connection
         from unittest.mock import Mock
@@ -304,7 +308,7 @@ class TestMockStatisticalAnalyzer:
 class TestMockEnvironmentSetup:
     """Test mock environment setup functionality."""
 
-    def test_create_mock_enrichment_handlers(self, tmp_path) -> None:
+    def test_create_mock_enrichment_handlers(self, tmp_path: Path) -> None:
         """Should create all mock handlers."""
         handlers = setup_mock_enrichment_environment(tmp_path)
 
@@ -316,7 +320,7 @@ class TestMockEnvironmentSetup:
         assert isinstance(handlers["abuseipdb"], MockAbuseIPDBHandler)
         assert handlers["statistical_analyzer"] is None  # No DB connection
 
-    def test_setup_with_database(self, tmp_path) -> None:
+    def test_setup_with_database(self, tmp_path: Path) -> None:
         """Should setup environment with database connection."""
         from unittest.mock import Mock
 
@@ -326,7 +330,7 @@ class TestMockEnvironmentSetup:
         assert handlers["statistical_analyzer"] is not None
         assert isinstance(handlers["statistical_analyzer"], MockStatisticalAnalyzer)
 
-    def test_mock_handlers_integration(self, tmp_path) -> None:
+    def test_mock_handlers_integration(self, tmp_path: Path) -> None:
         """Mock handlers should work together in integration scenario."""
         handlers = setup_mock_enrichment_environment(tmp_path)
 

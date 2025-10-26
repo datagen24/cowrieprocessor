@@ -1,6 +1,7 @@
 """Integration tests for file enrichment flow."""
 
 from __future__ import annotations
+from pathlib import Path
 
 import json
 
@@ -13,7 +14,7 @@ from cowrieprocessor.settings import load_database_settings
 
 
 @pytest.fixture
-def test_db_path(tmp_path) -> None:
+def test_db_path(tmp_path: Path) -> None:
     """Create temporary database for testing."""
     db_path = tmp_path / "test.db"
     return f"sqlite:///{db_path}"
@@ -78,7 +79,7 @@ def sample_file_download_events():
 class TestFileEnrichmentFlow:
     """Test end-to-end file enrichment flow."""
 
-    def test_bulk_loader_processes_file_events(self, engine, sample_file_download_events, tmp_path) -> None:
+    def test_bulk_loader_processes_file_events(self, engine, sample_file_download_events, tmp_path: Path) -> None:
         """Test that bulk loader processes file download events."""
         # Create temporary JSON file with events
         json_file = tmp_path / "events.json"
@@ -122,7 +123,7 @@ class TestFileEnrichmentFlow:
             assert files[2][1] == "test2.txt"
             assert files[2][2] == "session001"
 
-    def test_files_table_enrichment_status(self, engine, sample_file_download_events, tmp_path) -> None:
+    def test_files_table_enrichment_status(self, engine, sample_file_download_events, tmp_path: Path) -> None:
         """Test that files are created with correct enrichment status."""
         # Create temporary JSON file with events
         json_file = tmp_path / "events.json"
@@ -146,7 +147,7 @@ class TestFileEnrichmentFlow:
             # All files should have 'pending' status initially
             assert all(status == "pending" for status in statuses)
 
-    def test_duplicate_file_handling(self, engine, tmp_path) -> None:
+    def test_duplicate_file_handling(self, engine, tmp_path: Path) -> None:
         """Test handling of duplicate files (same session_id + shasum)."""
         # Create events with duplicate files
         events = [
@@ -192,7 +193,7 @@ class TestFileEnrichmentFlow:
             file_count = result.scalar_one()
             assert file_count == 1
 
-    def test_file_metadata_preservation(self, engine, tmp_path) -> None:
+    def test_file_metadata_preservation(self, engine, tmp_path: Path) -> None:
         """Test that file metadata is correctly preserved."""
         # Create event with all metadata fields
         event = {
@@ -229,7 +230,7 @@ class TestFileEnrichmentFlow:
             assert row[2] == 2048
             assert row[3] == "http://example.com/path/test_file.txt"
 
-    def test_invalid_file_events_handling(self, engine, tmp_path) -> None:
+    def test_invalid_file_events_handling(self, engine, tmp_path: Path) -> None:
         """Test handling of invalid file events."""
         # Create events with invalid data
         events = [
@@ -284,7 +285,7 @@ class TestFileEnrichmentFlow:
             filename = result.scalar_one()
             assert filename == "valid.txt"
 
-    def test_session_summary_file_count_integration(self, engine, sample_file_download_events, tmp_path) -> None:
+    def test_session_summary_file_count_integration(self, engine, sample_file_download_events, tmp_path: Path) -> None:
         """Test that session summaries correctly count file downloads."""
         # Create temporary JSON file with events
         json_file = tmp_path / "events.json"

@@ -1,5 +1,8 @@
 """Tests for the database management CLI."""
 
+from typing import Any
+
+
 from __future__ import annotations
 
 import sqlite3
@@ -16,8 +19,12 @@ class TestCowrieDatabase:
     """Test cases for CowrieDatabase class."""
 
     @pytest.fixture
-    def temp_db(self):
-        """Create temporary database for testing."""
+    def temp_db(self) -> Any:
+        """Create temporary database for testing.
+
+        Returns:
+            Tuple of (db_url: str, db_path: Path) for testing
+        """
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
             db_path = Path(tmp.name)
 
@@ -30,7 +37,7 @@ class TestCowrieDatabase:
                 )
             """)
             conn.execute("""
-                INSERT INTO schema_state (key, value) VALUES ('schema_version', '2')
+                INSERT INTO schema_state (key, value) VALUES ('schema_version', '14')
             """)
             conn.execute("""
                 CREATE TABLE session_summaries (
@@ -73,7 +80,9 @@ class TestCowrieDatabase:
                 VALUES ('test_session_1', 'ls', 3)
             """)
 
-        yield db_path
+        # Convert to SQLAlchemy URL format
+        db_url = f"sqlite:///{db_path}"
+        yield db_url
 
         # Cleanup
         if db_path.exists():
@@ -81,24 +90,24 @@ class TestCowrieDatabase:
 
     def test_get_schema_version(self, temp_db) -> None:
         """Test getting schema version from database."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         version = db.get_schema_version()
-        assert version == 2
+        assert version == 14
 
     def test_get_schema_version_empty_db(self) -> None:
         """Test getting schema version from non-existent database."""
-        db = CowrieDatabase('/nonexistent/path.db')
+        db = CowrieDatabase('sqlite:///nonexistent/path.db')
         version = db.get_schema_version()
         assert version == 0
 
     def test_validate_schema(self, temp_db) -> None:
         """Test schema validation."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.validate_schema()
 
         assert result['is_valid'] is True
-        assert result['schema_version'] == 2
-        assert result['expected_version'] == 2  # From migrations.py
+        assert result['schema_version'] == 14
+        assert result['expected_version'] == 14  # From migrations.py CURRENT_SCHEMA_VERSION
         assert result['session_count'] == 1
         assert result['command_count'] == 1  # One command_stats record in test setup
         assert result['file_count'] == 1  # One session with file_downloads = 2
@@ -106,17 +115,17 @@ class TestCowrieDatabase:
 
     def test_migrate_dry_run(self, temp_db) -> None:
         """Test migration dry run."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.migrate(dry_run=True)
 
         assert result['dry_run'] is True
-        assert result['current_version'] == 2
-        assert result['target_version'] == 2  # Already at latest
-        assert result['message'] == "Database already at version 2"
+        assert result['current_version'] == 14
+        assert result['target_version'] == 14  # Already at latest (CURRENT_SCHEMA_VERSION)
+        assert result['message'] == "Database already at version 14"
 
     def test_create_backup(self, temp_db) -> None:
         """Test database backup creation."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         backup_path = db.create_backup()
 
         assert Path(backup_path).exists()
@@ -130,8 +139,10 @@ class TestCowrieDatabase:
 
     def test_create_backup_custom_path(self, temp_db) -> None:
         """Test backup creation with custom path."""
-        db = CowrieDatabase(str(temp_db))
-        custom_path = str(temp_db.parent / "custom_backup.db")
+        db = CowrieDatabase(temp_db)
+        # Extract path from sqlite:/// URL
+        db_file_path = Path(temp_db.replace("sqlite:///", ""))
+        custom_path = str(db_file_path.parent / "custom_backup.db")
         backup_path = db.create_backup(custom_path)
 
         assert backup_path == custom_path
@@ -139,14 +150,14 @@ class TestCowrieDatabase:
 
     def test_verify_backup_integrity_valid(self, temp_db) -> None:
         """Test backup integrity verification with valid backup."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         backup_path = db.create_backup()
 
         assert db._verify_backup_integrity(backup_path) is True
 
     def test_check_integrity(self, temp_db) -> None:
         """Test database integrity check."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.check_integrity()
 
         assert 'corruption_found' in result
@@ -160,7 +171,7 @@ class TestCowrieDatabase:
 
     def test_check_integrity_deep(self, temp_db) -> None:
         """Test deep integrity check."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.check_integrity(deep=True)
 
         # Should have additional checks when deep=True
@@ -169,7 +180,7 @@ class TestCowrieDatabase:
 
     def test_optimize_vacuum_only(self, temp_db) -> None:
         """Test optimization with vacuum only."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.optimize(vacuum=True, reindex=False)
 
         assert 'operations' in result
@@ -180,7 +191,7 @@ class TestCowrieDatabase:
 
     def test_optimize_reindex_only(self, temp_db) -> None:
         """Test optimization with reindex only."""
-        db = CowrieDatabase(str(temp_db))
+        db = CowrieDatabase(temp_db)
         result = db.optimize(vacuum=False, reindex=True)
 
         assert 'operations' in result
@@ -191,8 +202,12 @@ class TestCowrieDatabaseCLI:
     """Test CLI functionality."""
 
     @pytest.fixture
-    def temp_db(self):
-        """Create temporary database for CLI testing."""
+    def temp_db(self) -> Any:
+        """Create temporary database for CLI testing.
+
+        Returns:
+            SQLAlchemy URL string for the database
+        """
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
             db_path = Path(tmp.name)
 
@@ -205,25 +220,26 @@ class TestCowrieDatabaseCLI:
                 )
             """)
             conn.execute("""
-                INSERT INTO schema_state (key, value) VALUES ('schema_version', '2')
+                INSERT INTO schema_state (key, value) VALUES ('schema_version', '14')
             """)
 
-        yield str(db_path)
+        db_url = f"sqlite:///{db_path}"
+        yield db_url
 
         # Cleanup
-        if Path(db_path).exists():
-            Path(db_path).unlink()
+        if db_path.exists():
+            db_path.unlink()
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_migrate_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_migrate_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test migrate command."""
         # Mock the database
         mock_db = Mock()
         mock_db.migrate.return_value = {
-            'current_version': 2,
-            'target_version': 2,
-            'final_version': 2,
-            'message': 'Database already at version 2',
+            'current_version': 14,
+            'target_version': 14,
+            'final_version': 14,
+            'message': 'Database already at version 14',
         }
         mock_db_class.return_value = mock_db
 
@@ -232,21 +248,21 @@ class TestCowrieDatabaseCLI:
 
         from cowrieprocessor.cli.cowrie_db import main
 
-        with patch('sys.argv', ['cowrie-db', '--db-path', temp_db, 'migrate']):
+        with patch('sys.argv', ['cowrie-db', '--db-url', temp_db, 'migrate']):
             main()
 
         captured = capsys.readouterr()
-        assert '✓ Migrated database to schema version 2' in captured.out
+        assert '✓ Migrated database to schema version 14' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_check_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_check_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test check command."""
         # Mock the database
         mock_db = Mock()
         mock_db.validate_schema.return_value = {
             'is_valid': True,
-            'schema_version': 2,
-            'expected_version': 2,
+            'schema_version': 14,
+            'expected_version': 14,
             'database_size_mb': 10.5,
             'session_count': 100,
             'command_count': 500,
@@ -260,18 +276,18 @@ class TestCowrieDatabaseCLI:
 
         from cowrieprocessor.cli.cowrie_db import main
 
-        with patch('sys.argv', ['cowrie-db', '--db-path', temp_db, 'check', '--verbose']):
+        with patch('sys.argv', ['cowrie-db', '--db-url', temp_db, 'check', '--verbose']):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
         assert exc_info.value.code == 0
         captured = capsys.readouterr()
-        assert 'Database schema is current (v2)' in captured.out
+        assert 'Database schema is current (v14)' in captured.out
         assert 'Database size: 10.5 MB' in captured.out
         assert 'Total sessions: 100' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_backup_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_backup_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test backup command."""
         # Mock the database
         mock_db = Mock()
@@ -283,14 +299,14 @@ class TestCowrieDatabaseCLI:
 
         from cowrieprocessor.cli.cowrie_db import main
 
-        with patch('sys.argv', ['cowrie-db', '--db-path', temp_db, 'backup']):
+        with patch('sys.argv', ['cowrie-db', '--db-url', temp_db, 'backup']):
             main()
 
         captured = capsys.readouterr()
         assert 'Backup created' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_integrity_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_integrity_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test integrity command."""
         # Mock the database
         mock_db = Mock()
@@ -310,7 +326,7 @@ class TestCowrieDatabaseCLI:
 
         from cowrieprocessor.cli.cowrie_db import main
 
-        with patch('sys.argv', ['cowrie-db', '--db-path', temp_db, 'integrity']):
+        with patch('sys.argv', ['cowrie-db', '--db-url', temp_db, 'integrity']):
             main()
 
         captured = capsys.readouterr()

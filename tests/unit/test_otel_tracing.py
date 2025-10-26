@@ -1,6 +1,7 @@
 """Tests for optional OpenTelemetry integration helpers."""
 
 from __future__ import annotations
+import pytest
 
 from cowrieprocessor.telemetry import otel
 
@@ -16,7 +17,7 @@ def test_start_span_no_op_when_trace_missing() -> None:
     otel.trace = original_trace
 
 
-def test_start_span_passes_through_exceptions(monkeypatch) -> None:
+def test_start_span_passes_through_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
     """Errors inside the context should propagate even without OTEL."""
     original_trace = getattr(otel, "trace", None)
     otel.trace = None

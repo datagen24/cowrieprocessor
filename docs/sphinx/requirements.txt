@@ -1,0 +1,13 @@
+# Sphinx documentation requirements for Read the Docs
+
+# Core Sphinx
+sphinx>=7.4.0
+sphinx-rtd-theme>=2.0.0
+
+# Extensions
+sphinx-autodoc-typehints>=2.0.0
+myst-parser>=3.0.0
+linkify-it-py>=2.0.0
+
+# For autodoc to work with the package
+sqlalchemy>=2.0.0

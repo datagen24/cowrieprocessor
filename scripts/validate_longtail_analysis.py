@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
 from cowrieprocessor.db.migrations import apply_migrations
@@ -76,7 +76,7 @@ def validate_database_setup(db_url: str) -> Dict[str, Any]:
         }
 
 
-def test_command_extraction(db_url: str, session_factory) -> Dict[str, Any]:
+def test_command_extraction(db_url: str, session_factory: Any) -> Dict[str, Any]:
     """Test command extraction from real database."""
     logger.info("Testing command extraction from database...")
 
@@ -273,7 +273,7 @@ def run_comprehensive_validation(db_url: str) -> Dict[str, Any]:
     logger.info("Starting comprehensive longtail analysis validation...")
     logger.info("=" * 60)
 
-    results = {
+    results: Dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "database_url": db_url,
         "tests": {},

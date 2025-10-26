@@ -1,6 +1,7 @@
 """Tests for report builder classes."""
 
 from __future__ import annotations
+from pathlib import Path
 
 from datetime import UTC, datetime
 
@@ -73,7 +74,7 @@ def _prepare_repository(tmp_path):
     return ReportingRepository(factory)
 
 
-def test_daily_report_builder(tmp_path) -> None:
+def test_daily_report_builder(tmp_path: Path) -> None:
     """Daily report builder returns expected payload."""
     repo = _prepare_repository(tmp_path)
     builder = DailyReportBuilder(repo, top_n=5)

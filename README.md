@@ -166,7 +166,7 @@ summarizedays = 1
 
 Run the orchestrator:
 ```bash
-python orchestrate_sensors.py --config sensors.toml
+python scripts/production/orchestrate_sensors.py --config config/sensors.toml
 ```
 
 ### Performance Optimization
@@ -206,7 +206,7 @@ Use the output with `cowrie-loader bulk` / `cowrie-loader delta` to rehearse Pha
 
 ### Telemetry-Enabled Loader CLI
 
-The new ingestion CLI streams loader metrics, checkpoints, and dead-letter statistics to `/mnt/dshield/data/logs/status/` so `monitor_progress.py` (or other observers) can display real-time progress.
+The new ingestion CLI streams loader metrics, checkpoints, and dead-letter statistics to `/mnt/dshield/data/logs/status/` so `scripts/production/monitor_progress.py` (or other observers) can display real-time progress.
 
 Bulk ingest example:
 ```bash
@@ -226,7 +226,7 @@ cowrie-loader delta \
 
 Monitor progress in another terminal:
 ```bash
-python monitor_progress.py
+python scripts/production/monitor_progress.py
 ```
 
 The status output now includes phase (`bulk_ingest`/`delta_ingest`), event throughput, last checkpoint (source + offset), and dead-letter totals.

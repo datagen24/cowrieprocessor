@@ -376,7 +376,7 @@ class DLQStoredProcedures:
             "total_events": result[0],
             "unresolved_events": result[1],
             "resolved_events": result[2],
-            "top_reasons": result[3],
+            "top_reasons": result[3] if result[3] is not None else [],
             "oldest_unresolved": result[4],
             "newest_unresolved": result[5],
         }
@@ -393,5 +393,5 @@ class DLQStoredProcedures:
 
         if result is None:
             return 0
-        
+
         return int(result[0])

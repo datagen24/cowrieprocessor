@@ -1,6 +1,7 @@
 """Performance tests for files table backfill functionality."""
 
 from __future__ import annotations
+from pathlib import Path
 
 import json
 import time
@@ -235,7 +236,7 @@ class TestFilesBackfillPerformance:
 
         print(f"Backfill completed in {end_time - start_time:.2f}s with {metrics.events_read} events")
 
-    def test_large_file_metadata_handling(self, performance_engine, tmp_path) -> None:
+    def test_large_file_metadata_handling(self, performance_engine, tmp_path: Path) -> None:
         """Test handling of files with large metadata."""
         # Create events with large filenames and URLs
         events = []

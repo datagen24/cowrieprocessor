@@ -317,7 +317,7 @@ class EventStitcher:
 
                 # Try to parse the repaired content
                 event = json.loads(sanitized_content)
-                
+
                 # Type guard to ensure event is a dict
                 if not isinstance(event, dict):
                     continue
@@ -622,8 +622,10 @@ def _load_database_settings_from_sensors(db_path: Optional[str] = None) -> Datab
         # Use explicit database path
         return load_database_settings(config={"url": f"sqlite:///{db_path}"})
 
-    # Try to load from sensors.toml
-    sensors_file = Path("sensors.toml")
+    # Try to load from sensors.toml (config/ directory first, then current directory)
+    sensors_file = Path("config/sensors.toml")
+    if not sensors_file.exists():
+        sensors_file = Path("sensors.toml")
     if sensors_file.exists():
         try:
             # Try tomllib first (Python 3.11+)
@@ -735,10 +737,23 @@ class DLQProcessor:
 
         return None
 
-    def _insert_repaired_event(self, session: Session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]) -> bool:
+    def _insert_repaired_event(
+        self, session: Session, dlq_event: DeadLetterEvent, repaired_event: Dict[str, Any]
+    ) -> bool:
         """Insert repaired event into raw_events table with duplicate handling."""
         try:
             from sqlalchemy.dialects.postgresql import insert
+
+            # Parse timestamp string to datetime object for SQLite compatibility
+            timestamp_str = repaired_event.get("timestamp")
+            event_timestamp = None
+            if timestamp_str:
+                try:
+                    # Handle both ISO format with Z and with timezone offset
+                    event_timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    # If parsing fails, leave as None
+                    pass
 
             # Create raw event record data
             event_data = {
@@ -752,7 +767,7 @@ class DLQProcessor:
                 "quarantined": False,  # Repaired events are no longer quarantined
                 "session_id": repaired_event.get("session"),
                 "event_type": repaired_event.get("eventid"),
-                "event_timestamp": repaired_event.get("timestamp"),
+                "event_timestamp": event_timestamp,
             }
 
             # Use PostgreSQL UPSERT (ON CONFLICT DO UPDATE)
@@ -796,11 +811,9 @@ class DLQProcessor:
                     existing_event.quarantined = False  # type: ignore[assignment]
                     existing_event.session_id = repaired_event.get("session")  # type: ignore[assignment]
                     existing_event.event_type = repaired_event.get("eventid")  # type: ignore[assignment]
-                    existing_event.event_timestamp = repaired_event.get("timestamp")  # type: ignore[assignment]
+                    existing_event.event_timestamp = event_timestamp  # type: ignore[assignment]
                     # Update the ingest timestamp to reflect the repair
-                    from datetime import datetime
-
-                    existing_event.ingest_at = datetime.utcnow()  # type: ignore[assignment]
+                    existing_event.ingest_at = datetime.now(timezone.utc)  # type: ignore[assignment]
                     return True
 
                 # Create new raw event record
@@ -814,7 +827,7 @@ class DLQProcessor:
                     quarantined=False,  # Repaired events are no longer quarantined
                     session_id=repaired_event.get("session"),
                     event_type=repaired_event.get("eventid"),
-                    event_timestamp=repaired_event.get("timestamp"),
+                    event_timestamp=event_timestamp,
                 )
 
                 session.add(raw_event)

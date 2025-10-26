@@ -85,8 +85,8 @@ def cleanup_dlq_stored_proc(engine: Engine, older_than_days: int = 30) -> None:
     print(f"Deleted {deleted_count} resolved DLQ events")
 
 
-def test_stored_procedures(engine: Engine) -> None:
-    """Test stored procedure functionality."""
+def verify_stored_procedures(engine: Engine) -> None:
+    """Verify stored procedure functionality."""
     print("=== Testing Stored Procedures ===")
 
     with engine.connect() as connection:
@@ -153,7 +153,7 @@ def main() -> int:
         elif args.command == "cleanup":
             cleanup_dlq_stored_proc(engine, args.older_than_days)
         elif args.command == "test":
-            test_stored_procedures(engine)
+            verify_stored_procedures(engine)
     except Exception as e:
         print(f"Error: {e}")
         return 1

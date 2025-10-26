@@ -1,0 +1,1247 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.7, pytest-8.3.3, pluggy-1.6.0 -- /home/speterson/cowrieprocessor/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/speterson/cowrieprocessor
+configfile: pytest.ini
+plugins: cov-5.0.0
+collecting ... collected 841 items
+
+tests/unit/test_analyze.py::test_parse_window_arg_hours PASSED           [  0%]
+tests/unit/test_analyze.py::test_parse_window_arg_days PASSED            [  0%]
+tests/unit/test_analyze.py::test_parse_window_arg_invalid_format PASSED  [  0%]
+tests/unit/test_analyze.py::test_parse_window_arg_case_insensitive PASSED [  0%]
+tests/unit/test_analyze.py::test_parse_date_range_valid PASSED           [  0%]
+tests/unit/test_analyze.py::test_parse_quarter_q1 PASSED                 [  0%]
+tests/unit/test_analyze.py::test_parse_quarter_q4 PASSED                 [  0%]
+tests/unit/test_analyze.py::test_parse_month_january PASSED              [  0%]
+tests/unit/test_analyze.py::test_parse_month_february_leap_year PASSED   [  1%]
+tests/unit/test_analyze.py::test_generate_batch_ranges_single_batch PASSED [  1%]
+tests/unit/test_analyze.py::test_generate_batch_ranges_multiple_batches PASSED [  1%]
+tests/unit/test_analyze.py::test_parse_window_arg_whitespace PASSED      [  1%]
+tests/unit/test_analyze.py::test_parse_quarter_invalid_number PASSED     [  1%]
+tests/unit/test_analyze.py::test_parse_month_december PASSED             [  1%]
+tests/unit/test_analyze.py::test_parse_month_invalid_format PASSED       [  1%]
+tests/unit/test_analyze.py::test_generate_batch_ranges_exact_multiple PASSED [  1%]
+tests/unit/test_analyze.py::test_query_sessions_for_analysis_no_sensor_filter PASSED [  2%]
+tests/unit/test_analyze.py::test_query_sessions_for_analysis_empty_result PASSED [  2%]
+tests/unit/test_analyze.py::test_load_memory_config_from_sensors_no_file PASSED [  2%]
+tests/unit/test_analyze.py::test_print_longtail_summary_with_anomalies PASSED [  2%]
+tests/unit/test_analyze.py::test_print_longtail_summary_no_anomalies PASSED [  2%]
+tests/unit/test_analyze.py::test_snowshoe_analyze_success_with_detection PASSED [  2%]
+tests/unit/test_analyze.py::test_snowshoe_analyze_no_sessions_found PASSED [  2%]
+tests/unit/test_analyze.py::test_snowshoe_analyze_output_to_file PASSED  [  2%]
+tests/unit/test_botnet.py::test_detect_insufficient_sessions PASSED      [  2%]
+tests/unit/test_botnet.py::test_detect_insufficient_ip_diversity PASSED  [  3%]
+tests/unit/test_botnet.py::test_detect_with_coordinated_activity PASSED  [  3%]
+tests/unit/test_botnet.py::test_detect_with_non_coordinated_activity PASSED [  3%]
+tests/unit/test_botnet.py::test_detect_error_handling PASSED             [  3%]
+tests/unit/test_botnet.py::test_extract_coordination_data_empty_sessions PASSED [  3%]
+tests/unit/test_botnet.py::test_extract_coordination_data_with_geographic_data PASSED [  3%]
+tests/unit/test_botnet.py::test_extract_coordination_data_with_credentials PASSED [  3%]
+tests/unit/test_botnet.py::test_extract_coordination_data_with_commands PASSED [  3%]
+tests/unit/test_botnet.py::test_analyze_command_similarity_insufficient_data PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_command_similarity_empty_commands PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_command_similarity_high_similarity PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_command_similarity_low_similarity PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_temporal_coordination_insufficient_ips PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_temporal_coordination_insufficient_timestamps PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_temporal_coordination_with_clustering PASSED [  4%]
+tests/unit/test_botnet.py::test_analyze_temporal_coordination_no_clustering PASSED [  4%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_inserts_raw_events PASSED [  4%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_is_idempotent PASSED    [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_multiline_json FAILED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_rejects_multiline_json_by_default FAILED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_mixed_json_formats FAILED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_sets_enrichment_flags PASSED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_database_connection_error PASSED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_empty_log_file PASSED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_malformed_json FAILED [  5%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_multiline_json_malformed_limit FAILED [  6%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_empty_log_file_gracefully PASSED [  6%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_handles_malformed_json_gracefully PASSED [  6%]
+tests/unit/test_bulk_loader.py::test_bulk_loader_rolls_back_on_database_error PASSED [  6%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_safe_commands_not_quarantined PASSED [  6%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_dangerous_commands_defanged_not_quarantined PASSED [  6%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_legacy_neutralization_still_works PASSED [  6%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_command_analysis_preserved PASSED [  6%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_risk_scoring_improved PASSED [  7%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_no_original_preservation_when_disabled PASSED [  7%]
+tests/unit/test_bulk_loader_defanging.py::TestIntelligentDefanging::test_mixed_command_types PASSED [  7%]
+tests/unit/test_bulk_loader_defanging.py::TestBackwardCompatibility::test_existing_tests_still_pass PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_get_cached_returns_deep_copy PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_get_cached_with_complex_nested_structures PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_get_cached_with_empty_and_none_values PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_get_cached_missing_key_returns_none PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_get_cached_invalid_json_returns_none PASSED [  7%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_store_cached_with_non_serializable_data PASSED [  8%]
+tests/unit/test_cache_security.py::TestCacheMutationPrevention::test_cache_stats_accuracy PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_analyze_safe_commands PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_analyze_moderate_commands PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_analyze_dangerous_commands PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_defang_urls PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_defang_dangerous_patterns PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_defang_command_names PASSED [  8%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_create_safe_command PASSED [  9%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_extract_command_components PASSED [  9%]
+tests/unit/test_command_defanging.py::TestCommandDefanger::test_empty_command_handling PASSED [  9%]
+tests/unit/test_command_defanging.py::TestUtilityFunctions::test_defang_url_function PASSED [  9%]
+tests/unit/test_command_defanging.py::TestUtilityFunctions::test_is_safe_command_function PASSED [  9%]
+tests/unit/test_command_defanging.py::TestUtilityFunctions::test_get_command_risk_score_function PASSED [  9%]
+tests/unit/test_command_defanging.py::TestUtilityFunctions::test_edge_cases PASSED [  9%]
+tests/unit/test_command_defanging.py::TestDefangingIntegration::test_malware_download_scenario PASSED [  9%]
+tests/unit/test_command_defanging.py::TestDefangingIntegration::test_file_manipulation_scenario PASSED [  9%]
+tests/unit/test_command_defanging.py::TestDefangingIntegration::test_system_reconnaissance_scenario PASSED [ 10%]
+tests/unit/test_command_defanging.py::TestDefangingIntegration::test_safe_commands_preserved PASSED [ 10%]
+tests/unit/test_command_defanging.py::TestDefangingIntegration::test_complex_malicious_command PASSED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_get_schema_version FAILED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_get_schema_version_empty_db PASSED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_validate_schema FAILED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_migrate_dry_run FAILED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_create_backup FAILED [ 10%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_create_backup_custom_path FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_verify_backup_integrity_valid FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_check_integrity FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_check_integrity_deep FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_optimize_vacuum_only FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_optimize_reindex_only FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_migrate_command FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_check_command FAILED [ 11%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_backup_command FAILED [ 12%]
+tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_integrity_command FAILED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_initializes_with_sqlite_url PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_table_exists_works_correctly PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_get_schema_version_returns_version PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_validate_schema_works_with_real_db PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_check_integrity_basic_works PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_get_all_indexes_returns_list PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_migrate_dry_run_works PASSED [ 12%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_backfill_files_table_processes_valid_events PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_backfill_files_table_handles_no_events_gracefully PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_backfill_files_table_respects_limit_parameter PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_backfill_files_table_handles_invalid_json_gracefully PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_sanitize_unicode_dry_run_mode_works PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_sanitize_unicode_respects_limit_parameter PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_sanitize_unicode_respects_batch_size_parameter PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_sanitize_unicode_handles_no_records_gracefully PASSED [ 13%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_analyze_data_quality_returns_comprehensive_analysis PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_analyze_data_quality_respects_sample_size_parameter PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_migrate_to_postgresql_validates_source_is_sqlite PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_migrate_to_postgresql_rejects_non_sqlite_source PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_migrate_to_postgresql_validates_postgresql_target_url PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_get_files_table_stats_returns_comprehensive_stats PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_get_files_table_stats_handles_missing_table_gracefully PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_repair_data_quality_dry_run_mode_works PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_repair_data_quality_respects_batch_size_parameter PASSED [ 14%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_perform_data_migration_handles_empty_database_gracefully PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_help_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_migrate_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_check_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_files_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_analyze_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_main_function_handles_invalid_command PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_repair_missing_fields_dry_run_mode_works PASSED [ 15%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_repair_missing_fields_respects_batch_size_parameter PASSED [ 16%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_repair_missing_fields_handles_generated_columns_gracefully PASSED [ 16%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_migrate_table_data_handles_empty_table_gracefully PASSED [ 16%]
+tests/unit/test_cowrie_db_queries.py::test_cowrie_database_validate_migration_returns_comprehensive_validation PASSED [ 16%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_database_initialization_types PASSED [ 16%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_get_engine_return_type PASSED [ 16%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_get_session_return_type PASSED [ 16%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_database_type_detection PASSED [ 16%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_table_exists_return_type FAILED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_table_exists_not_found FAILED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_sanitization_metrics_types PASSED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_sanitization_metrics_with_values PASSED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_migrate_return_type PASSED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_migrate_dry_run_return_type PASSED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_validate_schema_return_type FAILED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_optimize_return_type FAILED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_create_backup_return_type FAILED [ 17%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_check_integrity_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_files_table_stats_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_backfill_files_table_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_analyze_data_quality_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_repair_data_quality_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_migrate_to_postgresql_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_longtail_migrate_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_longtail_rollback_return_type FAILED [ 18%]
+tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_validate_longtail_schema_return_type FAILED [ 19%]
+tests/unit/test_cowrie_db_types.py::TestSQLAlchemy20Compatibility::test_no_deprecated_query_patterns FAILED [ 19%]
+tests/unit/test_cowrie_db_types.py::TestSQLAlchemy20Compatibility::test_proper_insert_patterns PASSED [ 19%]
+tests/unit/test_cowrie_db_types.py::TestSQLAlchemy20Compatibility::test_proper_type_annotations PASSED [ 19%]
+tests/unit/test_cowrie_db_types.py::TestSQLAlchemy20Compatibility::test_proper_imports PASSED [ 19%]
+tests/unit/test_cowrie_malware_enrichment.py::test_vt_lookup_appends_results PASSED [ 19%]
+tests/unit/test_cowrie_malware_enrichment.py::test_timespan_filters_old_events PASSED [ 19%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_validates_login_event_succeeds PASSED [ 19%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_validates_command_event_succeeds PASSED [ 19%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_rejects_malformed_event PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_handles_unknown_event_type PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_handles_non_dict_input PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_extracts_event_type_from_valid_event PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_extracts_event_type_from_malformed_event PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_handles_missing_eventid PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_repairs_event_fields PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaValidation::test_cowrie_schema_handles_non_dict_repair_input PASSED [ 20%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaEdgeCases::test_cowrie_schema_handles_empty_event PASSED [ 21%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaEdgeCases::test_cowrie_schema_handles_none_input PASSED [ 21%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaEdgeCases::test_cowrie_schema_handles_unicode_in_event_fields PASSED [ 21%]
+tests/unit/test_cowrie_schema.py::TestCowrieSchemaEdgeCases::test_cowrie_schema_handles_large_event_data PASSED [ 21%]
+tests/unit/test_database_settings.py::test_default_settings_use_sqlite_tmp PASSED [ 21%]
+tests/unit/test_database_settings.py::test_env_overrides_database_url PASSED [ 21%]
+tests/unit/test_database_settings.py::test_env_path_override PASSED      [ 21%]
+tests/unit/test_database_settings.py::test_sqlite_engine_pragmas[True] PASSED [ 21%]
+tests/unit/test_database_settings.py::test_sqlite_engine_pragmas[False] PASSED [ 21%]
+tests/unit/test_database_settings.py::test_settings_pool_options_from_env PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_contains_all_constraint_types PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_index_format_is_correct PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_unique_format_is_correct PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_check_format_is_correct PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_foreign_key_format_is_correct PASSED [ 22%]
+tests/unit/test_db_base.py::TestNamingConvention::test_naming_convention_primary_key_format_is_correct PASSED [ 22%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_is_abstract PASSED  [ 22%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_has_metadata_with_naming_convention PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_inheritance_works_correctly PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_models_can_be_created_and_queried PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_models_support_relationships PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_models_support_indexes PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_models_support_unique_constraints PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_metadata_reflects_correctly PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_models_work_with_different_database_types PASSED [ 23%]
+tests/unit/test_db_base.py::TestBaseClass::test_base_naming_convention_applies_to_constraints PASSED [ 24%]
+tests/unit/test_db_engine.py::TestDetectPostgresqlSupport::test_detect_postgresql_support_with_psycopg_returns_true FAILED [ 24%]
+tests/unit/test_db_engine.py::TestDetectPostgresqlSupport::test_detect_postgresql_support_without_psycopg_returns_false PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_postgresql_url_with_postgresql_url_returns_true PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_postgresql_url_with_postgres_url_returns_true PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_postgresql_url_with_sqlite_url_returns_false PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_postgresql_url_with_invalid_url_returns_false PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_sqlite_url_with_sqlite_url_returns_true PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_sqlite_url_with_memory_url_returns_true PASSED [ 24%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_is_sqlite_url_with_postgresql_url_returns_false PASSED [ 25%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_needs_static_pool_with_memory_url_returns_true PASSED [ 25%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_needs_static_pool_with_file_memory_url_returns_true PASSED [ 25%]
+tests/unit/test_db_engine.py::TestUrlDetection::test_needs_static_pool_with_file_url_returns_false PASSED [ 25%]
+tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_configures_basic_settings FAILED [ 25%]
+tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_with_wal_enabled_configures_wal PASSED [ 25%]
+tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_with_wal_fallback_configures_fallback PASSED [ 25%]
+tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_handles_database_error_gracefully FAILED [ 25%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_creates_engine FAILED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_postgresql_converts_url PASSED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_postgres_converts_url PASSED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_memory_uses_static_pool FAILED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_with_pool_settings_applies_config FAILED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_sets_connect_args FAILED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineWithFallback::test_create_engine_with_fallback_postgresql_available_creates_engine PASSED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineWithFallback::test_create_engine_with_fallback_postgresql_unavailable_raises_error PASSED [ 26%]
+tests/unit/test_db_engine.py::TestCreateEngineWithFallback::test_create_engine_with_fallback_sqlite_creates_engine PASSED [ 26%]
+tests/unit/test_db_engine.py::TestCreateSessionMaker::test_create_session_maker_returns_configured_sessionmaker PASSED [ 27%]
+tests/unit/test_db_engine.py::TestDatabaseFeatureDetection::test_detect_database_features_sqlite_returns_basic_features PASSED [ 27%]
+tests/unit/test_db_engine.py::TestDatabaseFeatureDetection::test_detect_database_features_postgresql_returns_advanced_features PASSED [ 27%]
+tests/unit/test_db_engine.py::TestDatabaseFeatureDetection::test_detect_database_features_handles_exceptions_gracefully PASSED [ 27%]
+tests/unit/test_db_engine.py::TestDatabaseFeatureDetection::test_detect_database_features_pgvector_with_version PASSED [ 27%]
+tests/unit/test_db_engine.py::TestIsPostgresql::test_is_postgresql_with_postgresql_engine_returns_true PASSED [ 27%]
+tests/unit/test_db_engine.py::TestIsPostgresql::test_is_postgresql_with_sqlite_engine_returns_false PASSED [ 27%]
+tests/unit/test_db_engine.py::TestHasPgvector::test_has_pgvector_with_postgresql_and_extension_returns_true PASSED [ 27%]
+tests/unit/test_db_engine.py::TestHasPgvector::test_has_pgvector_with_sqlite_engine_returns_false PASSED [ 28%]
+tests/unit/test_db_engine.py::TestHasPgvector::test_has_pgvector_with_exception_returns_false PASSED [ 28%]
+tests/unit/test_db_engine.py::TestHasPgvector::test_has_pgvector_with_no_extension_returns_false PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_is_postgresql_postgresql_engine PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_is_postgresql_sqlite_engine PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_has_pgvector_non_postgresql PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_has_pgvector_postgresql_no_extension PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_has_pgvector_postgresql_with_extension PASSED [ 28%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_has_pgvector_postgresql_exception PASSED [ 29%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_detect_database_features_postgresql_with_pgvector PASSED [ 29%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_detect_database_features_postgresql_without_pgvector PASSED [ 29%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_detect_database_features_sqlite PASSED [ 29%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_detect_database_features_version_exception PASSED [ 29%]
+tests/unit/test_db_feature_detection.py::TestDatabaseFeatureDetection::test_detect_database_features_pgvector_version_exception PASSED [ 29%]
+tests/unit/test_delta_loader.py::test_delta_loader_ingests_only_new_events PASSED [ 29%]
+tests/unit/test_delta_loader.py::test_delta_loader_handles_file_rotation FAILED [ 29%]
+tests/unit/test_delta_loader.py::test_delta_loader_records_dead_letters PASSED [ 29%]
+tests/unit/test_delta_loader.py::test_delta_loader_handles_empty_checkpoint_file FAILED [ 30%]
+tests/unit/test_delta_loader.py::test_delta_loader_handles_corrupted_checkpoint FAILED [ 30%]
+tests/unit/test_delta_loader.py::test_delta_loader_rolls_back_on_database_error FAILED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_new_event_sqlite PASSED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_update_existing_sqlite PASSED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_missing_session PASSED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_field_mapping PASSED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_default_source PASSED [ 30%]
+tests/unit/test_dlq_processor.py::test_insert_repaired_event_error_handling PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_empty_queue PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_successful_repair PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_failed_repair PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_with_reason_filter PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_with_limit PASSED [ 31%]
+tests/unit/test_dlq_processor.py::test_process_dlq_events_skipped_events PASSED [ 31%]
+tests/unit/test_enrich_password_tracking.py::test_track_password_de_dupes_usage_rows PASSED [ 31%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_with_nul_byte PASSED [ 31%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_with_multiple_nul_bytes PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_without_nul_byte PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_empty_text PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_with_special_chars PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_with_length_limit PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_text_with_nul_and_length_limit PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestPasswordSanitization::test_sanitize_username_for_password_session_usage PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestTrackPasswordWithNulBytes::test_track_password_with_nul_byte_succeeds PASSED [ 32%]
+tests/unit/test_enrich_passwords_cli.py::TestTrackPasswordWithNulBytes::test_track_multiple_passwords_with_nul_bytes PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::TestTrackPasswordWithNulBytes::test_track_password_updates_existing_with_nul PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::TestBinaryPasswordHandling::test_sanitize_binary_password PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::TestBinaryPasswordHandling::test_sanitize_utf8_password PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::TestBinaryPasswordHandling::test_sanitize_mixed_utf8_and_nul PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_passwords_handles_missing_date_range_gracefully PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_passwords_handles_invalid_database_schema_gracefully PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_passwords_handles_last_days_parameter_correctly PASSED [ 33%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_passwords_handles_start_end_date_parameters_correctly PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_refresh_enrichment_handles_missing_credentials_gracefully PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_refresh_enrichment_handles_database_connection_gracefully PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_track_password_creates_new_password_record PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_track_password_updates_existing_password_record PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_track_password_handles_invalid_timestamp_gracefully PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_track_password_handles_nul_bytes_in_password_text PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_session_processes_password_attempts_correctly PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_enrich_session_handles_no_password_attempts_gracefully PASSED [ 34%]
+tests/unit/test_enrich_passwords_cli.py::test_aggregate_daily_stats_aggregates_password_statistics_correctly PASSED [ 35%]
+tests/unit/test_enrich_passwords_cli.py::test_aggregate_daily_stats_handles_no_sessions_gracefully PASSED [ 35%]
+tests/unit/test_enrich_passwords_cli.py::test_update_session_persists_enrichment_data_correctly PASSED [ 35%]
+tests/unit/test_enrich_passwords_cli.py::test_update_session_handles_no_existing_enrichment PASSED [ 35%]
+tests/unit/test_enrich_passwords_cli.py::test_update_file_persists_virustotal_data_correctly PASSED [ 35%]
+tests/unit/test_enrich_passwords_cli.py::test_update_file_handles_no_virustotal_data_gracefully PASSED [ 35%]
+tests/unit/test_enrichment_cache.py::test_cache_manager_records_hits_and_misses PASSED [ 35%]
+tests/unit/test_enrichment_cache.py::test_cache_manager_snapshot_is_copy PASSED [ 35%]
+tests/unit/test_enrichment_cache.py::test_cleanup_expired_removes_stale_entries PASSED [ 36%]
+tests/unit/test_enrichment_cache.py::test_hibp_cache_path_structure PASSED [ 36%]
+tests/unit/test_enrichment_cache.py::test_dshield_cache_path_structure PASSED [ 36%]
+tests/unit/test_enrichment_cache.py::test_legacy_cache_migrates_to_new_layout PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_vt_query_writes_cache PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_dshield_query_uses_cache PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_dshield_query_handles_malformed_cache PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_safe_read_uh_data_timeout PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_read_uh_data_parses_and_sorts_tags PASSED [ 36%]
+tests/unit/test_enrichment_handlers.py::test_read_uh_data_returns_empty_on_invalid_payload PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_read_spur_data_parses_cached_json PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_read_spur_data_returns_empty_on_invalid_payload PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_vt_query_handles_404_response FAILED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_vt_query_handles_rate_limit PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_vt_query_handles_network_error PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_vt_query_skips_enrichment_when_disabled PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_dshield_query_handles_expired_cache PASSED [ 37%]
+tests/unit/test_enrichment_handlers.py::test_dshield_query_handles_api_error PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_dshield_query_handles_timeout PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_uh_data_caches_response PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_uh_data_handles_no_results PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_uh_data_handles_api_failure PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_safe_read_uh_data_timeout_protection PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_spur_data_handles_missing_fields PASSED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_spur_data_handles_nested_client_schema FAILED [ 38%]
+tests/unit/test_enrichment_handlers.py::test_read_spur_data_handles_tunnel_parsing PASSED [ 39%]
+tests/unit/test_enrichment_handlers.py::test_cache_ttl_expiration PASSED [ 39%]
+tests/unit/test_enrichment_handlers.py::test_concurrent_cache_access PASSED [ 39%]
+tests/unit/test_enrichment_handlers.py::test_all_services_handle_empty_api_keys FAILED [ 39%]
+tests/unit/test_enrichment_handlers.py::test_all_services_handle_skip_enrich_flag PASSED [ 39%]
+tests/unit/test_enrichment_handlers.py::test_malformed_responses_handled_gracefully FAILED [ 39%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_enrichment_metrics_initialization PASSED [ 39%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_enrichment_telemetry_initialization PASSED [ 39%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_cache_stats PASSED [ 39%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_api_call PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_rate_limit_hit PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_session_enrichment PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_file_enrichment PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_record_cache_error PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_set_ingest_id PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_get_cache_hit_rate PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_get_api_success_rate PASSED [ 40%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_get_enrichment_throughput PASSED [ 41%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_get_summary PASSED [ 41%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentTelemetry::test_status_emitter_integration PASSED [ 41%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentServiceTelemetryIntegration::test_enrichment_service_with_telemetry PASSED [ 41%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentServiceTelemetryIntegration::test_enrichment_service_without_telemetry PASSED [ 41%]
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentServiceTelemetryIntegration::test_cache_snapshot_method PASSED [ 41%]
+tests/unit/test_es_publisher.py::test_elasticsearch_publisher_builds_actions PASSED [ 41%]
+tests/unit/test_es_publisher.py::test_elasticsearch_publisher_requires_client PASSED [ 41%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_valid_file_download_event PASSED [ 41%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_invalid_event_type PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_missing_shasum PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_invalid_shasum_format PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_short_shasum PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_optional_fields PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_filename_sanitization PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_long_filename_truncation PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_negative_file_size PASSED [ 42%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_invalid_file_size_type PASSED [ 43%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_url_sanitization PASSED [ 43%]
+tests/unit/test_file_processor.py::TestExtractFileData::test_long_url_truncation PASSED [ 43%]
+tests/unit/test_file_processor.py::TestParseTimestamp::test_valid_iso_timestamp PASSED [ 43%]
+tests/unit/test_file_processor.py::TestParseTimestamp::test_valid_iso_timestamp_with_timezone PASSED [ 43%]
+tests/unit/test_file_processor.py::TestParseTimestamp::test_invalid_timestamp PASSED [ 43%]
+tests/unit/test_file_processor.py::TestParseTimestamp::test_none_timestamp PASSED [ 43%]
+tests/unit/test_file_processor.py::TestParseTimestamp::test_empty_timestamp PASSED [ 43%]
+tests/unit/test_file_processor.py::TestCreateFilesRecord::test_create_files_record PASSED [ 43%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_valid_sha256_hash PASSED [ 44%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_valid_hex_hash PASSED [ 44%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_invalid_length PASSED [ 44%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_invalid_characters PASSED [ 44%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_none_hash PASSED [ 44%]
+tests/unit/test_file_processor.py::TestValidateFileHash::test_empty_hash PASSED [ 44%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_normal_filename PASSED [ 44%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_filename_with_null_bytes PASSED [ 44%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_filename_with_path_traversal PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_long_filename PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_empty_filename PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeFilename::test_none_filename PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeUrl::test_normal_url PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeUrl::test_url_with_null_bytes PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeUrl::test_long_url PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeUrl::test_empty_url PASSED [ 45%]
+tests/unit/test_file_processor.py::TestSanitizeUrl::test_none_url PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_create_files_record PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_unique_constraint_session_hash PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_different_sessions_same_hash PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_enrichment_status_default PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_vt_enrichment_fields PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_timestamps_auto_generated PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_nullable_fields PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_vt_malicious_default PASSED [ 46%]
+tests/unit/test_files_table.py::TestFilesTable::test_query_by_enrichment_status PASSED [ 47%]
+tests/unit/test_files_table.py::TestFilesTable::test_query_by_vt_malicious PASSED [ 47%]
+tests/unit/test_files_table.py::TestFilesTable::test_query_by_session_id PASSED [ 47%]
+tests/unit/test_health_cli.py::test_health_cli_json FAILED               [ 47%]
+tests/unit/test_health_cli.py::test_health_cli_missing_status FAILED     [ 47%]
+tests/unit/test_hibp_client.py::test_init_creates_enricher PASSED        [ 47%]
+tests/unit/test_hibp_client.py::test_check_password_breached PASSED      [ 47%]
+tests/unit/test_hibp_client.py::test_check_password_not_breached PASSED  [ 47%]
+tests/unit/test_hibp_client.py::test_check_password_uses_cache PASSED    [ 48%]
+tests/unit/test_hibp_client.py::test_check_password_api_error PASSED     [ 48%]
+tests/unit/test_hibp_client.py::test_parse_response_valid PASSED         [ 48%]
+tests/unit/test_hibp_client.py::test_parse_response_empty PASSED         [ 48%]
+tests/unit/test_hibp_client.py::test_parse_response_malformed PASSED     [ 48%]
+tests/unit/test_hibp_client.py::test_extract_result_found PASSED         [ 48%]
+tests/unit/test_hibp_client.py::test_extract_result_not_found PASSED     [ 48%]
+tests/unit/test_hibp_client.py::test_get_stats PASSED                    [ 48%]
+tests/unit/test_hibp_client.py::test_reset_stats PASSED                  [ 48%]
+tests/unit/test_hibp_client.py::test_k_anonymity_only_sends_prefix PASSED [ 49%]
+tests/unit/test_hibp_client.py::test_stats_increment_correctly PASSED    [ 49%]
+tests/unit/test_hibp_client.py::test_hibp_service_unavailable_retries FAILED [ 49%]
+tests/unit/test_hibp_client.py::test_hibp_invalid_api_key_raises_auth_error FAILED [ 49%]
+tests/unit/test_ingest_cli.py::TestMakeBulkConfig::test_make_bulk_config_with_defaults_creates_valid_config PASSED [ 49%]
+tests/unit/test_ingest_cli.py::TestMakeBulkConfig::test_make_bulk_config_with_custom_values_creates_valid_config PASSED [ 49%]
+tests/unit/test_ingest_cli.py::TestMakeBulkConfig::test_make_bulk_config_with_zero_values_handles_correctly PASSED [ 49%]
+tests/unit/test_ingest_cli.py::TestMakeDeltaConfig::test_make_delta_config_creates_valid_delta_config PASSED [ 49%]
+tests/unit/test_ingest_cli.py::TestMakeDeltaConfig::test_make_delta_config_inherits_bulk_settings PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_skip_enrich_returns_none PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_no_api_keys_returns_none PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_with_vt_api_creates_service PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_uses_environment_variables PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_uses_custom_cache_dir PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_uses_cli_cache_dir PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestResolveEnrichmentService::test_resolve_enrichment_service_with_all_api_keys_creates_service PASSED [ 50%]
+tests/unit/test_ingest_cli.py::TestRunBulkLoader::test_run_bulk_loader_success_returns_zero PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestRunBulkLoader::test_run_bulk_loader_with_no_enrichment_service PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestRunDeltaLoader::test_run_delta_loader_success_returns_zero PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestRunDeltaLoader::test_run_delta_loader_with_dlq_events PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_bulk_mode_calls_bulk_loader PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_delta_mode_calls_delta_loader PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_all_arguments_parses_correctly PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_default_values_uses_defaults PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_invalid_mode_raises_system_exit PASSED [ 51%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_no_sources_raises_system_exit PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_help_flag_prints_help_and_exits PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestMainCLI::test_main_with_unknown_argument_raises_system_exit PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_make_bulk_config_creates_valid_config_object PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_make_delta_config_creates_valid_config_object PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_resolve_enrichment_service_with_skip_enrich_returns_none PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_resolve_enrichment_service_without_skip_enrich_creates_service PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_main_function_parses_arguments_correctly PASSED [ 52%]
+tests/unit/test_ingest_cli.py::TestRealCodeExecution::test_main_function_handles_delta_mode PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_bulk_mode_processes_directory PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_delta_mode_uses_checkpoint PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_invalid_args_exits_with_error PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_enrichment_flag_enables_service PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_handles_help_flag PASSED [ 53%]
+tests/unit/test_ingest_cli.py::TestRealCLIExecution::test_ingest_cli_handles_missing_required_args PASSED [ 53%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_get_field_sqlite PASSED [ 53%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_get_field_postgresql PASSED [ 53%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_get_nested_field_sqlite PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_get_nested_field_postgresql PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_exists_sqlite PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_exists_postgresql PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_not_empty_sqlite PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_not_empty_postgresql PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_equals_sqlite PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_equals_postgresql PASSED [ 54%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_like_sqlite PASSED [ 55%]
+tests/unit/test_json_utils.py::TestJSONAccessor::test_field_like_postgresql PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_sqlite PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_postgresql PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_exists_sqlite PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_exists_postgresql PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_not_empty_sqlite PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_not_empty_postgresql PASSED [ 55%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_equals_sqlite PASSED [ 56%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_equals_postgresql PASSED [ 56%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_like_sqlite PASSED [ 56%]
+tests/unit/test_json_utils.py::TestConvenienceFunctions::test_json_field_like_postgresql PASSED [ 56%]
+tests/unit/test_json_utils.py::TestDialectDetection::test_get_dialect_name_sqlite PASSED [ 56%]
+tests/unit/test_json_utils.py::TestDialectDetection::test_get_dialect_name_postgresql PASSED [ 56%]
+tests/unit/test_json_utils.py::TestIntegration::test_json_operations_with_sqlite PASSED [ 56%]
+tests/unit/test_json_utils.py::TestIntegration::test_json_operations_with_empty_fields PASSED [ 56%]
+tests/unit/test_longtail.py::test_analyze_empty_sessions_list PASSED     [ 56%]
+tests/unit/test_longtail.py::test_analyze_memory_limit_auto_detection PASSED [ 57%]
+tests/unit/test_longtail.py::test_analyze_with_explicit_memory_limit PASSED [ 57%]
+tests/unit/test_longtail.py::test_analyze_calls_detection_methods PASSED [ 57%]
+tests/unit/test_longtail.py::test_analyze_password_intelligence_enabled PASSED [ 57%]
+tests/unit/test_longtail.py::test_analyze_measures_duration_and_memory PASSED [ 57%]
+tests/unit/test_longtail.py::test_compute_password_intelligence_no_sessions PASSED [ 57%]
+tests/unit/test_longtail.py::test_compute_password_intelligence_from_enrichment PASSED [ 57%]
+tests/unit/test_longtail.py::test_compute_password_intelligence_with_novel_hashes PASSED [ 57%]
+tests/unit/test_longtail.py::test_compute_password_intelligence_handles_missing_enrichment PASSED [ 58%]
+tests/unit/test_longtail.py::test_compute_password_intelligence_alternative_key_name PASSED [ 58%]
+tests/unit/test_longtail.py::test_run_longtail_analysis_empty_database PASSED [ 58%]
+tests/unit/test_longtail.py::test_run_longtail_analysis_with_sessions PASSED [ 58%]
+tests/unit/test_longtail.py::test_run_longtail_analysis_with_time_window PASSED [ 58%]
+tests/unit/test_longtail.py::test_run_longtail_analysis_with_json_output PASSED [ 58%]
+tests/unit/test_longtail.py::test_detect_outlier_sessions_too_few_sessions PASSED [ 58%]
+tests/unit/test_longtail.py::test_detect_outlier_sessions_with_clustering PASSED [ 58%]
+tests/unit/test_longtail.py::test_detect_outlier_sessions_fallback_detection PASSED [ 58%]
+tests/unit/test_longtail.py::test_detect_outlier_sessions_no_outliers PASSED [ 59%]
+tests/unit/test_longtail.py::test_extract_commands_empty_sessions PASSED [ 59%]
+tests/unit/test_longtail.py::test_extract_commands_with_cache_hit PASSED [ 59%]
+tests/unit/test_longtail.py::test_extract_commands_handles_database_errors PASSED [ 59%]
+tests/unit/test_longtail.py::test_detect_anomalous_sequences_too_few_sequences PASSED [ 59%]
+tests/unit/test_longtail.py::test_detect_anomalous_sequences_frequency_based PASSED [ 59%]
+tests/unit/test_longtail.py::test_detect_anomalous_sequences_no_anomalies PASSED [ 59%]
+tests/unit/test_longtail.py::test_analyzer_init_with_defaults PASSED     [ 59%]
+tests/unit/test_longtail.py::test_analyzer_init_with_custom_params PASSED [ 60%]
+tests/unit/test_longtail.py::test_analyzer_init_state_initialization PASSED [ 60%]
+tests/unit/test_longtail.py::test_benchmark_vector_dimensions_with_sessions PASSED [ 60%]
+tests/unit/test_longtail.py::test_benchmark_vector_dimensions_handles_errors PASSED [ 60%]
+tests/unit/test_longtail.py::test_create_mock_sessions_default_params PASSED [ 60%]
+tests/unit/test_longtail.py::test_create_mock_sessions_custom_counts PASSED [ 60%]
+tests/unit/test_longtail.py::test_create_mock_sessions_custom_commands PASSED [ 60%]
+tests/unit/test_longtail.py::test_extract_command_data_empty_sessions PASSED [ 60%]
+tests/unit/test_longtail.py::test_extract_command_data_builds_frequency_map PASSED [ 60%]
+tests/unit/test_longtail.py::test_extract_ips_empty_sessions PASSED      [ 61%]
+tests/unit/test_longtail.py::test_extract_ips_handles_database_errors PASSED [ 61%]
+tests/unit/test_longtail.py::test_detect_rare_commands_empty_frequencies PASSED [ 61%]
+tests/unit/test_longtail.py::test_detect_rare_commands_identifies_rare PASSED [ 61%]
+tests/unit/test_longtail.py::test_detect_rare_commands_sorts_by_rarity PASSED [ 61%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_ip_caches_results PASSED [ 61%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_ip_handles_private_ips PASSED [ 61%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_ip_handles_known_good_ips PASSED [ 61%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_ip_handles_suspicious_ips FAILED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_file_hash_caches_results PASSED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_file_hash_handles_known_bad_hashes FAILED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_file_hash_handles_known_good_hashes FAILED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_rate_limiting PASSED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_check_ip_caches_results PASSED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_check_ip_handles_private_ips PASSED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_check_ip_handles_known_good_ips PASSED [ 62%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_check_ip_handles_suspicious_ips PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_rate_limiting PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_quota_exceeded PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_custom_max_age FAILED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockStatisticalAnalyzer::test_analyze_upload_patterns PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockStatisticalAnalyzer::test_analyze_attack_velocity PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockStatisticalAnalyzer::test_detect_coordinated_attacks PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockStatisticalAnalyzer::test_generate_threat_indicators PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockEnvironmentSetup::test_create_mock_enrichment_handlers PASSED [ 63%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockEnvironmentSetup::test_setup_with_database PASSED [ 64%]
+tests/unit/test_mock_enrichment_handlers.py::TestMockEnvironmentSetup::test_mock_handlers_integration PASSED [ 64%]
+tests/unit/test_otel_tracing.py::test_start_span_no_op_when_trace_missing PASSED [ 64%]
+tests/unit/test_otel_tracing.py::test_start_span_passes_through_exceptions PASSED [ 64%]
+tests/unit/test_password_extractor.py::test_extract_from_login_success PASSED [ 64%]
+tests/unit/test_password_extractor.py::test_extract_from_login_failed PASSED [ 64%]
+tests/unit/test_password_extractor.py::test_extract_multiple_attempts PASSED [ 64%]
+tests/unit/test_password_extractor.py::test_skip_non_login_events PASSED [ 64%]
+tests/unit/test_password_extractor.py::test_skip_events_without_password PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_skip_events_without_payload PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_password_sha256_hash_correct PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_extract_with_missing_username PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_extract_unique_passwords PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_extract_unique_passwords_empty PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_event_type_preserved PASSED  [ 65%]
+tests/unit/test_password_extractor.py::test_timestamp_preserved PASSED   [ 65%]
+tests/unit/test_password_extractor.py::test_handles_non_string_password PASSED [ 65%]
+tests/unit/test_password_extractor.py::test_empty_events_list PASSED     [ 66%]
+tests/unit/test_process_cowrie.py::test_rate_limit_enforces_minimum_interval PASSED [ 66%]
+tests/unit/test_process_cowrie.py::test_cache_upsert_and_get_round_trip PASSED [ 66%]
+tests/unit/test_process_cowrie.py::test_write_status_throttles_identical_updates PASSED [ 66%]
+tests/unit/test_process_cowrie.py::test_secret_reference_resolution FAILED [ 66%]
+tests/unit/test_process_cowrie.py::test_with_timeout_resets_signal PASSED [ 66%]
+tests/unit/test_process_cowrie.py::test_with_timeout_propagates_timeout PASSED [ 66%]
+tests/unit/test_process_cowrie.py::test_session_helpers PASSED           [ 66%]
+tests/unit/test_process_cowrie.py::test_bulk_load_skips_commits FAILED   [ 67%]
+tests/unit/test_process_cowrie_simple.py::TestProcessCowrieSimple::test_functions_exist_and_callable PASSED [ 67%]
+tests/unit/test_process_cowrie_simple.py::TestProcessCowrieSimple::test_functions_have_type_annotations PASSED [ 67%]
+tests/unit/test_process_cowrie_simple.py::TestProcessCowrieSimple::test_no_deprecated_query_patterns PASSED [ 67%]
+tests/unit/test_process_cowrie_simple.py::TestProcessCowrieSimple::test_imports_are_proper PASSED [ 67%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_timeout_handler_type_annotations FAILED [ 67%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_with_timeout_type_annotations FAILED [ 67%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_rate_limit_type_annotations PASSED [ 67%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_cache_get_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_cache_upsert_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_connected_sessions_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_session_id_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_session_duration_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_protocol_login_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_login_data_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_command_total_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_file_download_type_annotations FAILED [ 68%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_file_upload_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_vt_query_type_annotations PASSED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_vt_filescan_type_annotations PASSED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_dshield_query_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_safe_read_uh_data_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_read_spur_data_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_read_vt_data_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_print_session_info_type_annotations FAILED [ 69%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_commands_type_annotations FAILED [ 70%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_evaluate_sessions_type_annotations FAILED [ 70%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_database_url_type_annotations PASSED [ 70%]
+tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_no_deprecated_query_patterns FAILED [ 70%]
+tests/unit/test_quarantine_payload_fix.py::TestQuarantinePayloadFix::test_malformed_json_has_content_in_dead_letters PASSED [ 70%]
+tests/unit/test_quarantine_payload_fix.py::TestQuarantinePayloadFix::test_non_dict_payload_creates_dead_letter PASSED [ 70%]
+tests/unit/test_quarantine_payload_fix.py::TestQuarantinePayloadFix::test_dead_letter_events_preserve_content PASSED [ 70%]
+tests/unit/test_quarantine_payload_fix.py::TestQuarantinePayloadFix::test_no_empty_payloads_in_quarantined_events PASSED [ 70%]
+tests/unit/test_rate_limiting.py::TestRateLimiter::test_rate_limiter_initialization PASSED [ 70%]
+tests/unit/test_rate_limiting.py::TestRateLimiter::test_rate_limiter_acquire_immediate PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRateLimiter::test_rate_limiter_token_refill PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRateLimitedSession::test_rate_limited_session_initialization PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRateLimitedSession::test_rate_limited_get_request PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRateLimitedSession::test_rate_limited_post_request PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRateLimitedSession::test_session_close PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRetryDecorator::test_retry_success_on_first_attempt PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRetryDecorator::test_retry_success_after_failures PASSED [ 71%]
+tests/unit/test_rate_limiting.py::TestRetryDecorator::test_retry_exhausted_max_retries PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestRetryDecorator::test_retry_with_jitter PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestRetryDecorator::test_retry_only_catches_specific_exceptions PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_service_rate_limits_exist FAILED [ 72%]
+tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_get_service_rate_limit FAILED [ 72%]
+tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_get_service_rate_limit_unknown_service PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_rate_limit_configurations_are_reasonable PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestRateLimitingIntegration::test_enrichment_service_with_rate_limiting PASSED [ 72%]
+tests/unit/test_rate_limiting.py::TestRateLimitingIntegration::test_enrichment_service_without_rate_limiting PASSED [ 73%]
+tests/unit/test_rate_limiting.py::test_rate_limiter_zero_rate_blocks_all_requests PASSED [ 73%]
+tests/unit/test_rate_limiting.py::test_rate_limiter_maximum_burst_allows_burst_then_throttles PASSED [ 73%]
+tests/unit/test_rate_limiting.py::test_rate_limiter_concurrent_requests_respects_limit PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_functions_exist_and_callable PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_class_exists_and_callable PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_functions_have_type_annotations PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_class_methods_have_type_annotations PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_no_deprecated_query_patterns PASSED [ 73%]
+tests/unit/test_refresh_cache_simple.py::TestRefreshCacheSimple::test_imports_are_proper PASSED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_parse_args_type_annotations FAILED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_ensure_indicator_table_type_annotations FAILED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_init_type_annotations FAILED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_rate_limit_type_annotations PASSED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_cache_get_type_annotations FAILED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_cache_upsert_type_annotations PASSED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_should_refresh_vt_type_annotations FAILED [ 74%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_should_refresh_ip_type_annotations FAILED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_refresh_vt_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_refresh_dshield_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_refresh_urlhaus_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_refresh_spur_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_seed_missing_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_refresh_stale_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresh_reports_type_annotations FAILED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_main_type_annotations PASSED [ 75%]
+tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_no_deprecated_query_patterns PASSED [ 76%]
+tests/unit/test_report_cli.py::test_report_cli_dry_run PASSED            [ 76%]
+tests/unit/test_report_cli.py::test_report_cli_all_sensors PASSED        [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_last_day_json PASSED [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_quarter_format PASSED [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_month_format PASSED [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_text_format_with_threats PASSED [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_with_vectors_and_trends PASSED [ 76%]
+tests/unit/test_report_cli.py::test_generate_longtail_report_error_invalid_period PASSED [ 77%]
+tests/unit/test_report_cli.py::test_main_traditional_subcommand_routing PASSED [ 77%]
+tests/unit/test_report_cli.py::test_main_ssh_keys_subcommand_routing PASSED [ 77%]
+tests/unit/test_report_cli.py::test_main_longtail_subcommand_routing PASSED [ 77%]
+tests/unit/test_report_cli.py::test_main_no_command_shows_help PASSED    [ 77%]
+tests/unit/test_report_cli.py::test_generate_traditional_report_daily_mode PASSED [ 77%]
+tests/unit/test_report_cli.py::test_generate_traditional_report_weekly_mode PASSED [ 77%]
+tests/unit/test_report_cli.py::test_generate_traditional_report_with_sensor_filter PASSED [ 77%]
+tests/unit/test_report_cli.py::test_generate_traditional_report_output_to_file PASSED [ 78%]
+tests/unit/test_reporting_builders.py::test_daily_report_builder PASSED  [ 78%]
+tests/unit/test_reporting_dal.py::test_session_stats_and_top_commands PASSED [ 78%]
+tests/unit/test_reporting_dal.py::test_enriched_sessions PASSED          [ 78%]
+tests/unit/test_schema_migrations.py::test_apply_migrations_creates_tables PASSED [ 78%]
+tests/unit/test_schema_migrations.py::test_raw_event_computed_columns FAILED [ 78%]
+tests/unit/test_schema_migrations.py::test_apply_migrations_idempotent PASSED [ 78%]
+tests/unit/test_secrets_resolver.py::test_is_reference_detects_supported_prefixes PASSED [ 78%]
+tests/unit/test_secrets_resolver.py::test_is_reference_returns_false_for_literals PASSED [ 78%]
+tests/unit/test_secrets_resolver.py::test_resolve_secret_env_reference PASSED [ 79%]
+tests/unit/test_secrets_resolver.py::test_resolve_secret_literal_passthrough PASSED [ 79%]
+tests/unit/test_secrets_resolver.py::test_resolve_secret_file_reference PASSED [ 79%]
+tests/unit/test_secrets_resolver.py::test_set_env_if_ref_handles_non_reference_values PASSED [ 79%]
+tests/unit/test_session_enumerator.py::test_enumerate_sessions_basic_metrics PASSED [ 79%]
+tests/unit/test_session_enumerator.py::test_enumerate_sessions_callbacks_invoked PASSED [ 79%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_bool_true_values PASSED [ 79%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_bool_false_values PASSED [ 79%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_bool_invalid_values_use_default PASSED [ 80%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_bool_none_uses_default PASSED [ 80%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_int_valid_values PASSED [ 80%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_int_invalid_values_use_default PASSED [ 80%]
+tests/unit/test_settings.py::TestCoercionHelpers::test_coerce_int_none_uses_default PASSED [ 80%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_default_values PASSED [ 80%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_custom_values PASSED [ 80%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_defaults PASSED [ 80%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_config_override PASSED [ 80%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_config_none_values_ignored PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_env_override PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_env_path_override PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_from_sources_custom_env_prefix PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_env_bool_coercion PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_env_int_coercion FAILED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_env_string_override PASSED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_precedence_config_over_env FAILED [ 81%]
+tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_precedence_env_over_defaults PASSED [ 82%]
+tests/unit/test_settings.py::TestEnrichmentSettings::test_enrichment_settings_default_values PASSED [ 82%]
+tests/unit/test_settings.py::TestEnrichmentSettings::test_enrichment_settings_custom_values PASSED [ 82%]
+tests/unit/test_settings.py::TestEnrichmentSettings::test_enrichment_settings_rate_limits_defaults PASSED [ 82%]
+tests/unit/test_settings.py::TestLoadDatabaseSettings::test_load_database_settings_no_args PASSED [ 82%]
+tests/unit/test_settings.py::TestLoadDatabaseSettings::test_load_database_settings_with_config PASSED [ 82%]
+tests/unit/test_settings.py::TestLoadDatabaseSettings::test_load_database_settings_with_env_prefix PASSED [ 82%]
+tests/unit/test_settings.py::TestLoadDatabaseSettings::test_load_database_settings_with_both_args FAILED [ 82%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_database_settings_invalid_url_format PASSED [ 82%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_database_settings_negative_pool_size PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_database_settings_zero_pool_timeout PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_database_settings_large_cache_size PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_enrichment_settings_empty_rate_limits PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsErrorHandling::test_enrichment_settings_empty_cache_ttls PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsIntegration::test_settings_with_typical_production_config PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsIntegration::test_settings_with_development_config PASSED [ 83%]
+tests/unit/test_settings.py::TestSettingsIntegration::test_settings_with_mixed_override_scenarios FAILED [ 83%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detector_initialization PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detector_default_initialization PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detect_empty_sessions PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detect_insufficient_ips PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_extract_ip_data PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_extract_ip_from_session PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_volume_patterns PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_timing_patterns PASSED [ 84%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_timing_patterns_insufficient_data PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_geographic_diversity PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_geographic_diversity_low_diversity PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_analyze_behavioral_similarity PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_calculate_snowshoe_score PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_calculate_snowshoe_score_max_cap PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_generate_recommendation PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_empty_result PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detect_with_mock_data PASSED [ 85%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_detect_with_exception PASSED [ 86%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetector::test_ip_address_validation PASSED [ 86%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetectorIntegration::test_snowshoe_detection_positive PASSED [ 86%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetectorIntegration::test_snowshoe_detection_negative PASSED [ 86%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetectorIntegration::test_sensitivity_threshold_adjustment PASSED [ 86%]
+tests/unit/test_snowshoe_detection.py::TestSnowshoeDetectorIntegration::test_window_size_impact PASSED [ 86%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_init PASSED [ 86%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_direct_echo_append PASSED [ 86%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_direct_echo_overwrite PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_heredoc_pattern PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_base64_encoded PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_multiple_keys PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_with_comment PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_no_keys_in_command PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_invalid_base64_ignored PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_deduplication_hash PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_fingerprint_calculation PASSED [ 87%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_key_bits_estimation_rsa PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_key_bits_estimation_ed25519 PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_from_events PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_from_events_deduplication PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_extract_ecdsa_key PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_case_insensitive_authorized_keys PASSED [ 88%]
+tests/unit/test_ssh_key_extractor.py::TestSSHKeyExtractor::test_various_path_formats PASSED [ 88%]
+tests/unit/test_status_emitter.py::test_status_emitter_writes_metrics_and_checkpoint PASSED [ 88%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_is_dict_type_guard PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_get_enrichment_dict_with_valid_dict PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_get_enrichment_dict_with_none PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_get_enrichment_dict_with_invalid_type PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_get_payload_dict_with_valid_dict PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_get_payload_dict_with_none PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_enrichment_field_success PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_enrichment_field_missing_field PASSED [ 89%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_enrichment_field_no_enrichment PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_payload_field_success PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_payload_field_missing_field PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_safe_get_payload_field_no_payload PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_enrichment_structure_valid PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_enrichment_structure_invalid PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_enrichment_structure_none PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_payload_structure_valid PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_payload_structure_missing_fields PASSED [ 90%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_payload_structure_wrong_event_type PASSED [ 91%]
+tests/unit/test_threat_detection_types.py::TestTypeGuards::test_validate_payload_structure_none_payload PASSED [ 91%]
+tests/unit/test_threat_detection_types.py::TestTypeSafetyEdgeCases::test_enrichment_with_unexpected_types PASSED [ 91%]
+tests/unit/test_threat_detection_types.py::TestTypeSafetyEdgeCases::test_payload_with_unexpected_types PASSED [ 91%]
+tests/unit/test_threat_detection_types.py::TestTypeSafetyEdgeCases::test_nested_dict_access_with_invalid_structure PASSED [ 91%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_dry_run PASSED [ 91%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_actual_run PASSED [ 91%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_no_table PASSED [ 91%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_batch_processing PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_limit PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_error_handling PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_postgresql_vs_sqlite PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_json_validation PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_progress_logging PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_real_world_scenario PASSED [ 92%]
+tests/unit/test_unicode_cleanup_utility.py::TestUnicodeCleanupUtility::test_sanitize_unicode_in_database_empty_database PASSED [ 92%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_unicode_string_basic PASSED [ 92%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_unicode_string_preserve_whitespace PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_unicode_string_strict_mode PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_unicode_string_replacement PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_json_string_valid_json PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_json_string_malformed_json PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_json_object_recursive PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_filename PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_url PASSED [ 93%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_sanitize_command PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_is_safe_for_postgres_json PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_validate_and_sanitize_payload_string PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_validate_and_sanitize_payload_dict PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_validate_and_sanitize_payload_invalid PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_real_world_cowrie_examples PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_edge_cases PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestUnicodeSanitizer::test_unicode_normalization PASSED [ 94%]
+tests/unit/test_unicode_sanitizer.py::TestConvenienceFunctions::test_sanitize_unicode_string_function PASSED [ 95%]
+tests/unit/test_unicode_sanitizer.py::TestConvenienceFunctions::test_sanitize_json_payload_function PASSED [ 95%]
+tests/unit/test_unicode_sanitizer.py::TestConvenienceFunctions::test_is_safe_for_database_function PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_init PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_init_skip_enrich PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_init_no_api_key PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_get_cache_path PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_load_cached_response_exists PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_load_cached_response_not_exists PASSED [ 95%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_load_cached_response_invalid_json PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_save_cached_response PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_check_quota_before_request PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_check_quota_before_request_no_manager PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_handle_quota_error PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_fetch_file_info_success PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_fetch_file_info_not_found PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_fetch_file_info_quota_exceeded PASSED [ 96%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_enrich_file_cached PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_enrich_file_fresh PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_enrich_file_skip_enrich PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_enrich_file_no_api_key PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_get_quota_status PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_extract_analysis_stats PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_extract_analysis_stats_invalid PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_extract_analysis_stats_with_non_numeric_values PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_is_malicious PASSED [ 97%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_is_malicious_invalid_response PASSED [ 98%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_virustotal_rate_limit_retries_with_backoff FAILED [ 98%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_virustotal_network_timeout_raises_clear_error FAILED [ 98%]
+tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_close PASSED [ 98%]
+tests/unit/test_virustotal_quota.py::TestQuotaInfo::test_quota_info_creation PASSED [ 98%]
+tests/unit/test_virustotal_quota.py::TestQuotaInfo::test_quota_info_edge_cases PASSED [ 98%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_init PASSED [ 98%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_quota_info_success PASSED [ 98%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_quota_info_caching PASSED [ 99%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_quota_info_force_refresh PASSED [ 99%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_quota_info_error PASSED [ 99%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_can_make_request PASSED [ 99%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_backoff_time PASSED [ 99%]
+tests/unit/test_virustotal_quota.py::TestVirusTotalQuotaManager::test_get_quota_summary PASSED [ 99%]
+tests/unit/test_virustotal_serialization.py::TestVirusTotalSerialization::test_serialize_whistleblower_dict PASSED [ 99%]
+tests/unit/test_virustotal_serialization.py::TestVirusTotalSerialization::test_json_serialization_with_default_str PASSED [ 99%]
+tests/unit/test_virustotal_serialization.py::TestVirusTotalSerialization::test_serialize_value_recursive PASSED [100%]
+
+=================================== FAILURES ===================================
+/home/speterson/cowrieprocessor/tests/unit/test_bulk_loader.py:147: AssertionError: assert 1 == 2
+/home/speterson/cowrieprocessor/tests/unit/test_bulk_loader.py:176: AssertionError: assert 1 == 6
+/home/speterson/cowrieprocessor/tests/unit/test_bulk_loader.py:215: AssertionError: assert 3 == 2
+/home/speterson/cowrieprocessor/tests/unit/test_bulk_loader.py:375: AssertionError: assert 1 == 0
+/home/speterson/cowrieprocessor/tests/unit/test_bulk_loader.py:394: AssertionError: assert 1 == 2
+/home/speterson/cowrieprocessor/tests/unit/test_cowrie_db_cli.py:86: assert 0 == 2
+/home/speterson/cowrieprocessor/tests/unit/test_cowrie_db_cli.py:99: assert False is True
+/home/speterson/cowrieprocessor/tests/unit/test_cowrie_db_cli.py:113: assert 0 == 2
+/home/speterson/cowrieprocessor/cowrieprocessor/cli/cowrie_db.py:468: Exception: Backup not supported for database type: /tmp/tmprq3nt5gl.db
+/home/speterson/cowrieprocessor/cowrieprocessor/cli/cowrie_db.py:468: Exception: Backup not supported for database type: /tmp/tmpmz4szt2f.db
+/home/speterson/cowrieprocessor/cowrieprocessor/cli/cowrie_db.py:468: Exception: Backup not supported for database type: /tmp/tmpzs87maxc.db
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/engine/url.py:922: sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL string
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/engine/url.py:922: sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL string
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/engine/url.py:922: sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL string
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/engine/url.py:922: sqlalchemy.exc.ArgumentError: Could not parse SQLAlchemy URL from given URL string
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/argparse.py:2645: SystemExit: 2
+/home/speterson/cowrieprocessor/tests/unit/test_cowrie_db_cli.py:267: assert 2 == 0
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/argparse.py:2645: SystemExit: 2
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/argparse.py:2645: SystemExit: 2
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/cowrieprocessor/tests/unit/test_cowrie_db_types.py:482: AssertionError: Found deprecated session.query() pattern on line 260: result['command_count'] = session.query(CommandStat).count()
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/pkgutil.py:528: AttributeError: module 'cowrieprocessor.db.engine' has no attribute 'importlib'
+/home/speterson/cowrieprocessor/tests/unit/test_db_engine.py:138: AssertionError: assert 'PRAGMA synchronous=1' in ['PRAGMA busy_timeout=5000', 'PRAGMA journal_mode=WAL', 'PRAGMA journal_mode=DELETE', 'PRAGMA synchronous=NORMAL', 'PRAGMA cache_size=-64000']
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:1228: sqlite3.DatabaseError: Database error
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/event/api.py:34: sqlalchemy.exc.InvalidRequestError: No such event 'connect' for target '<Mock name='create_engine()' id='127122527961840'>'
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/event/api.py:34: sqlalchemy.exc.InvalidRequestError: No such event 'connect' for target '<Mock name='create_engine()' id='127122527969232'>'
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/event/api.py:34: sqlalchemy.exc.InvalidRequestError: No such event 'connect' for target '<Mock name='create_engine()' id='127122527970576'>'
+/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/event/api.py:34: sqlalchemy.exc.InvalidRequestError: No such event 'connect' for target '<Mock name='create_engine()' id='127122527971920'>'
+/home/speterson/cowrieprocessor/tests/unit/test_delta_loader.py:117: AssertionError: assert 3 == 2
+/home/speterson/cowrieprocessor/tests/unit/test_delta_loader.py:171: TypeError: DeltaLoaderConfig.__init__() got an unexpected keyword argument 'source_path'
+/home/speterson/cowrieprocessor/tests/unit/test_delta_loader.py:200: TypeError: DeltaLoaderConfig.__init__() got an unexpected keyword argument 'source_path'
+/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/unittest/mock.py:692: AttributeError: __enter__
+/home/speterson/cowrieprocessor/tests/unit/test_enrichment_handlers.py:245: AssertionError: assert False
+/home/speterson/cowrieprocessor/tests/unit/test_enrichment_handlers.py:510: AssertionError: assert '' == '67890'
+/home/speterson/cowrieprocessor/tests/unit/test_enrichment_handlers.py:620: AssertionError: assert {'ip': {'as':...routed', ...}} == {'ip': {'asco...'asname': ''}}
+/home/speterson/cowrieprocessor/tests/unit/test_enrichment_handlers.py:696: AssertionError: assert {'ip': {'as':...routed', ...}} == {'ip': {'asco...'asname': ''}}
+/home/speterson/cowrieprocessor/tests/unit/test_health_cli.py:35: assert 1 == 0
+/home/speterson/cowrieprocessor/tests/unit/test_health_cli.py:57: AssertionError: assert 'warning' in 'status: critical\nsummary: database check failed (unsupported database type: /tmp/pytest-of-speterson/pytest-181/test_health_cli_missing_status0/db.sqlite); status telemetry unavailable\ndatabase ok: false (unsupported database type: /tmp/pytest-of-speterson/pytest-181/test_health_cli_missing_status0/db.sqlite)\nstatus files ok: false\n'
+/home/speterson/cowrieprocessor/tests/unit/test_hibp_client.py:284: Failed: DID NOT RAISE <class 'Exception'>
+/home/speterson/cowrieprocessor/tests/unit/test_hibp_client.py:304: Failed: DID NOT RAISE <class 'Exception'>
+/home/speterson/cowrieprocessor/tests/unit/test_mock_enrichment_handlers.py:78: assert (0 > 0 or 0 > 0)
+/home/speterson/cowrieprocessor/tests/unit/test_mock_enrichment_handlers.py:100: assert False is True
+/home/speterson/cowrieprocessor/tests/unit/test_mock_enrichment_handlers.py:111: assert 1 == 0
+/home/speterson/cowrieprocessor/tests/unit/test_mock_enrichment_handlers.py:215: AssertionError: assert {'data': {'abuseConfidenceScore': 0, 'countryCode': 'US', 'countryName': 'United States', 'domain': 'google.com', ...}} != {'data': {'abuseConfidenceScore': 0, 'countryCode': 'US', 'countryName': 'United States', 'domain': 'google.com', ...}}
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie.py:223: AssertionError: assert 'ref:vt-key' in ['None', 'None', 'None', 'None', 'None', 'None', ...]
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie.py:318: AssertionError: assert False is True
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:52: NameError: name 'Any' is not defined
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:68: NameError: name 'Any' is not defined
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:100: NameError: name 'Optional' is not defined
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:116: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:131: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:146: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:164: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:180: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:196: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:212: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:228: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:244: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:292: assert typing.Dict[str, typing.Any] == dict
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:308: assert typing.Dict[str, typing.Any] == dict
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:323: assert typing.Dict[str, typing.Any] == dict
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:339: assert tuple[typing.Optional[str], typing.Optional[str], typing.Optional[str], typing.Optional[bool]] == tuple
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:353: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:372: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:388: assert typing.Any == object
+/home/speterson/cowrieprocessor/tests/unit/test_process_cowrie_types.py:421: AssertionError: Should import from sqlalchemy
+/home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:190: AssertionError: assert {'dshield', '... 'virustotal'} == {'dshield', '... 'virustotal'}
+/home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:195: assert 0.067 == 4.0
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:29: NameError: name 'argparse' is not defined. Did you forget to import 'argparse'?
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:43: NameError: name 'sqlite3' is not defined. Did you forget to import 'sqlite3'?
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:58: NameError: name 'argparse' is not defined. Did you forget to import 'argparse'?
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:91: assert typing.Optional[typing.Any] == object
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:123: assert typing.Optional[typing.Any] == object
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:138: assert typing.Optional[typing.Any] == object
+/home/speterson/cowrieprocessor/tests/unit/test_refresh_cache_types.py:242: NameError: name 'argparse' is not defined. Did you forget to import 'argparse'?
+/home/speterson/cowrieprocessor/tests/unit/test_schema_migrations.py:64: AssertionError: assert None == 'abc123'
+/home/speterson/cowrieprocessor/tests/unit/test_settings.py:211: AssertionError: assert None == 0
+/home/speterson/cowrieprocessor/tests/unit/test_settings.py:235: AssertionError: assert True is False
+/home/speterson/cowrieprocessor/tests/unit/test_settings.py:325: AssertionError: assert True is False
+/home/speterson/cowrieprocessor/tests/unit/test_settings.py:408: AssertionError: assert False is True
+/home/speterson/cowrieprocessor/tests/unit/test_virustotal_handler.py:463: AssertionError: Regex pattern did not match.
+/home/speterson/cowrieprocessor/tests/unit/test_virustotal_handler.py:481: AttributeError: 'VirusTotalHandler' object has no attribute '_make_request'
+=============================== warnings summary ===============================
+tests/unit/test_bulk_loader.py::test_bulk_loader_rolls_back_on_database_error
+  /home/speterson/cowrieprocessor/cowrieprocessor/loader/bulk.py:515: SAWarning: The engine provided as bind produced a connection that is already in a transaction. This is usually caused by a core event, such as 'engine_connect', that has left a transaction open. The effective join transaction mode used by this session is 'create_savepoint'. To silence this warning, do not leave transactions open
+    result = session.execute(stmt)
+
+tests/unit/test_enrich_passwords_cli.py: 3 warnings
+tests/unit/test_report_cli.py: 14 warnings
+  /home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py:951: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/unit/test_enrichment_telemetry.py::TestEnrichmentServiceTelemetryIntegration::test_enrichment_service_with_telemetry
+  /home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/vt/client.py:244: DeprecationWarning: There is no current event loop
+    event_loop = asyncio.get_event_loop()
+
+tests/unit/test_rate_limiting.py::test_rate_limiter_zero_rate_blocks_all_requests
+  /home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:287: RuntimeWarning: coroutine 'RateLimiter.acquire' was never awaited
+    limiter.acquire()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_rate_limiting.py::test_rate_limiter_maximum_burst_allows_burst_then_throttles
+  /home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:307: RuntimeWarning: coroutine 'RateLimiter.acquire' was never awaited
+    limiter.acquire()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_rate_limiting.py::test_rate_limiter_maximum_burst_allows_burst_then_throttles
+  /home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:315: RuntimeWarning: coroutine 'RateLimiter.acquire' was never awaited
+    limiter.acquire()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/unit/test_rate_limiting.py::test_rate_limiter_concurrent_requests_respects_limit
+  /home/speterson/cowrieprocessor/tests/unit/test_rate_limiting.py:338: RuntimeWarning: coroutine 'RateLimiter.acquire' was never awaited
+    limiter.acquire()
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_bulk_loader.py::test_bulk_loader_handles_multiline_json
+FAILED tests/unit/test_bulk_loader.py::test_bulk_loader_rejects_multiline_json_by_default
+FAILED tests/unit/test_bulk_loader.py::test_bulk_loader_mixed_json_formats - ...
+FAILED tests/unit/test_bulk_loader.py::test_bulk_loader_handles_malformed_json
+FAILED tests/unit/test_bulk_loader.py::test_bulk_loader_multiline_json_malformed_limit
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_get_schema_version
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_validate_schema
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_migrate_dry_run
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_create_backup
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_create_backup_custom_path
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_verify_backup_integrity_valid
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_check_integrity
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_check_integrity_deep
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_optimize_vacuum_only
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabase::test_optimize_reindex_only
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_migrate_command
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_check_command
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_backup_command
+FAILED tests/unit/test_cowrie_db_cli.py::TestCowrieDatabaseCLI::test_integrity_command
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_table_exists_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_table_exists_not_found
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_validate_schema_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_optimize_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_create_backup_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_check_integrity_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_files_table_stats_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_backfill_files_table_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_analyze_data_quality_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_repair_data_quality_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_migrate_to_postgresql_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_longtail_migrate_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_longtail_rollback_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestCowrieDatabaseTypes::test_validate_longtail_schema_return_type
+FAILED tests/unit/test_cowrie_db_types.py::TestSQLAlchemy20Compatibility::test_no_deprecated_query_patterns
+FAILED tests/unit/test_db_engine.py::TestDetectPostgresqlSupport::test_detect_postgresql_support_with_psycopg_returns_true
+FAILED tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_configures_basic_settings
+FAILED tests/unit/test_db_engine.py::TestSqliteOnConnect::test_sqlite_on_connect_handles_database_error_gracefully
+FAILED tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_creates_engine
+FAILED tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_memory_uses_static_pool
+FAILED tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_with_pool_settings_applies_config
+FAILED tests/unit/test_db_engine.py::TestCreateEngineFromSettings::test_create_engine_from_settings_sqlite_sets_connect_args
+FAILED tests/unit/test_delta_loader.py::test_delta_loader_handles_file_rotation
+FAILED tests/unit/test_delta_loader.py::test_delta_loader_handles_empty_checkpoint_file
+FAILED tests/unit/test_delta_loader.py::test_delta_loader_handles_corrupted_checkpoint
+FAILED tests/unit/test_delta_loader.py::test_delta_loader_rolls_back_on_database_error
+FAILED tests/unit/test_enrichment_handlers.py::test_vt_query_handles_404_response
+FAILED tests/unit/test_enrichment_handlers.py::test_read_spur_data_handles_nested_client_schema
+FAILED tests/unit/test_enrichment_handlers.py::test_all_services_handle_empty_api_keys
+FAILED tests/unit/test_enrichment_handlers.py::test_malformed_responses_handled_gracefully
+FAILED tests/unit/test_health_cli.py::test_health_cli_json - assert 1 == 0
+FAILED tests/unit/test_health_cli.py::test_health_cli_missing_status - Assert...
+FAILED tests/unit/test_hibp_client.py::test_hibp_service_unavailable_retries
+FAILED tests/unit/test_hibp_client.py::test_hibp_invalid_api_key_raises_auth_error
+FAILED tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_ip_handles_suspicious_ips
+FAILED tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_file_hash_handles_known_bad_hashes
+FAILED tests/unit/test_mock_enrichment_handlers.py::TestMockOTXHandler::test_otx_check_file_hash_handles_known_good_hashes
+FAILED tests/unit/test_mock_enrichment_handlers.py::TestMockAbuseIPDBHandler::test_abuseipdb_custom_max_age
+FAILED tests/unit/test_process_cowrie.py::test_secret_reference_resolution - ...
+FAILED tests/unit/test_process_cowrie.py::test_bulk_load_skips_commits - Asse...
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_timeout_handler_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_with_timeout_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_cache_get_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_cache_upsert_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_connected_sessions_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_session_id_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_session_duration_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_protocol_login_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_login_data_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_command_total_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_file_download_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_file_upload_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_dshield_query_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_safe_read_uh_data_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_read_spur_data_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_read_vt_data_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_print_session_info_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_get_commands_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_evaluate_sessions_type_annotations
+FAILED tests/unit/test_process_cowrie_types.py::TestProcessCowrieTypes::test_no_deprecated_query_patterns
+FAILED tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_service_rate_limits_exist
+FAILED tests/unit/test_rate_limiting.py::TestServiceRateLimits::test_get_service_rate_limit
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_parse_args_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_ensure_indicator_table_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_init_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_cache_get_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_should_refresh_vt_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresher_should_refresh_ip_type_annotations
+FAILED tests/unit/test_refresh_cache_types.py::TestRefreshCacheTypes::test_refresh_reports_type_annotations
+FAILED tests/unit/test_schema_migrations.py::test_raw_event_computed_columns
+FAILED tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_env_int_coercion
+FAILED tests/unit/test_settings.py::TestDatabaseSettings::test_database_settings_precedence_config_over_env
+FAILED tests/unit/test_settings.py::TestLoadDatabaseSettings::test_load_database_settings_with_both_args
+FAILED tests/unit/test_settings.py::TestSettingsIntegration::test_settings_with_mixed_override_scenarios
+FAILED tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_virustotal_rate_limit_retries_with_backoff
+FAILED tests/unit/test_virustotal_handler.py::TestVirusTotalHandler::test_virustotal_network_timeout_raises_clear_error
+=========== 95 failed, 746 passed, 23 warnings in 356.34s (0:05:56) ============
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
+--- Logging error ---
+Traceback (most recent call last):
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/logging/__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: I/O operation on closed file.
+Call stack:
+  File "/home/speterson/cowrieprocessor/.venv/lib/python3.13/site-packages/aiohttp/connector.py", line 388, in __del__
+    self._loop.call_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1907, in call_exception_handler
+    self.default_exception_handler(context)
+  File "/home/speterson/.local/share/uv/python/cpython-3.13.7-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 1879, in default_exception_handler
+    logger.error('\n'.join(log_lines), exc_info=exc_info)
+Message: "Unclosed connector\nconnections: ['deque([(<aiohttp.client_proto.ResponseHandler object at 0x739e05556750>, 1880394.437915467)])']\nconnector: <aiohttp.connector.TCPConnector object at 0x739e04d28cd0>"
+Arguments: ()
