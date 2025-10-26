@@ -52,6 +52,14 @@ dev = [
 # Keep close to existing style; avoid massive churn.
 line-length = 120
 target-version = "py313"
+exclude = [
+    "archive/",
+    "scripts/debug/",
+    "scripts/migrations/archive/",
+    "docs/archive/",
+    "notes/archive/",
+    "fix_mypy_errors.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "D", "I"]
@@ -77,6 +85,14 @@ warn_return_any = true
 warn_unreachable = true
 explicit_package_bases = true
 strict_optional = true
+exclude = [
+    "^archive/",
+    "^scripts/debug/",
+    "^scripts/migrations/archive/",
+    "^docs/archive/",
+    "^notes/archive/",
+    "fix_mypy_errors\\.py$",
+]
 
 [[tool.mypy.overrides]]
 module = ["dateutil.*"]
@@ -89,6 +105,12 @@ omit = [
     "*/test_*",
     "*/__pycache__/*",
     "*/migrations/*",
+    "archive/*",
+    "scripts/debug/*",
+    "scripts/migrations/archive/*",
+    "docs/archive/*",
+    "notes/archive/*",
+    "fix_mypy_errors.py",
 ]
 
 [tool.coverage.report]
