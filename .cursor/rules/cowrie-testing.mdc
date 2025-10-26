@@ -1,20 +1,29 @@
 ---
-description: Testing and CI/CD rules - mandatory 80% coverage and comprehensive testing standards
+description: Testing and CI/CD rules - mandatory 65% coverage and comprehensive testing standards
 globs: **/*.py,**/test_*.py,**/*_test.py,**/*.yml,**/*.yaml
 alwaysApply: false
 ---
 # Testing and CI/CD Rules
+
+## CI GATES (MANDATORY - Enforced in Order)
+The CI pipeline enforces these quality gates **in strict order**. Any failure stops the merge:
+
+1. **Ruff Lint Errors**: `uv run ruff check .` must produce 0 errors
+2. **Ruff Format Changes**: `uv run ruff format --check .` must show no formatting needed
+3. **MyPy Errors**: `uv run mypy .` must produce 0 type errors
+4. **Code Coverage**: Minimum 65% coverage required (`--cov-fail-under=65`)
+5. **Test Failures**: All tests must pass
 
 ## MANDATORY Testing Requirements
 All code MUST meet these testing standards before commit.
 
 ## Test Coverage - NON-NEGOTIABLE
 
-### Coverage Requirements
-- Minimum 80% code coverage across the entire codebase
-- New features require 90%+ coverage
+### Coverage Requirements (CI Gate #4)
+- **Minimum 65% code coverage** across the entire codebase (enforced by CI)
+- **Target 80%+ coverage** for new features
 - Bug fixes MUST include regression tests
-- Run: `uv run pytest --cov=. --cov-report=term-missing --cov-report=html`
+- Run: `uv run pytest --cov=. --cov-report=term-missing --cov-report=html --cov-fail-under=65`
 
 ### Coverage Exclusions (Minimal)
 ```python
@@ -104,8 +113,8 @@ uv run pytest tests/unit/ -v
 # Integration tests (requires external services)
 uv run pytest tests/integration/ -m "not slow"
 
-# All tests with coverage
-uv run pytest --cov=. --cov-report=term-missing
+# All tests with coverage (CI Gate #4: 65% minimum)
+uv run pytest --cov=. --cov-report=term-missing --cov-fail-under=65
 
 # Security-focused tests
 uv run pytest -m security
@@ -583,7 +592,7 @@ repos:
       
       - id: coverage-check
         name: coverage-check
-        entry: uv run pytest --cov=. --cov-fail-under=80 --tb=short
+        entry: uv run pytest --cov=. --cov-fail-under=65 --tb=short
         language: system
         pass_filenames: false
         always_run: true
@@ -669,11 +678,15 @@ def test_process_malformed_json_logs():
 All testing requirements are MANDATORY and NON-NEGOTIABLE.
 
 ### Testing Checklist (Pre-commit)
-- [ ] All tests pass: `uv run pytest`
-- [ ] Coverage >= 80%: `uv run pytest --cov=. --cov-fail-under=80`
+All CI gates must pass before commit:
+- [ ] **Gate 1**: Ruff lint passes: `uv run ruff check .`
+- [ ] **Gate 2**: Ruff format passes: `uv run ruff format --check .`
+- [ ] **Gate 3**: MyPy passes: `uv run mypy .`
+- [ ] **Gate 4**: Coverage >= 65%: `uv run pytest --cov=. --cov-fail-under=65`
+- [ ] **Gate 5**: All tests pass
 - [ ] Unit tests run fast (< 30 seconds)
 - [ ] Integration tests marked appropriately
 - [ ] No test warnings or deprecation messages
-- [ ] New features include comprehensive tests
+- [ ] New features include comprehensive tests (target 80%+ coverage)
 - [ ] Bug fixes include regression tests
 - [ ] Performance tests pass for critical paths

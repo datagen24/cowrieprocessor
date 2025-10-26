@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-import pytest
 from sqlalchemy import create_engine, text
 
 from cowrieprocessor.cli.cowrie_db import CowrieDatabase, SanitizationMetrics

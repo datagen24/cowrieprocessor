@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 
 import pytest
-
 from secrets_resolver import is_reference, resolve_secret, set_env_if_ref
 
 

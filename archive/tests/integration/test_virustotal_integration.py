@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from enrichment_handlers import EnrichmentService
 
 from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
-from enrichment_handlers import EnrichmentService
 
 
 class TestVirusTotalIntegration:

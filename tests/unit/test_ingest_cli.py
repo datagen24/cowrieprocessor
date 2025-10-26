@@ -797,8 +797,8 @@ class TestRealCLIExecution:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         # Create test log directory
         log_dir = tmp_path / "logs"
@@ -836,8 +836,8 @@ class TestRealCLIExecution:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         log_file = tmp_path / "cowrie.json"
         checkpoint_file = tmp_path / "checkpoint.json"
@@ -869,8 +869,8 @@ class TestRealCLIExecution:
         When: CLI invoked
         Then: Exits with non-zero code
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         with patch.object(sys, 'argv', ['ingest', 'invalid_command']):
             with pytest.raises(SystemExit) as exc_info:
@@ -888,8 +888,8 @@ class TestRealCLIExecution:
             db_session: Database session fixture
             tmp_path: Temporary directory fixture
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         log_file = tmp_path / "cowrie.json"
         log_file.write_text('{"eventid": "cowrie.login.success", "timestamp": "2024-01-01T00:00:00Z"}\n')
@@ -914,8 +914,8 @@ class TestRealCLIExecution:
         When: CLI invoked
         Then: Shows help and exits with code 0
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         with patch.object(sys, 'argv', ['ingest', '--help']):
             with pytest.raises(SystemExit) as exc_info:
@@ -929,8 +929,8 @@ class TestRealCLIExecution:
         When: CLI invoked
         Then: Shows usage and exits with error code 2
         """
-        from unittest.mock import patch
         import sys
+        from unittest.mock import patch
 
         with patch.object(sys, 'argv', ['ingest']):  # Missing mode argument
             with pytest.raises(SystemExit) as exc_info:

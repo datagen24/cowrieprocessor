@@ -1065,9 +1065,9 @@ class BulkLoader:
 
         # Use existing validator if available
         try:
-            from .cowrie_schema import CowrieSchemaValidator
+            from .cowrie_schema import CowrieEventSchema
 
-            is_valid, errors = CowrieSchemaValidator.validate_event(payload)
+            is_valid, errors = CowrieEventSchema.validate_event(payload)
             return is_valid
         except ImportError:
             # Fallback to basic validation if schema validator not available

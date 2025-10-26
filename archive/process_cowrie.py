@@ -35,14 +35,18 @@ import dropbox
 import requests
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
-from cowrieprocessor.threat_detection.longtail import run_longtail_analysis
 from cowrieprocessor.enrichment.handlers import (
     dshield_query as enrichment_dshield_query,
+)
+from cowrieprocessor.enrichment.handlers import (
     read_spur_data as enrichment_read_spur_data,
+)
+from cowrieprocessor.enrichment.handlers import (
     safe_read_uh_data as enrichment_safe_read_uh_data,
 )
-from cowrieprocessor.utils.secrets import is_reference, resolve_secret
 from cowrieprocessor.loader.session_parser import SessionMetrics, enumerate_sessions
+from cowrieprocessor.threat_detection.longtail import run_longtail_analysis
+from cowrieprocessor.utils.secrets import is_reference, resolve_secret
 
 faulthandler.enable()
 if hasattr(signal, "SIGUSR1"):

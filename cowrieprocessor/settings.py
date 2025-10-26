@@ -104,7 +104,9 @@ class DatabaseSettings:
             cfg["sqlite_wal"] = _coerce_bool(env.get(f"{prefix}DB_SQLITE_WAL"), bool(cfg["sqlite_wal"]))
 
         if "sqlite_cache_size" not in config_keys:
-            cfg["sqlite_cache_size"] = _coerce_int(env.get(f"{prefix}DB_SQLITE_CACHE_SIZE"), int(cfg["sqlite_cache_size"]))
+            cfg["sqlite_cache_size"] = _coerce_int(
+                env.get(f"{prefix}DB_SQLITE_CACHE_SIZE"), int(cfg["sqlite_cache_size"])
+            )
 
         if "sqlite_synchronous" not in config_keys:
             sqlite_sync_override = env.get(f"{prefix}DB_SQLITE_SYNCHRONOUS")

@@ -22,7 +22,6 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import requests
-
 from secrets_resolver import is_reference, resolve_secret
 
 

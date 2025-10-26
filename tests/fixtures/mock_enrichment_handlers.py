@@ -6,7 +6,7 @@ import json
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from tests.fixtures.enrichment_fixtures import (
     get_abuseipdb_response,
@@ -38,7 +38,7 @@ class MockOTXHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass  # Fall through to API call
 
@@ -48,6 +48,7 @@ class MockOTXHandler:
             return {"error": "rate_limit"}
 
         # Generate mock response based on IP pattern
+        result: Dict[str, Any]
         if ip.startswith(("192.168.", "10.", "127.")):
             # Internal IP - no results
             result = json.loads(get_otx_response("clean_ip"))
@@ -85,7 +86,7 @@ class MockOTXHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass
 
@@ -141,7 +142,7 @@ class MockAbuseIPDBHandler:
         if cache_file.exists():
             if time.time() - cache_file.stat().st_mtime < self.cache_ttl:
                 try:
-                    return json.loads(cache_file.read_text(encoding="utf-8"))
+                    return cast(Dict[str, Any], json.loads(cache_file.read_text(encoding="utf-8")))
                 except json.JSONDecodeError:
                     pass
 
@@ -155,6 +156,7 @@ class MockAbuseIPDBHandler:
             return {"error": "rate_limit"}
 
         # Generate mock response based on IP pattern
+        result: Dict[str, Any]
         if ip.startswith("127.") or ip.startswith("10.") or ip.startswith("192.168."):
             # Private IPs - no abuse data (but vary slightly by max_age for testing)
             result = json.loads(get_abuseipdb_response("low_risk"))
@@ -215,7 +217,7 @@ class MockAbuseIPDBHandler:
 class MockStatisticalAnalyzer:
     """Mock statistical analysis tools ported from dshield-tooling."""
 
-    def __init__(self, db_connection) -> None:
+    def __init__(self, db_connection: Any) -> None:
         """Initialize mock statistical analyzer.
 
         Args:
@@ -344,7 +346,7 @@ def create_mock_enrichment_handlers(cache_dir: Path) -> Dict[str, Any]:
     }
 
 
-def setup_mock_enrichment_environment(cache_dir: Path, db_connection=None) -> Dict[str, Any]:
+def setup_mock_enrichment_environment(cache_dir: Path, db_connection: Any = None) -> Dict[str, Any]:
     """Setup complete mock enrichment environment for testing."""
     handlers = create_mock_enrichment_handlers(cache_dir)
 

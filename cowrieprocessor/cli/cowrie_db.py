@@ -1773,7 +1773,7 @@ class CowrieDatabase:
                 total_backfilled = session_id_updated + event_type_updated + event_timestamp_updated
                 duration = time.time() - start_time
 
-                result = {
+                backfill_stats: Dict[str, Any] = {
                     'total_missing': total_missing,
                     'records_processed': total_missing,  # We processed all missing records
                     'fields_backfilled': total_backfilled,
@@ -1799,7 +1799,7 @@ class CowrieDatabase:
                 if session_id_generated or event_type_generated or event_timestamp_generated:
                     logger.info("ℹ️  Some columns are generated columns that auto-compute from JSON payload")
 
-                return result
+                return backfill_stats
 
         except Exception as e:
             logger.error(f"❌ Field backfill failed: {e}")
@@ -1811,7 +1811,7 @@ class CowrieDatabase:
         Returns:
             Files table statistics
         """
-        result = {
+        result: Dict[str, Any] = {
             'total_files': 0,
             'unique_hashes': 0,
             'enrichment_status': {},
@@ -1883,7 +1883,7 @@ class CowrieDatabase:
         if not postgres_url.startswith("postgresql://") and not postgres_url.startswith("postgres://"):
             raise Exception("Target database must be PostgreSQL")
 
-        result = {
+        result: Dict[str, Any] = {
             'validate_only': validate_only,
             'skip_schema': skip_schema,
             'tables_migrated': [],
@@ -1933,7 +1933,7 @@ class CowrieDatabase:
 
         return result
 
-    def _perform_data_migration(self, postgres_engine, batch_size: int) -> Dict[str, Any]:
+    def _perform_data_migration(self, postgres_engine: Engine, batch_size: int) -> Dict[str, Any]:
         """Perform the actual data migration from SQLite to PostgreSQL."""
         logger.info("📦 Migrating data...")
 
@@ -1946,7 +1946,7 @@ class CowrieDatabase:
             'schema_state',
         ]
 
-        migration_stats = {
+        migration_stats: Dict[str, Any] = {
             'tables_migrated': [],
             'total_records_migrated': 0,
             'errors': 0,
@@ -1987,9 +1987,9 @@ class CowrieDatabase:
 
         return migration_stats
 
-    def _migrate_table_data(self, table_name: str, postgres_engine, batch_size: int) -> Dict[str, Any]:
+    def _migrate_table_data(self, table_name: str, postgres_engine: Engine, batch_size: int) -> Dict[str, Any]:
         """Migrate data for a specific table."""
-        stats = {
+        stats: Dict[str, Any] = {
             'records_migrated': 0,
             'errors': 0,
         }
@@ -2062,7 +2062,9 @@ class CowrieDatabase:
 
         return stats
 
-    def _insert_batch_to_postgres(self, postgres_engine, table_name: str, records: list[Dict[str, Any]]) -> None:
+    def _insert_batch_to_postgres(
+        self, postgres_engine: Engine, table_name: str, records: list[Dict[str, Any]]
+    ) -> None:
         """Insert a batch of records into PostgreSQL table."""
         if not records:
             return
@@ -2085,7 +2087,7 @@ class CowrieDatabase:
             logger.error(f"   Failed to insert batch into {table_name}: {e}")
             raise
 
-    def _validate_migration(self, postgres_engine) -> Dict[str, Any]:
+    def _validate_migration(self, postgres_engine: Engine) -> Dict[str, Any]:
         """Validate the migration by comparing record counts."""
         logger.info("🔍 Validating migration...")
 
@@ -2156,7 +2158,8 @@ class CowrieDatabase:
             engine = self._get_engine()
 
             # Apply v9 migration
-            _upgrade_to_v9(engine)
+            with engine.begin() as conn:
+                _upgrade_to_v9(conn)
 
             logger.info("✅ Longtail migration applied successfully")
             return {
@@ -2180,7 +2183,8 @@ class CowrieDatabase:
             engine = self._get_engine()
 
             # Rollback v9 migration
-            _downgrade_from_v9(engine)
+            with engine.begin() as conn:
+                _downgrade_from_v9(conn)
 
             logger.info("✅ Longtail rollback completed successfully")
             return {
@@ -2283,7 +2287,7 @@ class CowrieDatabase:
             }
 
 
-def main():
+def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description='Cowrie database management utilities',
@@ -2630,13 +2634,15 @@ def main():
 
             if results['unknown_files']:
                 print(f"Found {len(results['unknown_files'])} unknown files:")
-                for file_path, file_type, reason in results['unknown_files']:
+                for item in results['unknown_files']:
+                    file_path, file_type, reason = item[0], item[1], item[2]  # type: ignore[index]
                     print(f"  {file_path} (type: {file_type}, reason: {reason})")
                 print()
 
             if results['errors']:
                 print(f"Encountered {len(results['errors'])} errors:")
-                for file_path, error in results['errors']:
+                for item in results['errors']:
+                    file_path, error = item[0], item[1]  # type: ignore[index]
                     print(f"  {file_path}: {error}")
                 print()
 

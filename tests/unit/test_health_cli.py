@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
-import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from cowrieprocessor.cli import health as health_cli

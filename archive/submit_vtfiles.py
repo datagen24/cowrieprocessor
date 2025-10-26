@@ -12,7 +12,6 @@ import os
 import time
 
 import requests
-
 from secrets_resolver import is_reference, resolve_secret
 
 parser = argparse.ArgumentParser(description='Virus Total file submission options')

@@ -1,5 +1,8 @@
 """Tests for the database management CLI."""
 
+from typing import Any
+
+
 from __future__ import annotations
 
 import sqlite3
@@ -16,7 +19,7 @@ class TestCowrieDatabase:
     """Test cases for CowrieDatabase class."""
 
     @pytest.fixture
-    def temp_db(self):
+    def temp_db(self) -> Any:
         """Create temporary database for testing.
 
         Returns:
@@ -199,7 +202,7 @@ class TestCowrieDatabaseCLI:
     """Test CLI functionality."""
 
     @pytest.fixture
-    def temp_db(self):
+    def temp_db(self) -> Any:
         """Create temporary database for CLI testing.
 
         Returns:
@@ -228,7 +231,7 @@ class TestCowrieDatabaseCLI:
             db_path.unlink()
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_migrate_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_migrate_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test migrate command."""
         # Mock the database
         mock_db = Mock()
@@ -252,7 +255,7 @@ class TestCowrieDatabaseCLI:
         assert '✓ Migrated database to schema version 14' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_check_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_check_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test check command."""
         # Mock the database
         mock_db = Mock()
@@ -284,7 +287,7 @@ class TestCowrieDatabaseCLI:
         assert 'Total sessions: 100' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_backup_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_backup_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test backup command."""
         # Mock the database
         mock_db = Mock()
@@ -303,7 +306,7 @@ class TestCowrieDatabaseCLI:
         assert 'Backup created' in captured.out
 
     @patch('cowrieprocessor.cli.cowrie_db.CowrieDatabase')
-    def test_integrity_command(self, mock_db_class, temp_db, capsys) -> None:
+    def test_integrity_command(self, mock_db_class, temp_db, capsys: pytest.CaptureFixture[str]) -> None:
         """Test integrity command."""
         # Mock the database
         mock_db = Mock()

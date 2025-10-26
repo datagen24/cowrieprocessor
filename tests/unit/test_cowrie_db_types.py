@@ -8,7 +8,7 @@ from cowrieprocessor.cli.cowrie_db import CowrieDatabase, SanitizationMetrics
 class TestCowrieDatabaseTypes:
     """Test type safety and SQLAlchemy 2.0 compatibility for CowrieDatabase."""
 
-    def test_database_initialization_types(self):
+    def test_database_initialization_types(self) -> None:
         """Test that database initialization has correct types."""
         db = CowrieDatabase("sqlite:///test.db")
 
@@ -17,7 +17,7 @@ class TestCowrieDatabaseTypes:
         assert db._engine is None
         assert db._session_maker is None
 
-    def test_get_engine_return_type(self):
+    def test_get_engine_return_type(self) -> None:
         """Test that _get_engine returns proper Engine type."""
         with patch('cowrieprocessor.cli.cowrie_db.create_engine_from_settings') as mock_create:
             mock_engine = MagicMock()
@@ -29,7 +29,7 @@ class TestCowrieDatabaseTypes:
             assert engine is mock_engine
             mock_create.assert_called_once()
 
-    def test_get_session_return_type(self):
+    def test_get_session_return_type(self) -> None:
         """Test that _get_session returns proper Session type."""
         with patch('cowrieprocessor.cli.cowrie_db.sessionmaker') as mock_sessionmaker:
             mock_session = Mock()
@@ -47,7 +47,7 @@ class TestCowrieDatabaseTypes:
                 assert session is mock_session
                 mock_sessionmaker.assert_called_once_with(bind=mock_engine, future=True)
 
-    def test_database_type_detection(self):
+    def test_database_type_detection(self) -> None:
         """Test database type detection methods."""
         sqlite_db = CowrieDatabase("sqlite:///test.db")
         postgres_db = CowrieDatabase("postgresql://user:pass@host/db")
@@ -58,7 +58,7 @@ class TestCowrieDatabaseTypes:
         assert postgres_db._is_sqlite() is False
         assert postgres_db._is_postgresql() is True
 
-    def test_table_exists_return_type(self):
+    def test_table_exists_return_type(self) -> None:
         """Test that _table_exists returns proper bool type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -75,7 +75,7 @@ class TestCowrieDatabaseTypes:
                 assert isinstance(result, bool)
                 assert result is True
 
-    def test_table_exists_not_found(self):
+    def test_table_exists_not_found(self) -> None:
         """Test _table_exists returns False for non-existent table."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -92,7 +92,7 @@ class TestCowrieDatabaseTypes:
                 assert isinstance(result, bool)
                 assert result is False
 
-    def test_sanitization_metrics_types(self):
+    def test_sanitization_metrics_types(self) -> None:
         """Test SanitizationMetrics dataclass types."""
         metrics = SanitizationMetrics()
 
@@ -105,7 +105,7 @@ class TestCowrieDatabaseTypes:
         assert isinstance(metrics.dry_run, bool)
         assert metrics.ingest_id is None
 
-    def test_sanitization_metrics_with_values(self):
+    def test_sanitization_metrics_with_values(self) -> None:
         """Test SanitizationMetrics with specific values."""
         metrics = SanitizationMetrics(
             records_processed=100,
@@ -127,7 +127,7 @@ class TestCowrieDatabaseTypes:
         assert metrics.dry_run is False
         assert metrics.ingest_id == "test-123"
 
-    def test_migrate_return_type(self):
+    def test_migrate_return_type(self) -> None:
         """Test that migrate method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
             with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=False):
@@ -148,7 +148,7 @@ class TestCowrieDatabaseTypes:
                         assert isinstance(result['migrations_applied'], list)
                         assert isinstance(result['dry_run'], bool)
 
-    def test_migrate_dry_run_return_type(self):
+    def test_migrate_dry_run_return_type(self) -> None:
         """Test that migrate method with dry_run=True returns proper type."""
         with patch.object(CowrieDatabase, '_is_sqlite', return_value=True):
             with patch('cowrieprocessor.cli.cowrie_db.Path.exists', return_value=False):
@@ -161,7 +161,7 @@ class TestCowrieDatabaseTypes:
                     assert 'migrations_applied' in result
                     assert isinstance(result['migrations_applied'], list)
 
-    def test_validate_schema_return_type(self):
+    def test_validate_schema_return_type(self) -> None:
         """Test that validate_schema method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -200,7 +200,7 @@ class TestCowrieDatabaseTypes:
                                 assert isinstance(result['database_size_mb'], (int, float))
                                 assert isinstance(result['session_count'], int)
 
-    def test_optimize_return_type(self):
+    def test_optimize_return_type(self) -> None:
         """Test that optimize method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -218,7 +218,7 @@ class TestCowrieDatabaseTypes:
                 assert isinstance(result['operations'], list)
                 assert isinstance(result['reclaimed_mb'], (int, float))
 
-    def test_create_backup_return_type(self):
+    def test_create_backup_return_type(self) -> None:
         """Test that create_backup method returns proper str type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -236,7 +236,7 @@ class TestCowrieDatabaseTypes:
                             assert isinstance(result, str)
                             assert result.endswith('.sqlite')
 
-    def test_check_integrity_return_type(self):
+    def test_check_integrity_return_type(self) -> None:
         """Test that check_integrity method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -261,7 +261,7 @@ class TestCowrieDatabaseTypes:
                 assert isinstance(result['corruption_found'], bool)
                 assert isinstance(result['recommendations'], list)
 
-    def test_files_table_stats_return_type(self):
+    def test_files_table_stats_return_type(self) -> None:
         """Test that get_files_table_stats method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -289,7 +289,7 @@ class TestCowrieDatabaseTypes:
                 assert isinstance(result['enrichment_status'], dict)
                 assert isinstance(result['malicious_files'], int)
 
-    def test_backfill_files_table_return_type(self):
+    def test_backfill_files_table_return_type(self) -> None:
         """Test that backfill_files_table method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -312,16 +312,14 @@ class TestCowrieDatabaseTypes:
                     assert isinstance(result['files_inserted'], int)
                     assert isinstance(result['message'], str)
 
-    def test_analyze_data_quality_return_type(self):
+    def test_analyze_data_quality_return_type(self) -> None:
         """Test that analyze_data_quality method returns proper Dict[str, Any] type."""
         # Mock all the helper methods that make database calls
         with patch.object(CowrieDatabase, '_analyze_database_overview') as mock_overview:
             with patch.object(CowrieDatabase, '_analyze_json_sample') as mock_json:
                 with patch.object(CowrieDatabase, '_analyze_boolean_fields') as mock_boolean:
                     with patch.object(CowrieDatabase, '_analyze_missing_fields') as mock_missing:
-                        with patch.object(
-                            CowrieDatabase, '_generate_quality_recommendations'
-                        ) as mock_recommendations:
+                        with patch.object(CowrieDatabase, '_generate_quality_recommendations') as mock_recommendations:
                             # Configure return values
                             mock_overview.return_value = {'total_events': 1000}
                             mock_json.return_value = {'valid_json': 900}
@@ -344,7 +342,7 @@ class TestCowrieDatabaseTypes:
                             assert isinstance(result['missing_analysis'], dict)
                             assert isinstance(result['recommendations'], list)
 
-    def test_repair_data_quality_return_type(self):
+    def test_repair_data_quality_return_type(self) -> None:
         """Test that repair_data_quality method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_repair_missing_fields') as mock_repair:
             mock_repair.return_value = {
@@ -377,7 +375,7 @@ class TestCowrieDatabaseTypes:
             assert isinstance(result['duration_seconds'], float)
             assert isinstance(result['recommendations'], list)
 
-    def test_migrate_to_postgresql_return_type(self):
+    def test_migrate_to_postgresql_return_type(self) -> None:
         """Test that migrate_to_postgresql method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -427,7 +425,7 @@ class TestCowrieDatabaseTypes:
                                 assert isinstance(result['errors'], int)
                                 assert isinstance(result['validation'], dict)
 
-    def test_longtail_migrate_return_type(self):
+    def test_longtail_migrate_return_type(self) -> None:
         """Test that longtail_migrate method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -450,7 +448,7 @@ class TestCowrieDatabaseTypes:
                     assert isinstance(result['migration_applied'], str)
                     assert isinstance(result['new_version'], int)
 
-    def test_longtail_rollback_return_type(self):
+    def test_longtail_rollback_return_type(self) -> None:
         """Test that longtail_rollback method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -473,7 +471,7 @@ class TestCowrieDatabaseTypes:
                     assert isinstance(result['rollback_performed'], str)
                     assert isinstance(result['new_version'], int)
 
-    def test_validate_longtail_schema_return_type(self):
+    def test_validate_longtail_schema_return_type(self) -> None:
         """Test that validate_longtail_schema method returns proper Dict[str, Any] type."""
         with patch.object(CowrieDatabase, '_get_engine') as mock_get_engine:
             mock_engine = MagicMock()
@@ -504,7 +502,7 @@ class TestCowrieDatabaseTypes:
 class TestSQLAlchemy20Compatibility:
     """Test SQLAlchemy 2.0 compatibility patterns."""
 
-    def test_no_deprecated_query_patterns(self):
+    def test_no_deprecated_query_patterns(self) -> None:
         """Test that no deprecated session.query() patterns are used."""
         # This test ensures we're not using deprecated SQLAlchemy 1.x patterns
         import os
@@ -522,7 +520,7 @@ class TestSQLAlchemy20Compatibility:
             if '.query(' in line and 'test_' not in cowrie_db_path and 'session.query(' not in line:
                 assert False, f"Found deprecated .query() pattern on line {i}: {line.strip()}"
 
-    def test_proper_insert_patterns(self):
+    def test_proper_insert_patterns(self) -> None:
         """Test that proper SQLAlchemy 2.0 insert patterns are used."""
         # This test ensures we're using proper SQLAlchemy 2.0 insert patterns
         import os
@@ -536,7 +534,7 @@ class TestSQLAlchemy20Compatibility:
         assert 'sqlite_insert(' in content, "Should use sqlite_insert for SQLite"
         assert 'postgres_insert(' in content, "Should use postgres_insert for PostgreSQL"
 
-    def test_proper_type_annotations(self):
+    def test_proper_type_annotations(self) -> None:
         """Test that proper type annotations are used."""
         # This test ensures we're using proper type annotations
         import os
@@ -552,7 +550,7 @@ class TestSQLAlchemy20Compatibility:
         assert 'Optional[' in content, "Should use Optional for nullable types"
         assert 'Callable[' in content, "Should use Callable for function types"
 
-    def test_proper_imports(self):
+    def test_proper_imports(self) -> None:
         """Test that proper SQLAlchemy 2.0 imports are used."""
         # This test ensures we're using proper SQLAlchemy 2.0 imports
         import os

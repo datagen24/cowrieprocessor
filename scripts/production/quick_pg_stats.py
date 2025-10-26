@@ -4,6 +4,7 @@
 import argparse
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -37,7 +38,8 @@ def get_loading_stats(engine: Engine) -> dict:
         # Get database size
         size_query = text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
         size_result = conn.execute(size_query)
-        db_size = size_result.fetchone().size
+        size_row = size_result.fetchone()
+        db_size = size_row.size if size_row else 'Unknown'
 
         # Get active connections
         conn_query = text("""
@@ -54,13 +56,13 @@ def get_loading_stats(engine: Engine) -> dict:
             'timestamp': datetime.now(timezone.utc),
             'total_inserts': total_inserts,
             'database_size': db_size,
-            'active_connections': conn_row.active,
-            'total_connections': conn_row.total,
+            'active_connections': conn_row.active if conn_row else 0,
+            'total_connections': conn_row.total if conn_row else 0,
             'table_stats': table_stats,
         }
 
 
-def monitor_loading(engine: Engine, interval: int = 5):
+def monitor_loading(engine: Engine, interval: int = 5) -> None:
     """Monitor loading with simple output."""
     last_stats = None
     start_time = datetime.now(timezone.utc)
@@ -75,7 +77,7 @@ def monitor_loading(engine: Engine, interval: int = 5):
 
             if last_stats:
                 # Calculate tuples per second
-                inserts_delta = current_stats['total_inserts'] - last_stats['total_inserts']
+                inserts_delta = current_stats['total_inserts'] - last_stats['total_inserts']  # type: ignore[unreachable]
                 time_delta = (current_stats['timestamp'] - last_stats['timestamp']).total_seconds()
 
                 if time_delta > 0:
@@ -102,7 +104,7 @@ def monitor_loading(engine: Engine, interval: int = 5):
         print(f"\n🛑 Monitoring stopped after {duration}")
 
 
-def main():
+def main() -> None:
     """Main entry point for the quick PostgreSQL stats viewer."""
     parser = argparse.ArgumentParser(description='Quick PostgreSQL loading monitor')
     parser.add_argument('--db-url', help='PostgreSQL connection URL')

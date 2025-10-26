@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from sqlalchemy.orm import Session
-import pytest
 from datetime import datetime, timedelta
+from pathlib import Path
+
+import pytest
+from sqlalchemy.orm import Session
 
 from cowrieprocessor.cli.cowrie_db import CowrieDatabase
 from cowrieprocessor.db.models import RawEvent, SessionSummary
@@ -27,9 +28,9 @@ def cowrie_db(sqlite_db_url: str) -> CowrieDatabase:
 @pytest.fixture
 def db_session_with_data(sqlite_db_url: str) -> Session:
     """Provide a database session with test data."""
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Create engine and apply migrations
     settings = DatabaseSettings(url=sqlite_db_url)
@@ -503,9 +504,9 @@ def test_cowrie_database_sanitize_unicode_handles_no_records_gracefully(
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create empty database
     db_url = f"sqlite:///{tmp_path}/empty_test.db"
@@ -729,9 +730,9 @@ def test_cowrie_database_get_files_table_stats_handles_missing_table_gracefully(
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create empty database without files table
     db_url = f"sqlite:///{tmp_path}/empty_test.db"
@@ -835,9 +836,9 @@ def test_cowrie_database_perform_data_migration_handles_empty_database_gracefull
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create empty database
     db_url = f"sqlite:///{tmp_path}/empty_migration_test.db"
@@ -871,9 +872,10 @@ def test_cowrie_database_main_function_handles_help_command(tmp_path: Path) -> N
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
 
     # Given: Help command arguments
     test_args = ["cowrie-db", "--help"]
@@ -897,9 +899,10 @@ def test_cowrie_database_main_function_handles_migrate_command(tmp_path: Path) -
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
 
     # Given: Migrate command with dry run
     db_url = f"sqlite:///{tmp_path}/test_migrate.db"
@@ -924,9 +927,10 @@ def test_cowrie_database_main_function_handles_check_command(tmp_path: Path) -> 
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
 
     # Given: Check command with uninitialized database
     db_url = f"sqlite:///{tmp_path}/test_check.db"
@@ -951,9 +955,10 @@ def test_cowrie_database_main_function_handles_files_command(tmp_path: Path) -> 
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
 
     # Given: Files command
     db_url = f"sqlite:///{tmp_path}/test_files.db"
@@ -978,12 +983,13 @@ def test_cowrie_database_main_function_handles_analyze_command(tmp_path: Path) -
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Initialize database with schema
     db_url = f"sqlite:///{tmp_path}/test_analyze.db"
@@ -1012,9 +1018,10 @@ def test_cowrie_database_main_function_handles_invalid_command(tmp_path: Path) -
     Args:
         tmp_path: Temporary directory fixture
     """
-    from cowrieprocessor.cli.cowrie_db import main
     import sys
     from unittest.mock import patch
+
+    from cowrieprocessor.cli.cowrie_db import main
 
     # Given: Invalid command
     db_url = f"sqlite:///{tmp_path}/test_invalid.db"
@@ -1114,9 +1121,9 @@ def test_cowrie_database_repair_missing_fields_handles_generated_columns_gracefu
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create database with schema
     db_url = f"sqlite:///{tmp_path}/test_generated.db"
@@ -1151,9 +1158,9 @@ def test_cowrie_database_migrate_table_data_handles_empty_table_gracefully(
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create empty database
     db_url = f"sqlite:///{tmp_path}/empty_migrate_test.db"
@@ -1189,9 +1196,9 @@ def test_cowrie_database_validate_migration_returns_comprehensive_validation(
         cowrie_db: CowrieDatabase instance
         tmp_path: Temporary directory fixture
     """
+    from cowrieprocessor.db import apply_migrations
     from cowrieprocessor.db.engine import create_engine_from_settings
     from cowrieprocessor.settings import DatabaseSettings
-    from cowrieprocessor.db import apply_migrations
 
     # Given: Create database with schema
     db_url = f"sqlite:///{tmp_path}/test_validate.db"
