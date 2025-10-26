@@ -244,30 +244,39 @@ The current architecture faces scalability, deployment, and operational challeng
 
 ### Implementation Strategy
 
-#### Phase 1: Foundation (Weeks 1-2)
+#### Phase 1: Foundation (Weeks 1-3)
 - Create Docker infrastructure (`docker/` directory)
 - Implement MCP API container (Issue #33)
 - Docker Compose for local development
 - Database read replica support
+- **Security hardening** (secrets management, network policies)
 
 **Deliverables**:
 - `docker/Dockerfile.mcp-api`
 - `docker-compose.yml`
 - MCP API operational with OpenAPI docs
+- Basic security baseline implemented
 
-#### Phase 2: Job Coordination (Weeks 3-4)
+**Risk**: Medium (security hardening adds complexity)
+
+#### Phase 2: Job Coordination (Weeks 4-7)
 - Implement Coordinator service
 - Integrate Celery + Redis for job queue
 - Refactor longtail/snowshoe as Celery tasks
 - Create analysis worker container
+- **Worker registration security** (token-based)
+- **Hybrid deployment testing** (containerized + native workers)
 
 **Deliverables**:
 - `cowrieprocessor/coordinator/` package
 - `docker/Dockerfile.coordinator`
 - `docker/Dockerfile.analysis-worker`
 - Job queue operational
+- Hybrid worker model tested
 
-#### Phase 3: UI and Telemetry (Weeks 5-6)
+**Risk**: Low (Celery integration complex but well-documented)
+
+#### Phase 3: UI and Telemetry (Weeks 8-10)
 - Build UI backend (FastAPI + WebSocket/SSE)
 - Build frontend dashboard (React)
 - Integrate Prometheus + Grafana
@@ -278,7 +287,9 @@ The current architecture faces scalability, deployment, and operational challeng
 - Telemetry dashboard
 - Grafana dashboards
 
-#### Phase 4: Distributed Data Loaders (Weeks 7-8)
+**Risk**: Medium (frontend development variable based on skills)
+
+#### Phase 4: Distributed Data Loaders (Weeks 11-12)
 - Containerize data loaders
 - Multi-location deployment guides
 - Update `orchestrate_sensors.py` for container mode
@@ -289,16 +300,23 @@ The current architecture faces scalability, deployment, and operational challeng
 - Kubernetes manifests
 - Multi-location tested
 
-#### Phase 5: Production Hardening (Weeks 9-10)
+**Risk**: High (mostly reuses existing code)
+
+#### Phase 5: Production Hardening (Weeks 13-16)
 - Security audit (API auth, rate limiting)
 - High availability testing (PostgreSQL failover, Redis Sentinel)
 - Load testing (1000 req/s on MCP API)
 - Documentation (runbooks, deployment guides)
+- **Backup testing** (automated restore verification)
+- **Performance tuning** (connection pooling, query optimization)
 
 **Deliverables**:
 - Production-ready containers
 - Complete documentation
 - 4.0 release candidate
+- Security audit report
+
+**Risk**: Medium (security audit and load testing time-consuming)
 
 ### Container Specifications
 
@@ -1501,7 +1519,7 @@ Explicitly **out of scope** to avoid complexity:
 2. ⚠️ **Network Dependency**: Requires reliable inter-container networking
 3. ⚠️ **Learning Curve**: Teams need Docker/Kubernetes knowledge
 4. ⚠️ **Debugging Complexity**: Distributed systems harder to debug (mitigated by tracing)
-5. ⚠️ **Initial Migration Effort**: ~10 weeks to implement all phases
+5. ⚠️ **Initial Migration Effort**: ~16 weeks to implement all phases (see ADR 004 for revised timeline with risk assessment)
 
 ### Mitigation Strategies
 

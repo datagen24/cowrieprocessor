@@ -616,10 +616,78 @@ cowrie-db migrate-to-postgres \
 Once SQLite is deprecated, we can leverage PostgreSQL-native features:
 
 #### 1. pgvector for Longtail Analysis
+
+**Installation Required**: pgvector is NOT included in default PostgreSQL and must be installed separately.
+
+**Option A: Custom Docker Image** (Recommended for multi-container architecture)
+```dockerfile
+# docker/Dockerfile.postgres-pgvector
+FROM postgres:16-bookworm
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    postgresql-server-dev-16
+
+# Clone and install pgvector v0.5.1
+RUN cd /tmp && \
+    git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git && \
+    cd pgvector && \
+    make && \
+    make install
+
+# Cleanup to reduce image size
+RUN apt-get remove -y build-essential git postgresql-server-dev-16 && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* /tmp/pgvector
+
+EXPOSE 5432
+CMD ["postgres"]
+```
+
+Build and deploy:
+```bash
+# Build custom image
+docker build -t cowrie-postgres-pgvector:16 -f docker/Dockerfile.postgres-pgvector .
+
+# Update docker-compose.yml
+services:
+  postgres:
+    image: cowrie-postgres-pgvector:16
+    # ... rest of config
+```
+
+**Option B: Package Installation** (Debian/Ubuntu native PostgreSQL)
+```bash
+# Add PostgreSQL APT repository (for pgvector packages)
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo apt-get update
+
+# Install pgvector extension for PostgreSQL 16
+sudo apt install postgresql-16-pgvector
+
+# Restart PostgreSQL
+sudo systemctl restart postgresql
+```
+
+**Option C: Managed PostgreSQL Support**
+| Provider | pgvector Support | Version | Notes |
+|----------|------------------|---------|-------|
+| **AWS RDS** | ✅ Yes | PostgreSQL 14+ | Enable via `CREATE EXTENSION` |
+| **Supabase** | ✅ Yes | PostgreSQL 15+ | Built-in, no setup needed |
+| **Google Cloud SQL** | ✅ Yes | PostgreSQL 14+ | Available in database flags |
+| **Azure Database** | ✅ Yes | PostgreSQL 14+ | Flexible Server tier |
+| **Neon.tech** | ✅ Yes | PostgreSQL 15+ | Built-in |
+| **DigitalOcean** | ❌ No | N/A | Use custom Droplet with Docker |
+
+**Usage** (after installation):
 ```sql
--- Store behavioral pattern vectors
+-- Enable pgvector extension (one-time per database)
 CREATE EXTENSION vector;
 
+-- Store behavioral pattern vectors
 CREATE TABLE behavioral_pattern_vectors (
     id SERIAL PRIMARY KEY,
     session_id VARCHAR(64),
