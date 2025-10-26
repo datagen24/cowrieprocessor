@@ -16,7 +16,7 @@ import json
 import logging
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Dict
 
 from cowrieprocessor.db import apply_migrations
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
@@ -128,7 +128,7 @@ def run_deployment_validation(db_url: str) -> dict[str, Any]:
     """Run comprehensive deployment validation."""
     logger.info("Running deployment validation...")
 
-    results = {
+    results: Dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "deployment_target": db_url,
         "validation_results": {},
