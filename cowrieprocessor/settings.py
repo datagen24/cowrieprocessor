@@ -51,7 +51,13 @@ class DatabaseSettings:
         config: Mapping[str, Any] | None = None,
         env_prefix: str = "COWRIEPROC_",
     ) -> "DatabaseSettings":
-        """Build settings from defaults, optional config mapping, and environment variables."""
+        """Build settings from defaults, optional config mapping, and environment variables.
+
+        Precedence order (highest to lowest):
+        1. Explicit config mapping values
+        2. Environment variables
+        3. Default values
+        """
         cfg: dict[str, Any] = {
             "url": f"sqlite:///{_DEFAULT_DB_PATH.resolve()}",
             "echo": False,
@@ -63,37 +69,52 @@ class DatabaseSettings:
             "sqlite_journal_fallback": "DELETE",
         }
 
+        # Track which keys were explicitly provided in config
+        config_keys: set[str] = set()
         if config:
+            config_keys = {k for k, v in config.items() if v is not None}
             cfg.update({k: v for k, v in config.items() if v is not None})
 
         env = os.environ
         prefix = env_prefix.upper()
 
-        url_override = env.get(f"{prefix}DB_URL")
-        if url_override:
-            cfg["url"] = url_override
-        else:
-            path_override = env.get(f"{prefix}DB_PATH")
-            if path_override:
-                cfg["url"] = f"sqlite:///{Path(path_override).resolve()}"
+        # Only apply env overrides for keys not in config
+        if "url" not in config_keys:
+            url_override = env.get(f"{prefix}DB_URL")
+            if url_override:
+                cfg["url"] = url_override
+            else:
+                path_override = env.get(f"{prefix}DB_PATH")
+                if path_override:
+                    cfg["url"] = f"sqlite:///{Path(path_override).resolve()}"
 
-        cfg["echo"] = _coerce_bool(env.get(f"{prefix}DB_ECHO"), bool(cfg["echo"]))
+        if "echo" not in config_keys:
+            cfg["echo"] = _coerce_bool(env.get(f"{prefix}DB_ECHO"), bool(cfg["echo"]))
 
-        pool_size = env.get(f"{prefix}DB_POOL_SIZE")
-        if pool_size is not None:
-            cfg["pool_size"] = _coerce_int(pool_size, cfg["pool_size"] or 0) or None
+        if "pool_size" not in config_keys:
+            pool_size = env.get(f"{prefix}DB_POOL_SIZE")
+            if pool_size is not None:
+                coerced = _coerce_int(pool_size, -1)
+                cfg["pool_size"] = coerced if coerced >= 0 else None
 
-        cfg["pool_timeout"] = _coerce_int(env.get(f"{prefix}DB_POOL_TIMEOUT"), int(cfg["pool_timeout"]))
-        cfg["sqlite_wal"] = _coerce_bool(env.get(f"{prefix}DB_SQLITE_WAL"), bool(cfg["sqlite_wal"]))
-        cfg["sqlite_cache_size"] = _coerce_int(env.get(f"{prefix}DB_SQLITE_CACHE_SIZE"), int(cfg["sqlite_cache_size"]))
+        if "pool_timeout" not in config_keys:
+            cfg["pool_timeout"] = _coerce_int(env.get(f"{prefix}DB_POOL_TIMEOUT"), int(cfg["pool_timeout"]))
 
-        sqlite_sync_override = env.get(f"{prefix}DB_SQLITE_SYNCHRONOUS")
-        if sqlite_sync_override:
-            cfg["sqlite_synchronous"] = sqlite_sync_override.strip().upper()
+        if "sqlite_wal" not in config_keys:
+            cfg["sqlite_wal"] = _coerce_bool(env.get(f"{prefix}DB_SQLITE_WAL"), bool(cfg["sqlite_wal"]))
 
-        journal_fallback_override = env.get(f"{prefix}DB_SQLITE_JOURNAL_FALLBACK")
-        if journal_fallback_override:
-            cfg["sqlite_journal_fallback"] = journal_fallback_override.strip().upper()
+        if "sqlite_cache_size" not in config_keys:
+            cfg["sqlite_cache_size"] = _coerce_int(env.get(f"{prefix}DB_SQLITE_CACHE_SIZE"), int(cfg["sqlite_cache_size"]))
+
+        if "sqlite_synchronous" not in config_keys:
+            sqlite_sync_override = env.get(f"{prefix}DB_SQLITE_SYNCHRONOUS")
+            if sqlite_sync_override:
+                cfg["sqlite_synchronous"] = sqlite_sync_override.strip().upper()
+
+        if "sqlite_journal_fallback" not in config_keys:
+            journal_fallback_override = env.get(f"{prefix}DB_SQLITE_JOURNAL_FALLBACK")
+            if journal_fallback_override:
+                cfg["sqlite_journal_fallback"] = journal_fallback_override.strip().upper()
 
         return cls(**cfg)
 
