@@ -477,6 +477,140 @@ sudo systemctl restart postgresql
 - Use connection pooling (PgBouncer)
 ```
 
+## Security Considerations for Migration
+
+### Migration Tool Security
+
+**Credential Handling**:
+```bash
+# ❌ INSECURE - credentials in shell history
+cowrie-db migrate-to-postgres \
+    --postgres-url postgresql://user:pass@host:5432/cowrie
+
+# ✅ SECURE - prompt for password
+cowrie-db migrate-to-postgres \
+    --postgres-url postgresql://user@host:5432/cowrie \
+    --prompt-password
+
+# ✅ SECURE - 1Password CLI integration
+op run --env-file=.env -- cowrie-db migrate-to-postgres \
+    --postgres-url "${DATABASE_URL}"
+
+# ✅ SECURE - config file (600 permissions)
+cowrie-db migrate-to-postgres --config migration.yaml
+```
+
+**Pre-Migration Security Checklist**:
+1. ✅ Backup SQLite database with encryption: `gpg --encrypt cowrie.db`
+2. ✅ Test PostgreSQL connection with SSL: `psql "sslmode=require ..."`
+3. ✅ Verify PostgreSQL authentication method: `SHOW password_encryption;` (expect `scram-sha-256`)
+4. ✅ Ensure migration tool has minimal privileges (no SUPERUSER)
+5. ✅ Audit log retention configured before migration
+
+**PostgreSQL Security Hardening Post-Migration**:
+
+1. **Authentication Configuration** (`pg_hba.conf`):
+```conf
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+local   all             postgres                                peer
+host    cowrie          cowrie          127.0.0.1/32            scram-sha-256
+host    cowrie          cowrie          ::1/128                 scram-sha-256
+
+# For Tailscale network (adjust to your Tailscale CIDR)
+host    cowrie          cowrie          100.64.0.0/10           scram-sha-256
+
+# Reject all other connections
+host    all             all             0.0.0.0/0               reject
+```
+
+2. **SSL/TLS Configuration** (`postgresql.conf`):
+```conf
+ssl = on
+ssl_cert_file = '/path/to/server.crt'
+ssl_key_file = '/path/to/server.key'
+ssl_ciphers = 'HIGH:MEDIUM:+3DES:!aNULL'
+ssl_prefer_server_ciphers = on
+ssl_min_protocol_version = 'TLSv1.2'
+```
+
+3. **Role Separation** (least privilege):
+```sql
+-- Read-only role for MCP API
+CREATE ROLE cowrie_readonly WITH LOGIN PASSWORD 'strong_password';
+GRANT CONNECT ON DATABASE cowrie TO cowrie_readonly;
+GRANT USAGE ON SCHEMA public TO cowrie_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO cowrie_readonly;
+
+-- Read-write role for data loaders
+CREATE ROLE cowrie_writer WITH LOGIN PASSWORD 'strong_password';
+GRANT CONNECT ON DATABASE cowrie TO cowrie_writer;
+GRANT USAGE ON SCHEMA public TO cowrie_writer;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO cowrie_writer;
+```
+
+### Data Integrity Verification
+
+**Enhanced Verification** (beyond row counts):
+```python
+# Migration tool verifies:
+1. Row counts per table (basic)
+2. SHA256 checksums of sample records (100 random rows per table)
+3. Foreign key constraint validation
+4. Index integrity checks
+5. Data type consistency (JSON → JSONB)
+6. Timestamp preservation (verify no timezone shifts)
+```
+
+**Post-Migration Validation Script**:
+```bash
+# Automated validation
+uv run cowrie-db verify-migration \
+    --sqlite-db /path/to/original.db \
+    --postgres-url postgresql://... \
+    --sample-size 1000 \
+    --checksum-validation
+```
+
+### Backup Strategy During Migration
+
+**Recommended Workflow**:
+```bash
+# 1. Encrypted backup of SQLite
+gpg --symmetric --cipher-algo AES256 cowrie.db
+# Result: cowrie.db.gpg
+
+# 2. Test restoration
+gpg --decrypt cowrie.db.gpg > cowrie-test.db
+
+# 3. Migration with rollback capability
+cowrie-db migrate-to-postgres \
+    --sqlite-db cowrie.db \
+    --postgres-url ... \
+    --checkpoint-interval 10000 \
+    --rollback-on-error
+
+# 4. Keep SQLite backup for 30 days after successful migration
+```
+
+### Security Differences: SQLite vs PostgreSQL
+
+**Implications for Users**:
+
+| Security Feature | SQLite | PostgreSQL | Migration Impact |
+|------------------|--------|------------|------------------|
+| **Encryption at Rest** | File-level only | Table-level (pgcrypto) | Must enable explicitly |
+| **Network Encryption** | N/A | SSL/TLS | Configure post-migration |
+| **Authentication** | None | Password/cert-based | Create strong passwords |
+| **Audit Logging** | None | pgaudit extension | Enable for compliance |
+| **Row-Level Security** | None | Built-in | Future feature (V4.2) |
+
+**Action Required Post-Migration** (for security-conscious users):
+1. Enable SSL/TLS connections
+2. Configure `pg_hba.conf` to restrict access
+3. Install pgaudit for compliance logging
+4. Set up automated backup with encryption
+5. Configure connection pooling (PgBouncer) to limit attack surface
+
 ### PostgreSQL-Specific Features Unlocked in V4.0
 
 Once SQLite is deprecated, we can leverage PostgreSQL-native features:
