@@ -611,6 +611,53 @@ cowrie-db migrate-to-postgres \
 4. Set up automated backup with encryption
 5. Configure connection pooling (PgBouncer) to limit attack surface
 
+### Migration Testing Checklist (For Implementers)
+
+**Pre-Implementation Testing**:
+- [ ] Test migration on sample database (< 1000 rows)
+- [ ] Test migration on medium database (10K-100K rows)
+- [ ] Test migration on large database (1M+ rows)
+- [ ] Test migration with foreign key constraints
+- [ ] Test migration with indexes
+- [ ] Test resume from checkpoint after simulated failure
+- [ ] Test rollback on error
+
+**Data Integrity Tests**:
+```python
+# tests/integration/test_migration.py
+
+def test_row_counts_match():
+    """Verify all tables have matching row counts."""
+    sqlite_counts = get_sqlite_row_counts()
+    postgres_counts = get_postgres_row_counts()
+    assert sqlite_counts == postgres_counts
+
+def test_foreign_keys_preserved():
+    """Verify all foreign key relationships intact."""
+    # Check session_id references between tables
+    assert verify_foreign_keys()
+
+def test_json_data_preserved():
+    """Verify JSON/JSONB data converted correctly."""
+    # Sample 100 random rows, compare JSON content
+    assert compare_json_fields(sample_size=100)
+
+def test_timestamps_preserved():
+    """Verify no timezone shifts in timestamp fields."""
+    assert compare_timestamps()
+```
+
+**Performance Benchmarks**:
+- 10K rows: < 1 minute
+- 100K rows: < 10 minutes
+- 1M rows: < 2 hours
+- 10M rows: < 24 hours
+
+**Student Task**: Implement migration tool meeting these criteria
+- Estimated effort: 2-3 weeks
+- Skills needed: Python, SQLite, PostgreSQL, pytest
+- Mentorship: Code review + weekly check-ins
+
 ### PostgreSQL-Specific Features Unlocked in V4.0
 
 Once SQLite is deprecated, we can leverage PostgreSQL-native features:

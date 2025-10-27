@@ -318,6 +318,56 @@ The current architecture faces scalability, deployment, and operational challeng
 
 **Risk**: Medium (security audit and load testing time-consuming)
 
+### Sprint Planning for Student Contributors
+
+**Context**: This is a labor-of-love project with student involvement anticipated. Phases above are aspirational timelines, not hard deadlines.
+
+**Good First Issues** (suitable for students):
+
+**Phase 1 - Foundation**:
+- [ ] Create Dockerfile.mcp-api (estimated: 2-3 days, Python + Docker knowledge)
+- [ ] Implement OpenAPI documentation for MCP endpoints (estimated: 3-4 days, FastAPI experience)
+- [ ] Write unit tests for MCP API routes (estimated: 2-3 days, pytest knowledge)
+- [ ] Create docker-compose.yml for local development (estimated: 1-2 days, Docker Compose basics)
+
+**Phase 2 - Job Coordination**:
+- [ ] Refactor longtail analysis as Celery task (estimated: 5-7 days, moderate complexity)
+- [ ] Implement worker registration token generation (estimated: 2-3 days, Redis + cryptography)
+- [ ] Write integration tests for job queue (estimated: 3-4 days, testing skills)
+- [ ] Create Dockerfile.analysis-worker (estimated: 2-3 days, similar to Phase 1)
+
+**Phase 3 - UI and Telemetry**:
+- [ ] Design UI mockups/wireframes (estimated: 3-5 days, design skills)
+- [ ] Implement FastAPI backend for UI (estimated: 5-7 days, WebSocket/SSE)
+- [ ] Build React dashboard frontend (estimated: 7-10 days, React experience) ⭐ **Good for frontend students**
+- [ ] Create Grafana dashboards (estimated: 2-3 days, Prometheus/Grafana)
+
+**Phase 4 - Distributed Data Loaders**:
+- [ ] Containerize data loaders (estimated: 3-4 days, reuse existing code)
+- [ ] Create Kubernetes CronJob manifests (estimated: 2-3 days, K8s YAML)
+- [ ] Update orchestrate_sensors.py for containers (estimated: 4-5 days, Python scripting)
+
+**Phase 5 - Production Hardening**:
+- [ ] Write security audit checklist (estimated: 2-3 days, security knowledge) ⭐ **Good for security students**
+- [ ] Implement rate limiting (estimated: 3-4 days, FastAPI middleware)
+- [ ] Create deployment runbooks (estimated: 5-7 days, documentation skills)
+- [ ] Write load testing scripts (estimated: 3-4 days, Locust or K6)
+
+**Mentorship Model**:
+- Assign 1-2 students per sprint task
+- Weekly sync meetings for blockers
+- Code review required before merge
+- Documentation updated with each PR
+
+**Labels for GitHub Issues**:
+- `good-first-issue`: Low complexity, well-defined
+- `student-friendly`: Moderate complexity, suitable for learning
+- `mentor-needed`: High complexity, requires guidance
+- `documentation`: Writing-focused tasks
+- `frontend`: React/UI work
+- `backend`: Python/FastAPI work
+- `security`: InfoSec-focused tasks
+
 ### Container Specifications
 
 #### 1. MCP API Container
@@ -1495,6 +1545,65 @@ Explicitly **out of scope** to avoid complexity:
 - Multi-tenancy support (university shared clusters)
 - SIEM integration (Wazuh, Elastic Security)
 - Advanced threat detection on containers
+
+## Known Limitations and Non-Goals
+
+### What V4.0 Will NOT Include
+
+**Explicitly Out of Scope**:
+1. **Multi-Tenancy**: Single organization/tenant only
+   - **Why**: Adds significant complexity in RBAC, data isolation, quotas
+   - **Future**: V5.0+ if demand exists
+
+2. **High Availability Coordinator**: Single coordinator (active-passive, not active-active)
+   - **Why**: Leader election sufficient for single-researcher scale
+   - **Acceptable**: 30-60 second failover time
+
+3. **Real-Time Streaming**: Job results polled, not pushed (no WebSocket in V4.0)
+   - **Why**: Polling adequate for educational use (1-5 second delays acceptable)
+   - **Future**: V4.1 WebSocket support
+
+4. **Advanced RBAC**: Single admin user, no granular permissions
+   - **Why**: Educational deployments typically single-user
+   - **Future**: V4.2 if university shared clusters need it
+
+5. **Service Mesh**: No Istio/Linkerd
+   - **Why**: Over-engineered for 2-50 sensors
+   - **Alternative**: Simple NetworkPolicies sufficient
+
+6. **Multi-Region**: Single Kubernetes cluster
+   - **Why**: Geographic distribution not required for research
+   - **Alternative**: Multiple independent clusters
+
+**Performance Targets** (not guarantees):
+- MCP API: 100 req/s sustained (not 1000+ req/s)
+- Job Queue: 10 concurrent jobs (not 100+)
+- Database: 10M events (not 1B+ events)
+
+**Why Document Limitations?**
+- Sets realistic expectations for students
+- Prevents feature creep during sprints
+- Focuses effort on core value delivery
+
+## Success Metrics (For V4.0 Release)
+
+**Functional Metrics**:
+- [ ] All 5 phases completed (definition of done per phase)
+- [ ] 90% test coverage on new code
+- [ ] 0 critical security vulnerabilities (Trivy scan)
+- [ ] MCP API response time < 100ms (p95)
+- [ ] Job queue latency < 5 seconds (p99)
+
+**Process Metrics** (for student involvement):
+- [ ] 10+ student contributors
+- [ ] 50+ pull requests merged
+- [ ] 100+ GitHub issues closed
+- [ ] 20+ documentation pages created
+
+**Educational Impact**:
+- [ ] 5+ students gained Kubernetes experience
+- [ ] 5+ students gained security hardening experience
+- [ ] 3+ students gained distributed systems experience
 
 ## Legacy Features and Deprecation Path
 

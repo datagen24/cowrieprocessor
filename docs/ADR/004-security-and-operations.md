@@ -2140,6 +2140,20 @@ curl -X POST https://coordinator.example.com:8443/api/v1/workers/register \
 - Skip service mesh (use network policies + Tailscale)
 - Implement only essential endpoints in MCP API for V4.0
 
+**Timeline Disclaimer**:
+
+These estimates assume:
+- Dedicated full-time work (40 hrs/week)
+- Experienced developers (5+ years Python)
+- No major blockers or dependencies
+
+**Realistic Timeline for Labor-of-Love + Students**:
+- **With student involvement**: 6-9 months (accounting for learning curves, university schedules)
+- **Solo implementation**: 4-6 months (working evenings/weekends)
+- **Team of 3-5 experienced devs**: 3-4 months (distributed work)
+
+**Recommendation**: Plan sprints in 2-week increments, reassess velocity every 3 sprints.
+
 ### 15. Elasticsearch Integration
 
 **Decision**: **Optional for V4.0, Recommended for V4.1+**
@@ -2765,7 +2779,7 @@ echo "OK: All services reachable via Tailscale"
 
 **Core Security Decisions**:
 1. ✅ **Secrets**: Kubernetes Secrets + External Secrets Operator (Vault)
-2. ✅ **Images**: Distroless base, Trivy/Grype scanning, Cosign signing
+2. ✅ **Images**: Red Hat UBI 9 base (UBI 9 Minimal default, Distroless optional), Trivy/Grype scanning, Cosign signing
 3. ✅ **Network**: Network Policies (default deny) + Tailscale for trusted
 4. ✅ **Auth**: API keys (V4.0), mTLS (V4.1), Worker registration tokens
 5. ✅ **Redis**: TLS enabled, AUTH required, encryption for sensitive jobs
