@@ -10,6 +10,7 @@ sphinx:
 
 # Build all formats (HTML, PDF, ePub)
 formats:
+  - htmlzip
   - pdf
   - epub
 

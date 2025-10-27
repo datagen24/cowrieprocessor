@@ -47,6 +47,13 @@ dev = [
   "pytest-cov==5.0.0",
   "sphinx==7.4.7",
 ]
+docs = [
+  "sphinx>=7.4.0",
+  "sphinx-rtd-theme>=2.0.0",
+  "sphinx-autodoc-typehints>=2.0.0",
+  "myst-parser>=3.0.0",
+  "linkify-it-py>=2.0.0",
+]
 
 [tool.ruff]
 # Keep close to existing style; avoid massive churn.

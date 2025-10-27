@@ -55,6 +55,15 @@ Reference
    reference/data-dictionary
    reference/enrichment-schemas
 
+Architecture Decision Records
+-----------------------------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Architecture Decisions
+
+   adr/index
+
 API Documentation
 -----------------
 
