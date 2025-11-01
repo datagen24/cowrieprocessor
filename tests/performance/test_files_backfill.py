@@ -1,10 +1,10 @@
 """Performance tests for files table backfill functionality."""
 
 from __future__ import annotations
-from pathlib import Path
 
 import json
 import time
+from pathlib import Path
 
 import pytest
 

@@ -1,12 +1,12 @@
 """Tests for the reporting CLI."""
 
 from __future__ import annotations
-import pytest
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

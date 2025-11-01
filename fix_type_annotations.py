@@ -6,7 +6,6 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Any
 
 
 def fix_pytest_fixtures(content: str) -> tuple[str, int]:
