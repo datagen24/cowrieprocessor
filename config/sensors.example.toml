@@ -49,3 +49,27 @@ email = "you@example.com"
 name = "honeypot-b"
 logpath = "/mnt/dshield/b/NSM/cowrie"
 summarizedays = 1
+
+# Snowshoe Spam Detection Configuration
+[snowshoe_detector]
+enabled = true
+
+# Provider Classification via Enrichment Data
+[snowshoe_detector.enrichment]
+use_dshield = true
+use_spur = true
+max_enrichment_age_days = 365
+treat_stale_as_unknown = false
+
+# Cloud provider keywords for ASN name matching (case-insensitive)
+cloud_provider_keywords = [
+    "amazon", "aws",
+    "google", "gcp",
+    "azure", "microsoft",
+    "digitalocean",
+    "linode",
+    "vultr",
+    "ovh",
+    "hetzner",
+    "scaleway"
+]

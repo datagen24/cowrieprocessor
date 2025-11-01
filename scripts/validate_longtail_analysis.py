@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, cast
+from typing import Any, Dict
 
 from cowrieprocessor.db.engine import create_engine_from_settings, detect_database_features
 from cowrieprocessor.db.migrations import apply_migrations

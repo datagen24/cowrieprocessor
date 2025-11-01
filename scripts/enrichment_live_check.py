@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from enrichment_handlers import EnrichmentService  # noqa: E402
 
-from cowrieprocessor.db.json_utils import JSONAccessor, get_dialect_name_from_engine  # noqa: E402
+from cowrieprocessor.db.json_utils import get_dialect_name_from_engine  # noqa: E402
 from cowrieprocessor.enrichment import EnrichmentCacheManager  # noqa: E402
 
 DEFAULT_DB = Path("/mnt/dshield/data/db/cowrieprocessor.sqlite")
