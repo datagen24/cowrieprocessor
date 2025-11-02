@@ -686,7 +686,7 @@ class DLQProcessor:
 
         with session_factory() as session:
             # Build query using SQLAlchemy 2.0 select()
-            stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
+            stmt = select(DeadLetterEvent).where(~DeadLetterEvent.resolved)
 
             if reason_filter:
                 stmt = stmt.where(DeadLetterEvent.reason == reason_filter)
@@ -852,7 +852,7 @@ class DLQProcessor:
         session_factory = create_session_maker(engine)
 
         with session_factory() as session:
-            stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
+            stmt = select(DeadLetterEvent).where(~DeadLetterEvent.resolved)
             result = session.execute(stmt)
             dlq_events = result.scalars().all()
 

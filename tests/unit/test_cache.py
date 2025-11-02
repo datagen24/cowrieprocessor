@@ -459,8 +459,6 @@ class TestCleanupExpired:
 
         # When: Cleanup with file deletion during iteration
         # Simulate concurrent deletion by deleting before unlink
-        original_unlink = Path.unlink
-
         def mock_unlink(self: Path, *args: Any, **kwargs: Any) -> None:
             """Mock unlink that raises FileNotFoundError."""
             raise FileNotFoundError()
@@ -488,7 +486,6 @@ class TestResolveExistingPath:
 
         # Store file (creates primary path)
         cache_mgr.store_text("test", "key", "data")
-        primary_path = cache_mgr.get_path("test", "key")
 
         # When: Resolve existing path
         primary, legacy, _ = cache_mgr._paths_for_key("test", "key")

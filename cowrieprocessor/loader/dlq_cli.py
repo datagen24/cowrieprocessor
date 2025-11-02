@@ -104,7 +104,6 @@ def validate_cowrie_events(db_path: Optional[str] = None, limit: Optional[int] =
         }
 
         for event in events:
-            payload = event.payload
             # Handle SQLAlchemy Column type - use getattr to avoid type issues
             payload_data = getattr(event, 'payload', None)
             if hasattr(payload_data, 'items') and callable(getattr(payload_data, 'items')):
@@ -186,7 +185,7 @@ def export_dlq_events(
     with session_factory() as session:
         from sqlalchemy import select
 
-        stmt = select(DeadLetterEvent).where(DeadLetterEvent.resolved == False)
+        stmt = select(DeadLetterEvent).where(~DeadLetterEvent.resolved)
 
         if reason_filter:
             stmt = stmt.where(DeadLetterEvent.reason == reason_filter)
