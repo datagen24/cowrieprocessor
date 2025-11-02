@@ -24,10 +24,17 @@ memory_warning_threshold = 0.75
 # Enforces bounds: min=100, max=10000
 # batch_size = 1000  # Explicit override (uncomment to set manually)
 
+[global.cache]
+redis_enabled = true
+redis_host = "localhost"
+redis_port = 32768
+redis_db = 0
+redis_ttl_seconds = 36000  # 1 hour TTL for hot cache
+
 [[sensor]]
 name = "aws-eastus-dshield"
 logpath = "/mnt/dshield/aws-eastus-dshield/NSM/cowrie"
-summarizedays = 360
+summarizedays = 390
 email = "steve@scpeterson.com"
 vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
 urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
@@ -36,5 +43,8 @@ urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
 [[sensor]]
 name = "inter-nj01-dshield"
 logpath = "/mnt/dshield/inter-nj01-dshield/NSM/cowrie"
-summarizedays = 90
+summarizedays = 190
+email = "steve@scpeterson.com"
+vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
+urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
 

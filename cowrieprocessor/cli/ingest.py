@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from sqlalchemy.engine import Engine
+
 from cowrieprocessor.enrichment import EnrichmentCacheManager
 from cowrieprocessor.enrichment.handlers import EnrichmentService
 
@@ -37,7 +39,7 @@ def _make_delta_config(args: argparse.Namespace) -> DeltaLoaderConfig:
     return DeltaLoaderConfig(bulk=bulk_cfg)
 
 
-def _resolve_enrichment_service(args: argparse.Namespace) -> EnrichmentService | None:
+def _resolve_enrichment_service(args: argparse.Namespace, engine: Engine | None = None) -> EnrichmentService | None:
     if getattr(args, "skip_enrich", False):
         return None
 
@@ -66,6 +68,7 @@ def _resolve_enrichment_service(args: argparse.Namespace) -> EnrichmentService |
         urlhaus_api=urlhaus_api,
         spur_api=spur_api,
         cache_manager=cache_manager,
+        engine=engine,  # NEW: Pass engine for database cache
     )
 
 
@@ -76,7 +79,7 @@ def run_bulk_loader(args: argparse.Namespace, sources: Sequence[str | Path]) -> 
     apply_migrations(engine)
 
     emitter = StatusEmitter("bulk_ingest", status_dir=args.status_dir)
-    enrichment = _resolve_enrichment_service(args)
+    enrichment = _resolve_enrichment_service(args, engine=engine)
     loader = BulkLoader(engine, _make_bulk_config(args), enrichment_service=enrichment)
     metrics = loader.load_paths(
         sources,
@@ -97,7 +100,7 @@ def run_delta_loader(args: argparse.Namespace, sources: Sequence[str | Path]) ->
     apply_migrations(engine)
 
     emitter = StatusEmitter("delta_ingest", status_dir=args.status_dir)
-    enrichment = _resolve_enrichment_service(args)
+    enrichment = _resolve_enrichment_service(args, engine=engine)
     loader = DeltaLoader(engine, _make_delta_config(args), enrichment_service=enrichment)
     metrics = loader.load_paths(
         sources,
