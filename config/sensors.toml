@@ -30,6 +30,7 @@ redis_host = "localhost"
 redis_port = 32768
 redis_db = 0
 redis_ttl_seconds = 36000  # 1 hour TTL for hot cache
+db_cache_enabled = true
 
 [[sensor]]
 name = "aws-eastus-dshield"
