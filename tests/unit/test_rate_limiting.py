@@ -192,9 +192,7 @@ class TestAdaptiveRateLimiter:
         When: Initialized
         Then: Uses custom backoff values
         """
-        limiter = AdaptiveRateLimiter(
-            rate=1.0, burst=2, base_backoff_seconds=30.0, max_backoff_seconds=1800.0
-        )
+        limiter = AdaptiveRateLimiter(rate=1.0, burst=2, base_backoff_seconds=30.0, max_backoff_seconds=1800.0)
 
         assert limiter.base_backoff_seconds == 30.0
         assert limiter.max_backoff_seconds == 1800.0
@@ -259,9 +257,7 @@ class TestAdaptiveRateLimiter:
         When: apply_backoff() is called after multiple failures
         Then: Backoff time doubles with each failure
         """
-        limiter = AdaptiveRateLimiter(
-            rate=1.0, burst=2, base_backoff_seconds=0.1, max_backoff_seconds=10.0
-        )
+        limiter = AdaptiveRateLimiter(rate=1.0, burst=2, base_backoff_seconds=0.1, max_backoff_seconds=10.0)
 
         # First failure: 0.1s
         limiter.record_failure()
@@ -291,9 +287,7 @@ class TestAdaptiveRateLimiter:
         When: Many consecutive failures occur
         Then: Backoff time never exceeds max_backoff_seconds
         """
-        limiter = AdaptiveRateLimiter(
-            rate=1.0, burst=2, base_backoff_seconds=0.1, max_backoff_seconds=0.5
-        )
+        limiter = AdaptiveRateLimiter(rate=1.0, burst=2, base_backoff_seconds=0.1, max_backoff_seconds=0.5)
 
         # Record many failures (should exceed max backoff)
         for _ in range(10):
@@ -341,9 +335,7 @@ class TestAdaptiveRateLimiter:
         When: acquire_sync() is called
         Then: Backoff is applied before acquiring token
         """
-        limiter = AdaptiveRateLimiter(
-            rate=10.0, burst=5, base_backoff_seconds=0.1, max_backoff_seconds=1.0
-        )
+        limiter = AdaptiveRateLimiter(rate=10.0, burst=5, base_backoff_seconds=0.1, max_backoff_seconds=1.0)
 
         # Record a failure
         limiter.record_failure()

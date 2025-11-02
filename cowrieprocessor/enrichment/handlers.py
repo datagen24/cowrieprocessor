@@ -12,6 +12,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional
 import requests
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
+from cowrieprocessor.enrichment.hybrid_cache import HybridEnrichmentCache, create_redis_client
 from cowrieprocessor.enrichment.rate_limiting import (
     RateLimitedSession,
     create_rate_limited_session_factory,
@@ -581,6 +582,7 @@ class EnrichmentService:
         enable_telemetry: bool = True,
         telemetry_phase: str = "enrichment",
         enable_vt_quota_management: bool = True,
+        enable_redis_cache: bool = True,
     ) -> None:
         """Initialise the enrichment service."""
         self.cache_dir = Path(cache_dir)
@@ -594,7 +596,19 @@ class EnrichmentService:
         self.enable_rate_limiting = enable_rate_limiting
         self.enable_telemetry = enable_telemetry
 
-        self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
+        # Initialize filesystem cache (L2)
+        filesystem_cache = cache_manager or EnrichmentCacheManager(self.cache_dir)
+
+        # Initialize hybrid cache (Redis L1 + Filesystem L2)
+        if enable_redis_cache:
+            redis_client = create_redis_client()
+            self.cache_manager = HybridEnrichmentCache(
+                filesystem_cache=filesystem_cache,
+                redis_client=redis_client,
+            )
+        else:
+            # Use filesystem-only mode if Redis disabled
+            self.cache_manager = filesystem_cache  # type: ignore[assignment]
 
         # Initialize VirusTotal handler with quota management
         self.vt_handler = VirusTotalHandler(
@@ -630,7 +644,17 @@ class EnrichmentService:
 
     def cache_snapshot(self) -> Dict[str, int]:
         """Return current cache statistics for telemetry."""
-        return self.cache_manager.snapshot()
+        if isinstance(self.cache_manager, HybridEnrichmentCache):
+            # Return hybrid cache stats in legacy format for backward compatibility
+            hybrid_stats = self.cache_manager.get_stats()
+            return {
+                "hits": hybrid_stats["total_cache_hits"],
+                "misses": hybrid_stats["total_cache_misses"],
+                "stores": hybrid_stats["l1_redis"]["stores"] + hybrid_stats["l2_filesystem"]["stores"],
+            }
+        else:
+            # Filesystem-only mode
+            return self.cache_manager.snapshot()
 
     def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
         """Return enrichment payload for a session/IP pair."""
@@ -647,13 +671,19 @@ class EnrichmentService:
                 try:
                     session = self._session_factory("dshield")
                     try:
+                        # Get TTL from cache manager (works for both hybrid and filesystem-only)
+                        if isinstance(self.cache_manager, HybridEnrichmentCache):
+                            ttl_seconds = self.cache_manager.filesystem_cache.ttls.get("dshield", 86400)
+                        else:
+                            ttl_seconds = self.cache_manager.ttls.get("dshield", 86400)
+
                         enrichment["dshield"] = dshield_query(
                             src_ip,
                             self.dshield_email,
                             skip_enrich=False,
                             cache_base=self.cache_dir,
                             session_factory=lambda: session,
-                            ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
+                            ttl_seconds=ttl_seconds,
                             now=time.time,
                         )
                         if self.telemetry:
@@ -913,6 +943,10 @@ class EnrichmentService:
         # Close VirusTotal handler
         if hasattr(self, 'vt_handler'):
             self.vt_handler.close()
+
+        # Close hybrid cache (Redis connection)
+        if isinstance(self.cache_manager, HybridEnrichmentCache):
+            self.cache_manager.close()
 
         # Close all active sessions
         for session in self._active_sessions:

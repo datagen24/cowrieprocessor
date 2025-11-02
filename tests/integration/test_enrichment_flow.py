@@ -17,7 +17,7 @@ All tests use mocked HTTP sessions and time.sleep to avoid network calls and del
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
@@ -159,7 +159,7 @@ class TestAdaptiveRateLimitingIntegration:
 
         # All backoff delays should be >= 60s for 401 errors
         for i, delay in enumerate(sleep_calls):
-            assert delay >= 60.0, f"Backoff {i+1} too short: {delay}s (expected ≥60s for 401)"
+            assert delay >= 60.0, f"Backoff {i + 1} too short: {delay}s (expected ≥60s for 401)"
 
     @patch('time.sleep')
     def test_429_adaptive_backoff_with_retry_after_fallback(self, mock_sleep: Mock) -> None:
@@ -198,7 +198,7 @@ class TestAdaptiveRateLimitingIntegration:
 
         # All backoff delays should be >= 120s for 429 errors
         for i, delay in enumerate(sleep_calls):
-            assert delay >= 120.0, f"Backoff {i+1} too short: {delay}s (expected ≥120s for 429)"
+            assert delay >= 120.0, f"Backoff {i + 1} too short: {delay}s (expected ≥120s for 429)"
 
     @patch('time.sleep')
     def test_success_after_failure_continues_normally(self, mock_sleep: Mock) -> None:
