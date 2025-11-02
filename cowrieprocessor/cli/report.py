@@ -589,7 +589,9 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
                     for i, threat in enumerate(threats, 1):
                         output_lines.append(f"  {i:2d}. {threat['command'][:60]}...")
                         output_lines.append(
-                            f"      Count: {threat['detection_count']}, Confidence: {threat['avg_confidence']:.3f}, Sessions: {threat['unique_sessions']}"
+                            f"      Count: {threat['detection_count']}, "
+                            f"Confidence: {threat['avg_confidence']:.3f}, "
+                            f"Sessions: {threat['unique_sessions']}"
                         )
                     output_lines.append("")
 
@@ -611,7 +613,9 @@ def generate_longtail_report(args: argparse.Namespace) -> int:
                     output_lines.append("📊 DAILY TRENDS")
                     for trend in trends[-7:]:  # Show last 7 days
                         output_lines.append(
-                            f"  {trend['day'].date()}: {trend['analyses_count']} analyses, {trend['rare_commands']} rare commands, {trend['outlier_sessions']} outliers"
+                            f"  {trend['day'].date()}: {trend['analyses_count']} analyses, "
+                            f"{trend['rare_commands']} rare commands, "
+                            f"{trend['outlier_sessions']} outliers"
                         )
                     output_lines.append("")
 

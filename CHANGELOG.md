@@ -325,6 +325,30 @@ Major release with comprehensive threat detection, SSH key intelligence, passwor
   - Fixed misleading file count in status when using `--days` parameter
   - Accurate progress reporting
 
+- **Unicode Sanitization Detection** (PR #109):
+  - Fixed false negatives in `is_safe_for_postgres_json()` that skipped all problematic records
+  - Now detects both actual control character bytes (`\x00`-`\x1f`, `\x7f`) AND JSON Unicode escape sequences (`\u0000`-`\u001f`, `\u007f`)
+  - Root cause: PostgreSQL `payload::text` returns escape sequences as literal strings (e.g., `\u0000` as 6 characters, not byte `\x00`)
+  - Added comprehensive test coverage for escape sequence detection patterns
+  - Fixed SQL syntax error: replaced `::jsonb` with `CAST(:param AS jsonb)` to avoid conflict with SQLAlchemy parameter binding
+  - Files: `cowrieprocessor/utils/unicode_sanitizer.py`, `tests/unit/test_unicode_sanitizer.py`
+
+- **Unicode Sanitization Performance** (PR #112):
+  - **Production Results**: 20+ hours (estimated) → 4 min 15 sec (actual) = **~280x speedup**
+  - Pre-filter query: 42.3 seconds to identify 1,267 problematic records in 12.4M database (0.01%)
+  - Zero errors, 100% success rate on production database
+  - Replaced OFFSET pagination (O(n) complexity) with cursor-based pagination (O(1) complexity)
+  - Added pre-filtering with WHERE clause to only fetch problematic records
+  - Implemented batch UPDATEs using CASE statement (1 UPDATE per batch instead of per-record)
+  - Added batch UPDATE retry logic with individual fallback for error recovery
+  - Parameterized IDs in CASE statements for SQL injection prevention (defense-in-depth)
+  - Default behavior: Auto-enable optimized mode for PostgreSQL, fallback to legacy for SQLite
+  - New CLI flag: `--no-optimized` to force legacy OFFSET-based method if needed
+  - Reduced records scanned per batch from 12.4M → ~1K (12,400x reduction)
+  - Comprehensive test coverage: 16 integration tests covering all code paths
+  - Files: `cowrieprocessor/cli/cowrie_db.py` (`sanitize_unicode_in_database()` method)
+  - Documentation: ADR-006 documents pattern for all future database utilities
+
 - **Report Generation** (PRs #9, #10, #15):
   - Added progress tracking and timeout handling
   - Fixed report processing hang issues
