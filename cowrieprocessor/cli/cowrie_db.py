@@ -1000,7 +1000,11 @@ class CowrieDatabase:
                                             'sanitized': sanitized_payload_text,
                                         }
                                     )
-                                    result['records_updated'] += 1
+                                    # Count updated records:
+                                    # - In dry_run: count intent to update
+                                    # - In real run: will be counted after successful DB operation
+                                    if dry_run:
+                                        result['records_updated'] += 1
                                 else:
                                     logger.warning(f"Record {record_id}: Sanitized payload still unsafe")
                                     result['records_skipped'] += 1
@@ -1053,10 +1057,29 @@ class CowrieDatabase:
                                 params['ids'] = ids
 
                                 conn.execute(update_query, params)
+                                result['records_updated'] += len(records_to_update)
 
-                            except Exception as e:
-                                logger.error(f"Error in batch UPDATE: {e}")
-                                result['errors'] += len(records_to_update)
+                            except Exception as batch_error:
+                                logger.error(f"Batch UPDATE failed: {batch_error}, falling back to individual UPDATEs")
+
+                                # Fall back to individual UPDATEs for error recovery
+                                for record in records_to_update:
+                                    try:
+                                        individual_update = text("""
+                                            UPDATE raw_events
+                                            SET payload = CAST(:sanitized AS jsonb)
+                                            WHERE id = :record_id
+                                        """)
+                                        conn.execute(
+                                            individual_update,
+                                            {"sanitized": record['sanitized'], "record_id": record['id']},
+                                        )
+                                        result['records_updated'] += 1
+                                    except Exception as individual_error:
+                                        logger.error(
+                                            f"Failed to update record {record['id']} individually: {individual_error}"
+                                        )
+                                        result['errors'] += 1
 
                     result['batches_processed'] += 1
                     last_id = batch_records[-1].id  # Update cursor
