@@ -1275,6 +1275,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             urlhaus_api=resolved_credentials.get("urlhaus_api"),
             spur_api=resolved_credentials.get("spur_api"),
             cache_manager=cache_manager,
+            engine=engine,  # Pass engine for database L2 cache
             enable_telemetry=False,  # Disable telemetry to avoid status directory issues
         )
 
