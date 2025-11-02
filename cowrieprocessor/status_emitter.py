@@ -58,8 +58,22 @@ class StatusEmitter:
     ) -> None:
         """Create an emitter for the given ingest phase."""
         self.phase = phase
-        self.status_dir = Path(status_dir) if status_dir else _DEFAULT_STATUS_DIR
-        self.status_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine status directory with fallback to local cache on permission errors
+        requested_dir = Path(status_dir) if status_dir else _DEFAULT_STATUS_DIR
+        try:
+            requested_dir.mkdir(parents=True, exist_ok=True)
+            self.status_dir = requested_dir
+        except (PermissionError, OSError) as e:
+            # Fall back to local cache directory if we can't create the requested directory
+            fallback_dir = Path.home() / ".cache" / "cowrieprocessor" / "status"
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            self.status_dir = fallback_dir
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Cannot create status directory {requested_dir}: {e}. Using fallback: {fallback_dir}"
+            )
+
         self.path = self.status_dir / f"{phase}.json"
         self._aggregate_enabled = aggregate
         self._aggregate_path = self.status_dir / "status.json"
