@@ -669,7 +669,7 @@ class EnrichmentService:
             }
         else:
             # Filesystem-only mode
-            return self.cache_manager.snapshot()
+            return self.cache_manager.snapshot()  # type: ignore[unreachable]
 
     def _enrich_with_hybrid_cache(
         self, service: str, cache_key: str, api_call: Callable[[], dict[str, Any]], empty_value: Any

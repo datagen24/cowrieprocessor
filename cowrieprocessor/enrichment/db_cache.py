@@ -244,7 +244,8 @@ class DatabaseCache:
                 )
                 result = session.execute(stmt)
                 session.commit()
-                deleted = result.rowcount > 0
+                rowcount = result.rowcount  # type: ignore[attr-defined]
+                deleted = bool(rowcount > 0 if rowcount is not None else False)
                 if deleted:
                     LOGGER.debug(f"Cache entry deleted: {service}/{cache_key}")
                 return deleted
@@ -291,7 +292,8 @@ class DatabaseCache:
                 result = session.execute(delete_stmt)
                 session.commit()
 
-                deleted = result.rowcount
+                rowcount = result.rowcount  # type: ignore[attr-defined]
+                deleted = int(rowcount if rowcount is not None else 0)
                 LOGGER.info(f"Deleted {deleted} expired cache entries")
                 return deleted
 

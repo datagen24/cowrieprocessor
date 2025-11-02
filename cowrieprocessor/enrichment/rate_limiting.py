@@ -55,7 +55,7 @@ def _get_retry_after_seconds(response: requests.Response) -> Optional[float]:
     try:
         retry_datetime = parsedate_to_datetime(retry_after)
         if retry_datetime is None:
-            return None
+            return None  # type: ignore[unreachable]
 
         # Get current time as timezone-aware datetime
         from datetime import datetime, timezone
@@ -207,6 +207,16 @@ class RateLimitedSession:
         self.session = requests.Session()
         self.rate_limiter = RateLimiter(rate_limit, burst)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def headers(self) -> Any:
+        """Proxy to underlying session headers for compatibility."""
+        return self.session.headers
+
+    @headers.setter
+    def headers(self, value: Any) -> None:
+        """Allow setting headers on underlying session."""
+        self.session.headers = value
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create event loop for rate limiting."""
