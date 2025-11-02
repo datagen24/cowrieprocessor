@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from enrichment_handlers import _parse_spur_payload
-
 from cowrieprocessor.enrichment import EnrichmentCacheManager, LegacyEnrichmentAdapter
+from cowrieprocessor.enrichment.handlers import _parse_spur_payload
 from tests.fixtures.enrichment_fixtures import (
     DSHIELD_RESPONSES,
     SPUR_RESPONSES,
