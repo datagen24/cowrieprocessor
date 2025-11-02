@@ -1,52 +1,12 @@
-"""Shared database configuration for CLI tools."""
+"""Shared database and cache configuration for CLI tools."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from ..settings import DatabaseSettings, load_database_settings
-
-
-def _load_sensors_config() -> dict[str, str] | None:
-    """Load database configuration from sensors.toml if available.
-
-    Returns:
-        Database configuration dict with 'url' key, or None if not found
-    """
-    # Try config/ directory first, then fall back to current directory
-    sensors_file = Path("config/sensors.toml")
-    if not sensors_file.exists():
-        sensors_file = Path("sensors.toml")
-    if not sensors_file.exists():
-        return None
-
-    try:
-        # Try tomllib first (Python 3.11+)
-        try:
-            import tomllib
-
-            toml_loader = tomllib
-        except ImportError:
-            # Fall back to tomli for older Python versions
-            import tomli
-
-            toml_loader = tomli
-
-        with sensors_file.open("rb") as handle:
-            data = toml_loader.load(handle)
-
-        # Check for global database configuration
-        global_config = data.get("global", {})
-        db_url = global_config.get("db")
-        if db_url:
-            return {"url": db_url}
-
-    except Exception:
-        # If sensors.toml doesn't exist or can't be parsed, fall back to default
-        pass
-
-    return None
+from ..utils.config import _load_sensors_config, load_redis_config
 
 
 def resolve_database_settings(db_arg: str | None = None) -> DatabaseSettings:
@@ -94,3 +54,6 @@ def add_database_argument(parser: Any, help_text: str | None = None) -> None:
     )
 
     parser.add_argument("--db-url", default=None, help=help_text or default_help)
+
+
+__all__ = ["resolve_database_settings", "add_database_argument", "load_redis_config"]
