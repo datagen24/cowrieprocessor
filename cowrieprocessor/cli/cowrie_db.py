@@ -1020,14 +1020,28 @@ class CowrieDatabase:
                         with self._get_engine().begin() as conn:
                             try:
                                 # Build CASE statement for batch update
-                                ids = [r['id'] for r in records_to_update]
+                                # Validate and parameterize IDs for defense-in-depth
+                                ids = []
                                 when_clauses = []
                                 params = {}
 
                                 for i, record in enumerate(records_to_update):
-                                    param_name = f"val_{i}"
-                                    when_clauses.append(f"WHEN {record['id']} THEN CAST(:{param_name} AS jsonb)")
-                                    params[param_name] = record['sanitized']
+                                    # Type validation: ensure ID is integer (defense-in-depth)
+                                    try:
+                                        record_id = int(record['id'])
+                                    except (ValueError, TypeError) as e:
+                                        logger.error(f"Invalid ID type for record {record.get('id')}: {e}")
+                                        result['errors'] += 1
+                                        continue
+
+                                    ids.append(record_id)
+                                    id_param = f"id_{i}"
+                                    val_param = f"val_{i}"
+
+                                    # Parameterize both ID and value
+                                    when_clauses.append(f"WHEN :{id_param} THEN CAST(:{val_param} AS jsonb)")
+                                    params[id_param] = record_id
+                                    params[val_param] = record['sanitized']
 
                                 update_query = text(f"""
                                     UPDATE raw_events
