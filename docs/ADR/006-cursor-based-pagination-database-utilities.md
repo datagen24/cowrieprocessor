@@ -400,14 +400,14 @@ For each new database utility:
 ### Implementation Examples
 
 1. **Unicode Sanitization** (Reference Implementation)
-   - File: `cowrieprocessor/cli/cowrie_db.py:903-1197`
+   - File: `cowrieprocessor/cli/cowrie_db.py:903-1269`
    - PR: #112 - "Perf/sanitization cursor pagination"
    - Performance: 20+ hours → 15-30 minutes (50-100x speedup)
-   - Pattern: Cursor pagination + regex pre-filtering + batch UPDATEs
+   - Pattern: Cursor pagination + regex pre-filtering + batch UPDATEs + retry fallback
 
 ### Related Documentation
 
-- **CHANGELOG.md**: Lines 336-344 - Unicode Sanitization Performance entry
+- **CHANGELOG.md**: Lines 336-348 - Unicode Sanitization Performance entry
 - **claudedocs/sanitization_performance_fix.md**: Comprehensive bottleneck analysis
 - **scripts/debug/quick_sanitize_sql.sql**: Direct SQL alternative for immediate fixes
 - **scripts/debug/optimized_sanitization_poc.py**: Performance comparison visualization
