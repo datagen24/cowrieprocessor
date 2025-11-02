@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy.orm import Session
 
 from cowrieprocessor.cli.ingest import (
     _make_bulk_config,

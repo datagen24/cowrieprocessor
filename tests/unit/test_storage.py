@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 # Import only the functions we can safely test without sklearn dependencies
 from cowrieprocessor.threat_detection.storage import (
@@ -144,7 +144,6 @@ class TestStorageFunctions:
         """Test store_longtail_analysis function exists and is callable."""
         # Just test that the function exists and can be called with basic parameters
         # The actual database operations are tested separately
-        mock_session_factory = Mock(spec=sessionmaker)
 
         # Test function signature and basic functionality
         assert callable(store_longtail_analysis)

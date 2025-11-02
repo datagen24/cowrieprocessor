@@ -604,8 +604,8 @@ class TestSessionCleanup:
         )
 
         # Create some sessions
-        session1 = service._create_rate_limited_session_factory("dshield")
-        session2 = service._create_rate_limited_session_factory("urlhaus")
+        service._create_rate_limited_session_factory("dshield")
+        service._create_rate_limited_session_factory("urlhaus")
 
         assert len(service._active_sessions) == 2
 

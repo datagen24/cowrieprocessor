@@ -536,7 +536,7 @@ def test_track_password_creates_new_password_record(test_db: sessionmaker[Sessio
     Then: New password record is created in password_tracking table
 
     Args:
-        db_session_with_data: Database session with test data
+        test_db: Database session factory with test schema
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
     from cowrieprocessor.db.models import PasswordSessionUsage, PasswordTracking
@@ -599,7 +599,7 @@ def test_track_password_updates_existing_password_record(test_db: sessionmaker[S
     Then: Existing password record is updated with new information
 
     Args:
-        db_session_with_data: Database session with test data
+        test_db: Database session factory with test schema
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
     from cowrieprocessor.db.models import PasswordSessionUsage, PasswordTracking
@@ -674,7 +674,7 @@ def test_track_password_handles_invalid_timestamp_gracefully(test_db: sessionmak
     Then: Uses current timestamp as fallback and continues processing
 
     Args:
-        db_session_with_data: Database session with test data
+        test_db: Database session factory with test schema
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
     from cowrieprocessor.db.models import PasswordTracking
@@ -729,7 +729,7 @@ def test_track_password_handles_nul_bytes_in_password_text(test_db: sessionmaker
     Then: NUL bytes are sanitized before storing
 
     Args:
-        db_session_with_data: Database session with test data
+        test_db: Database session factory with test schema
     """
     from cowrieprocessor.cli.enrich_passwords import _track_password
     from cowrieprocessor.db.models import PasswordTracking
