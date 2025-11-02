@@ -52,11 +52,18 @@ def _load_sensors_config() -> dict[str, Any] | None:
 
         return config if config else None
 
-    except Exception:
-        # If sensors.toml doesn't exist or can't be parsed, fall back to default
-        pass
+    except (OSError, IOError) as e:
+        # File not found or can't be read - fall back to default
+        import logging
 
-    return None
+        logging.getLogger(__name__).debug(f"Could not read sensors.toml: {e}")
+        return None
+    except Exception as e:
+        # TOML syntax errors or other parsing issues - log and fail gracefully
+        import logging
+
+        logging.getLogger(__name__).warning(f"Failed to parse sensors.toml: {e}. Using defaults.")
+        return None
 
 
 def load_redis_config() -> dict[str, Any]:

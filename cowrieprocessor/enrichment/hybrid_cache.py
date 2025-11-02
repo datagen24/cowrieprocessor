@@ -291,12 +291,16 @@ class HybridEnrichmentCache:
                     self.stats.l2_filesystem.record_hit(latency_ms)  # Track as L2 hit
                     LOGGER.debug("L2 cache hit (database): %s/%s (%.2fms)", service, key, latency_ms)
 
-                    # Backfill L1 (Redis) asynchronously
+                    # Backfill L1 (Redis) asynchronously (use SET NX to avoid race conditions)
                     if self.redis_client is not None:
                         try:
                             redis_key = self._redis_key(service, key)
-                            self.redis_client.setex(redis_key, self.redis_ttl, json.dumps(data))
-                            LOGGER.debug("Backfilled L1 cache: %s/%s", service, key)
+                            # Use SET with NX (only if not exists) to prevent overwriting concurrent updates
+                            success = self.redis_client.set(redis_key, json.dumps(data), ex=self.redis_ttl, nx=True)
+                            if success:
+                                LOGGER.debug("Backfilled L1 cache: %s/%s", service, key)
+                            else:
+                                LOGGER.debug("Skipped L1 backfill (already exists): %s/%s", service, key)
                         except redis.RedisError as e:
                             LOGGER.debug("Failed to backfill Redis for %s/%s: %s", service, key, e)
 
