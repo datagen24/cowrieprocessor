@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -13,16 +12,19 @@ import redis
 from redis.connection import ConnectionPool
 
 from cowrieprocessor.enrichment.cache import EnrichmentCacheManager
+from cowrieprocessor.utils.config import load_redis_config
 
 LOGGER = logging.getLogger(__name__)
 
-# Redis configuration from environment variables
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-ENABLE_REDIS_CACHE = os.getenv("ENABLE_REDIS_CACHE", "true").lower() in ("true", "1", "yes")
-REDIS_TTL_SECONDS = int(os.getenv("REDIS_TTL_SECONDS", "3600"))  # 1 hour default
+# Load Redis configuration from sensors.toml or environment variables
+# Priority: environment variables → sensors.toml → defaults
+_REDIS_CONFIG = load_redis_config()
+REDIS_HOST = _REDIS_CONFIG["host"]
+REDIS_PORT = _REDIS_CONFIG["port"]
+REDIS_PASSWORD = _REDIS_CONFIG["password"]
+REDIS_DB = _REDIS_CONFIG["db"]
+ENABLE_REDIS_CACHE = _REDIS_CONFIG["enabled"]
+REDIS_TTL_SECONDS = _REDIS_CONFIG["ttl"]
 
 
 def create_redis_client(
