@@ -211,10 +211,14 @@ class UnicodeSanitizer:
 
     @classmethod
     def is_safe_for_postgres_json(cls, text: str) -> bool:
-        """Check if text is safe for PostgreSQL JSON processing.
+        r"""Check if text is safe for PostgreSQL JSON processing.
+
+        Detects both:
+        - Actual control character bytes (\x00, \x01, etc.)
+        - JSON Unicode escape sequences (\u0000, \u0001, etc.) from PostgreSQL payload::text casts
 
         Args:
-            text: Text to check for problematic characters
+            text: Text to check for problematic characters (from payload::text)
 
         Returns:
             True if text is safe for PostgreSQL JSON, False otherwise
@@ -256,7 +260,22 @@ class UnicodeSanitizer:
             '\x7f',
         ]
 
-        return not any(char in text for char in dangerous_chars)
+        # Pattern 1: Check for actual control character bytes
+        if any(char in text for char in dangerous_chars):
+            return False
+
+        # Pattern 2: Check for JSON Unicode escape sequences
+        # When PostgreSQL casts JSONB to text, control chars appear as \uXXXX
+        # Match: \u0000-\u001f (excluding safe whitespace \u0009, \u000a, \u000d) and \u007f
+        # Regex breakdown:
+        #   \\u00  - Match literal "\u00"
+        #   (?:0[0-8bcef]|1[0-9a-fA-F])  - Match 00-08, 0b-0c, 0e-0f, 10-1f (excludes 09=\t, 0a=\n, 0d=\r)
+        #   |\\u007[fF]  - Also match \u007f (DEL character)
+        escape_pattern = re.compile(r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]', re.IGNORECASE)
+        if escape_pattern.search(text):
+            return False
+
+        return True
 
     @classmethod
     def validate_and_sanitize_payload(cls, payload: Union[str, Dict[str, Any]]) -> Dict[str, Any]:

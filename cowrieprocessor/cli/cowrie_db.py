@@ -1017,9 +1017,10 @@ class CowrieDatabase:
                             try:
                                 if dialect_name == "postgresql":
                                     # Update PostgreSQL JSONB column
+                                    # Use CAST() instead of :: to avoid parameter binding conflicts
                                     update_query = text("""
-                                        UPDATE raw_events 
-                                        SET payload = :sanitized_payload::jsonb
+                                        UPDATE raw_events
+                                        SET payload = CAST(:sanitized_payload AS jsonb)
                                         WHERE id = :record_id
                                     """)
                                 else:
