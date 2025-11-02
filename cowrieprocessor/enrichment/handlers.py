@@ -235,7 +235,7 @@ def _vt_query_single_attempt(
 # ---------------------------------------------------------------------------
 
 
-@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0, respect_retry_after=True)
 def dshield_query(
     ip_address: str,
     email: str,
@@ -246,7 +246,12 @@ def dshield_query(
     ttl_seconds: int = 86400,
     now: Callable[[], float] = time.time,
 ) -> dict[str, Any]:
-    """Return DShield metadata for ``ip_address`` with simple caching."""
+    """Return DShield metadata for ``ip_address`` with simple caching.
+
+    Note: respect_retry_after=True is critical for DShield API compliance.
+    The DShield API returns Retry-After headers during rate limiting events,
+    and we must honor these to avoid API bans and ensure reliable enrichment.
+    """
     if skip_enrich:
         return _empty_dshield()
 
