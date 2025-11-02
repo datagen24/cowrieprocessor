@@ -11,10 +11,13 @@ All notable changes to the Cowrie Processor script will be documented in this fi
   - **Impact**: Previously skipped 1.43M records that contained problematic Unicode in JSONB fields
   - **Detection added**: Dual-pattern checking for both actual control bytes (`\x00`) and JSON escapes (`\u0000`)
   - **Regex pattern**: `\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]` (matches control chars except safe whitespace)
+  - **SQL syntax fix**: Changed `::jsonb` to `CAST(:param AS jsonb)` to avoid parameter binding conflicts
   - **Files changed**:
     - `cowrieprocessor/utils/unicode_sanitizer.py:213-278` (added escape sequence detection)
+    - `cowrieprocessor/cli/cowrie_db.py:1018-1025` (fixed SQL UPDATE syntax)
     - `tests/unit/test_unicode_sanitizer.py:171-215` (added 2 new test methods, 22 total tests passing)
     - `scripts/debug/verify_sanitization_fix.py` (verification script)
+    - `scripts/debug/test_sanitize_update_syntax.py` (SQL syntax test)
     - `claudedocs/sanitization_bug_fix.md` (comprehensive documentation)
   - **Verification**: All tests pass, verification script confirms fix works correctly
   - **Action required**: Re-run `cowrie-db sanitize` to properly clean affected records
