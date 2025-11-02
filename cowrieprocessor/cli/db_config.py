@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ..settings import DatabaseSettings, load_database_settings
 from ..utils.config import _load_sensors_config, load_redis_config

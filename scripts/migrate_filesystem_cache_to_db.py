@@ -33,7 +33,6 @@ from typing import Iterator
 
 from cowrieprocessor.cli.db_config import resolve_database_settings
 from cowrieprocessor.db import create_engine_from_settings
-from cowrieprocessor.enrichment.cache import EnrichmentCacheManager
 from cowrieprocessor.enrichment.db_cache import DatabaseCache
 
 LOGGER = logging.getLogger(__name__)
@@ -105,9 +104,7 @@ def migrate_cache_entry(
 
 def main(argv: list[str] | None = None) -> int:
     """Main entry point for cache migration script."""
-    parser = argparse.ArgumentParser(
-        description="Migrate filesystem enrichment cache to database (schema v15+)"
-    )
+    parser = argparse.ArgumentParser(description="Migrate filesystem enrichment cache to database (schema v15+)")
     parser.add_argument(
         "--cache-dir",
         type=Path,
@@ -224,8 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Total errors:           {stats['total_errors']}")
     print("\nBy Service:")
     for service, service_stats in sorted(stats["by_service"].items()):
-        print(f"  {service:20s} {service_stats['migrated']:6d} / {service_stats['scanned']:6d} "
-              f"(errors: {service_stats['errors']})")
+        print(
+            f"  {service:20s} {service_stats['migrated']:6d} / {service_stats['scanned']:6d} "
+            f"(errors: {service_stats['errors']})"
+        )
     print("=" * 60)
 
     if args.dry_run:

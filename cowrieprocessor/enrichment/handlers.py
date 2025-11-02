@@ -14,7 +14,6 @@ from sqlalchemy.engine import Engine
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
 from cowrieprocessor.enrichment.hybrid_cache import HybridEnrichmentCache, create_redis_client
-from cowrieprocessor.utils.config import load_redis_config
 from cowrieprocessor.enrichment.rate_limiting import (
     RateLimitedSession,
     create_rate_limited_session_factory,
@@ -23,6 +22,7 @@ from cowrieprocessor.enrichment.rate_limiting import (
 )
 from cowrieprocessor.enrichment.telemetry import EnrichmentTelemetry
 from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
+from cowrieprocessor.utils.config import load_redis_config
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -714,6 +714,7 @@ class EnrichmentService:
         else:
             # DShield enrichment using hybrid cache
             if self.dshield_email:
+
                 def dshield_api_call() -> dict[str, Any]:
                     """Make DShield API request."""
                     session = self._session_factory("dshield")
@@ -721,7 +722,11 @@ class EnrichmentService:
                         url = f"https://isc.sans.edu/api/ip/{src_ip}?email={self.dshield_email}&json"
                         response = session.get(url, timeout=self._timeout)
                         response.raise_for_status()
-                        data = response.json() if hasattr(response, 'json') and callable(response.json) else json.loads(response.text)
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
+                        )
                         return data if isinstance(data, dict) else _empty_dshield()
                     finally:
                         session.close()
@@ -736,6 +741,7 @@ class EnrichmentService:
 
             # URLHaus enrichment using hybrid cache
             if self.urlhaus_api:
+
                 def urlhaus_api_call() -> dict[str, Any]:
                     """Make URLHaus API request and wrap result in dict."""
                     session = self._session_factory("urlhaus")
@@ -747,7 +753,11 @@ class EnrichmentService:
                             timeout=self._timeout,
                         )
                         response.raise_for_status()
-                        data = response.json() if hasattr(response, 'json') and callable(response.json) else json.loads(response.text)
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
+                        )
                         # Extract tags from response
                         tags = set()
                         if isinstance(data, dict) and data.get("query_status") == "ok":
@@ -767,6 +777,7 @@ class EnrichmentService:
 
             # SPUR enrichment using hybrid cache
             if self.spur_api:
+
                 def spur_api_call() -> dict[str, Any]:
                     """Make SPUR API request and wrap result in dict."""
                     session = self._session_factory("spur")
@@ -776,7 +787,11 @@ class EnrichmentService:
                     try:
                         response = session.get(f"https://spur.us/api/v1/context/{src_ip}", timeout=self._timeout)
                         response.raise_for_status()
-                        data = response.json() if hasattr(response, 'json') and callable(response.json) else json.loads(response.text)
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
+                        )
                         # Extract fields into list format (legacy format)
                         spur_list = [
                             data.get("as", {}).get("organization", ""),
@@ -802,7 +817,9 @@ class EnrichmentService:
                     finally:
                         session.close()
 
-                result = self._enrich_with_hybrid_cache("spur", src_ip, spur_api_call, {"spur_data": list(_SPUR_EMPTY_PAYLOAD)})
+                result = self._enrich_with_hybrid_cache(
+                    "spur", src_ip, spur_api_call, {"spur_data": list(_SPUR_EMPTY_PAYLOAD)}
+                )
                 enrichment["spur"] = result.get("spur_data", list(_SPUR_EMPTY_PAYLOAD))  # Extract list from dict
                 if self.telemetry:
                     self.telemetry.record_api_call("spur", enrichment["spur"] != list(_SPUR_EMPTY_PAYLOAD))

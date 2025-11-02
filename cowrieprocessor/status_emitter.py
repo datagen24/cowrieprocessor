@@ -70,6 +70,7 @@ class StatusEmitter:
             fallback_dir.mkdir(parents=True, exist_ok=True)
             self.status_dir = fallback_dir
             import logging
+
             logging.getLogger(__name__).warning(
                 f"Cannot create status directory {requested_dir}: {e}. Using fallback: {fallback_dir}"
             )

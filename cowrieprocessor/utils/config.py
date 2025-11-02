@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 def _load_sensors_config() -> dict[str, Any] | None:
@@ -107,25 +107,30 @@ def load_redis_config() -> dict[str, Any]:
             config["enabled"] = bool(cache_config["redis_enabled"])
         if "redis_ttl_seconds" in cache_config:
             config["ttl"] = int(cache_config["redis_ttl_seconds"])
-        
+
         # NEW: Database cache configuration
         if "db_cache_enabled" in cache_config:
             config["db_cache_enabled"] = bool(cache_config["db_cache_enabled"])
 
     # Environment variables override TOML config
-    if os.getenv("REDIS_HOST"):
-        config["host"] = os.getenv("REDIS_HOST")
-    if os.getenv("REDIS_PORT"):
-        config["port"] = int(os.getenv("REDIS_PORT"))
-    if os.getenv("REDIS_PASSWORD"):
-        config["password"] = os.getenv("REDIS_PASSWORD")
-    if os.getenv("REDIS_DB"):
-        config["db"] = int(os.getenv("REDIS_DB"))
+    redis_host = os.getenv("REDIS_HOST")
+    if redis_host:
+        config["host"] = redis_host
+    redis_port = os.getenv("REDIS_PORT")
+    if redis_port:
+        config["port"] = int(redis_port)
+    redis_password = os.getenv("REDIS_PASSWORD")
+    if redis_password:
+        config["password"] = redis_password
+    redis_db = os.getenv("REDIS_DB")
+    if redis_db:
+        config["db"] = int(redis_db)
     if os.getenv("ENABLE_REDIS_CACHE"):
         config["enabled"] = os.getenv("ENABLE_REDIS_CACHE", "true").lower() in ("true", "1", "yes")
-    if os.getenv("REDIS_TTL_SECONDS"):
-        config["ttl"] = int(os.getenv("REDIS_TTL_SECONDS"))
-    
+    redis_ttl = os.getenv("REDIS_TTL_SECONDS")
+    if redis_ttl:
+        config["ttl"] = int(redis_ttl)
+
     # NEW: Database cache environment variable override
     if os.getenv("ENABLE_DB_CACHE"):
         config["db_cache_enabled"] = os.getenv("ENABLE_DB_CACHE", "true").lower() in ("true", "1", "yes")
