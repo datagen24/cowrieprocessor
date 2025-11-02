@@ -742,6 +742,7 @@ class EnrichmentService:
                     try:
                         response = session.post(
                             "https://urlhaus-api.abuse.ch/v1/host/",
+                            headers={"Auth-Key": self.urlhaus_api},
                             data={"host": src_ip},
                             timeout=self._timeout,
                         )
