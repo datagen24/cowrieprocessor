@@ -334,15 +334,17 @@ Major release with comprehensive threat detection, SSH key intelligence, passwor
   - Files: `cowrieprocessor/utils/unicode_sanitizer.py`, `tests/unit/test_unicode_sanitizer.py`
 
 - **Unicode Sanitization Performance** (PR #112):
-  - Optimized sanitization from 20+ hours to 15-30 minutes (50-100x speedup)
+  - **Production Results**: 20+ hours (estimated) → 4 min 15 sec (actual) = **~280x speedup**
+  - Pre-filter query: 42.3 seconds to identify 1,267 problematic records in 12.4M database (0.01%)
+  - Zero errors, 100% success rate on production database
   - Replaced OFFSET pagination (O(n) complexity) with cursor-based pagination (O(1) complexity)
-  - Added pre-filtering with WHERE clause to only fetch problematic records (~1,267 of 12.4M records)
+  - Added pre-filtering with WHERE clause to only fetch problematic records
   - Implemented batch UPDATEs using CASE statement (1 UPDATE per batch instead of per-record)
   - Added batch UPDATE retry logic with individual fallback for error recovery
   - Parameterized IDs in CASE statements for SQL injection prevention (defense-in-depth)
   - Default behavior: Auto-enable optimized mode for PostgreSQL, fallback to legacy for SQLite
   - New CLI flag: `--no-optimized` to force legacy OFFSET-based method if needed
-  - Performance metrics: Reduced records scanned per batch from 12.4M → ~1K (12,400x reduction)
+  - Reduced records scanned per batch from 12.4M → ~1K (12,400x reduction)
   - Comprehensive test coverage: 16 integration tests covering all code paths
   - Files: `cowrieprocessor/cli/cowrie_db.py` (`sanitize_unicode_in_database()` method)
   - Documentation: ADR-006 documents pattern for all future database utilities
