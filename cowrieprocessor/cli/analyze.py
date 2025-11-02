@@ -1129,7 +1129,6 @@ def _run_single_batch_analysis(
         settings = resolve_database_settings(args.db)
         engine = create_engine_from_settings(settings)
         apply_migrations(engine)
-        session_factory = create_session_maker(engine)
 
         # Run analysis with storage enabled
         from ..threat_detection.longtail import run_longtail_analysis
@@ -1149,7 +1148,8 @@ def _run_single_batch_analysis(
         )
 
         logger.info(
-            f"✓ Batch {batch_name} completed: {result.total_sessions_analyzed} sessions, {result.rare_command_count} rare commands"
+            f"✓ Batch {batch_name} completed: {result.total_sessions_analyzed} sessions, "
+            f"{result.rare_command_count} rare commands"
         )
         return True
 

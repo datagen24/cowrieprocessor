@@ -353,8 +353,12 @@ def mock_file_system(tmp_path: Path) -> Path:
 
     # Create sample log files
     log_file = tmp_path / "logs" / "cowrie.log"
-    log_file.write_text("""{"session": "test-01", "eventid": "cowrie.session.connect", "timestamp": "2024-01-01T00:00:00Z"}
-{"session": "test-01", "eventid": "cowrie.login.success", "username": "root", "timestamp": "2024-01-01T00:00:01Z"}
-""")
+    log_file.write_text(
+        """{"session": "test-01", "eventid": "cowrie.session.connect", """
+        """"timestamp": "2024-01-01T00:00:00Z"}
+{"session": "test-01", "eventid": "cowrie.login.success", "username": "root", """
+        """"timestamp": "2024-01-01T00:00:01Z"}
+"""
+    )
 
     return tmp_path

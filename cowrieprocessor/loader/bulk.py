@@ -792,7 +792,8 @@ class BulkLoader:
         # If JSON processing modes are explicitly enabled, process anyway
         if not should_process and (self.config.multiline_json or self.config.hybrid_json):
             logger.info(
-                f"Forcing JSON processing for {path} due to explicit configuration (type: {file_type}, reason: {reason})"
+                f"Forcing JSON processing for {path} due to explicit configuration "
+                f"(type: {file_type}, reason: {reason})"
             )
             should_process = True
             file_type = 'json'
