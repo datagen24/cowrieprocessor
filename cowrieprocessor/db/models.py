@@ -587,6 +587,34 @@ class SSHKeyAssociations(Base):
     )
 
 
+class EnrichmentCache(Base):
+    """Database-backed enrichment cache for API responses.
+
+    This table serves as the L2 cache tier in the hybrid caching architecture:
+    Redis L1 → Database L2 → Filesystem L3 fallback
+
+    Stores enrichment data from various security services (VirusTotal, DShield,
+    URLHaus, SPUR, etc.) with configurable TTLs and automatic expiration.
+    """
+
+    __tablename__ = "enrichment_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    service = Column(String(64), nullable=False)  # virustotal, dshield, urlhaus, spur, hibp
+    cache_key = Column(String(256), nullable=False)  # hash, IP address, or other identifier
+    cache_value = Column(JSON, nullable=False)  # enrichment data as JSON
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)  # 30-day TTL by default
+
+    __table_args__ = (
+        # Composite unique index for fast lookups
+        UniqueConstraint("service", "cache_key", name="uq_enrichment_cache_service_key"),
+        Index("ix_enrichment_cache_service_key", "service", "cache_key"),
+        Index("ix_enrichment_cache_expires_at", "expires_at"),
+        Index("ix_enrichment_cache_created_at", "created_at"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "SchemaMetadata",
@@ -605,4 +633,5 @@ __all__ = [
     "SSHKeyIntelligence",
     "SessionSSHKeys",
     "SSHKeyAssociations",
+    "EnrichmentCache",
 ]

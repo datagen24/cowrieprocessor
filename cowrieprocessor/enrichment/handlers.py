@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional
 
 import requests
+from sqlalchemy.engine import Engine
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
+from cowrieprocessor.enrichment.hybrid_cache import HybridEnrichmentCache, create_redis_client
 from cowrieprocessor.enrichment.rate_limiting import (
     RateLimitedSession,
     create_rate_limited_session_factory,
@@ -20,6 +22,7 @@ from cowrieprocessor.enrichment.rate_limiting import (
 )
 from cowrieprocessor.enrichment.telemetry import EnrichmentTelemetry
 from cowrieprocessor.enrichment.virustotal_handler import VirusTotalHandler
+from cowrieprocessor.utils.config import load_redis_config
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CACHE_BASE = Path("/mnt/dshield/data/cache")
@@ -235,7 +238,7 @@ def _vt_query_single_attempt(
 # ---------------------------------------------------------------------------
 
 
-@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0)
+@with_retries(max_retries=3, backoff_base=1.0, backoff_factor=2.0, respect_retry_after=True)
 def dshield_query(
     ip_address: str,
     email: str,
@@ -246,7 +249,12 @@ def dshield_query(
     ttl_seconds: int = 86400,
     now: Callable[[], float] = time.time,
 ) -> dict[str, Any]:
-    """Return DShield metadata for ``ip_address`` with simple caching."""
+    """Return DShield metadata for ``ip_address`` with simple caching.
+
+    Note: respect_retry_after=True is critical for DShield API compliance.
+    The DShield API returns Retry-After headers during rate limiting events,
+    and we must honor these to avoid API bans and ensure reliable enrichment.
+    """
     if skip_enrich:
         return _empty_dshield()
 
@@ -569,6 +577,7 @@ class EnrichmentService:
         urlhaus_api: str | None,
         spur_api: str | None,
         cache_manager: EnrichmentCacheManager | None = None,
+        engine: Engine | None = None,
         session_factory: SessionFactory = requests.session,
         timeout: int = DEFAULT_TIMEOUT,
         skip_enrich: bool = False,
@@ -576,6 +585,7 @@ class EnrichmentService:
         enable_telemetry: bool = True,
         telemetry_phase: str = "enrichment",
         enable_vt_quota_management: bool = True,
+        enable_redis_cache: bool = True,
     ) -> None:
         """Initialise the enrichment service."""
         self.cache_dir = Path(cache_dir)
@@ -589,7 +599,31 @@ class EnrichmentService:
         self.enable_rate_limiting = enable_rate_limiting
         self.enable_telemetry = enable_telemetry
 
-        self.cache_manager = cache_manager or EnrichmentCacheManager(self.cache_dir)
+        # Initialize filesystem cache (L3 in hybrid mode, L2 otherwise)
+        filesystem_cache = cache_manager or EnrichmentCacheManager(self.cache_dir)
+
+        # Load cache configuration from sensors.toml or environment variables
+        cache_config = load_redis_config()
+
+        # Create database cache if enabled and engine available (schema v15+)
+        database_cache = None
+        if cache_config.get("db_cache_enabled") and engine is not None:
+            from cowrieprocessor.enrichment.db_cache import DatabaseCache
+
+            database_cache = DatabaseCache(engine)
+            LOGGER.info("Database L2 cache enabled")
+
+        # Initialize hybrid cache (Redis L1 + Database L2 + Filesystem L3)
+        if enable_redis_cache:
+            redis_client = create_redis_client()
+            self.cache_manager = HybridEnrichmentCache(
+                filesystem_cache=filesystem_cache,
+                redis_client=redis_client,
+                database_cache=database_cache,
+            )
+        else:
+            # Use filesystem-only mode if Redis disabled
+            self.cache_manager = filesystem_cache  # type: ignore[assignment]
 
         # Initialize VirusTotal handler with quota management
         self.vt_handler = VirusTotalHandler(
@@ -625,7 +659,48 @@ class EnrichmentService:
 
     def cache_snapshot(self) -> Dict[str, int]:
         """Return current cache statistics for telemetry."""
-        return self.cache_manager.snapshot()
+        if isinstance(self.cache_manager, HybridEnrichmentCache):
+            # Return hybrid cache stats in legacy format for backward compatibility
+            hybrid_stats = self.cache_manager.get_stats()
+            return {
+                "hits": hybrid_stats["total_cache_hits"],
+                "misses": hybrid_stats["total_cache_misses"],
+                "stores": hybrid_stats["l1_redis"]["stores"] + hybrid_stats["l2_filesystem"]["stores"],
+            }
+        else:
+            # Filesystem-only mode
+            return self.cache_manager.snapshot()  # type: ignore[unreachable]
+
+    def _enrich_with_hybrid_cache(
+        self, service: str, cache_key: str, api_call: Callable[[], dict[str, Any]], empty_value: Any
+    ) -> Any:
+        """Enrich data using hybrid cache (Redis L1 → Database L2 → Filesystem L3 → API).
+
+        Args:
+            service: Service name (e.g., 'dshield', 'urlhaus', 'spur')
+            cache_key: Cache key (e.g., IP address)
+            api_call: Callable that makes the API request
+            empty_value: Default value to return on error
+
+        Returns:
+            Enrichment data from cache or API
+        """
+        # Try hybrid cache first (L1 Redis → L2 Database → L3 Filesystem)
+        cached = self.cache_manager.get_cached(service, cache_key)
+        if cached is not None:
+            LOGGER.debug("Cache hit for %s/%s (hybrid cache)", service, cache_key)
+            return cached
+
+        # Cache miss - make API call
+        try:
+            result = api_call()
+            # Store in all cache tiers (L1/L2/L3)
+            self.cache_manager.store_cached(service, cache_key, result)
+            LOGGER.debug("API call and cache store for %s/%s", service, cache_key)
+            return result
+        except Exception as e:
+            LOGGER.warning("%s enrichment API call failed for %s: %s", service.upper(), cache_key, e)
+            return empty_value
 
     def enrich_session(self, session_id: str, src_ip: str) -> dict[str, Any]:
         """Return enrichment payload for a session/IP pair."""
@@ -637,80 +712,117 @@ class EnrichmentService:
             enrichment["urlhaus"] = ""
             enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
         else:
-            # DShield enrichment
+            # DShield enrichment using hybrid cache
             if self.dshield_email:
-                try:
+
+                def dshield_api_call() -> dict[str, Any]:
+                    """Make DShield API request."""
                     session = self._session_factory("dshield")
                     try:
-                        enrichment["dshield"] = dshield_query(
-                            src_ip,
-                            self.dshield_email,
-                            skip_enrich=False,
-                            cache_base=self.cache_dir,
-                            session_factory=lambda: session,
-                            ttl_seconds=self.cache_manager.ttls.get("dshield", 86400),
-                            now=time.time,
+                        url = f"https://isc.sans.edu/api/ip/{src_ip}?email={self.dshield_email}&json"
+                        response = session.get(url, timeout=self._timeout)
+                        response.raise_for_status()
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
                         )
-                        if self.telemetry:
-                            self.telemetry.record_api_call("dshield", True)
+                        return data if isinstance(data, dict) else _empty_dshield()
                     finally:
-                        # Session cleanup is handled by the close() method
-                        pass
-                except Exception as e:
-                    LOGGER.warning("DShield enrichment failed for %s: %s", src_ip, e)
-                    enrichment["dshield"] = _empty_dshield()
-                    if self.telemetry:
-                        self.telemetry.record_api_call("dshield", False)
+                        session.close()
+
+                enrichment["dshield"] = self._enrich_with_hybrid_cache(
+                    "dshield", src_ip, dshield_api_call, _empty_dshield()
+                )
+                if self.telemetry:
+                    self.telemetry.record_api_call("dshield", enrichment["dshield"] != _empty_dshield())
             else:
                 enrichment["dshield"] = _empty_dshield()
 
-            # URLHaus enrichment
+            # URLHaus enrichment using hybrid cache
             if self.urlhaus_api:
-                try:
+
+                def urlhaus_api_call() -> dict[str, Any]:
+                    """Make URLHaus API request and wrap result in dict."""
                     session = self._session_factory("urlhaus")
                     try:
-                        enrichment["urlhaus"] = safe_read_uh_data(
-                            src_ip,
-                            self.urlhaus_api,
-                            cache_base=self.cache_dir,
-                            session_factory=lambda: session,
+                        response = session.post(
+                            "https://urlhaus-api.abuse.ch/v1/host/",
+                            headers={"Auth-Key": self.urlhaus_api},
+                            data={"host": src_ip},
                             timeout=self._timeout,
                         )
-                        if self.telemetry:
-                            self.telemetry.record_api_call("urlhaus", True)
+                        response.raise_for_status()
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
+                        )
+                        # Extract tags from response
+                        tags = set()
+                        if isinstance(data, dict) and data.get("query_status") == "ok":
+                            for url in data.get("urls", []):
+                                tags.update(url.get("tags", []))
+                        tags_str = ",".join(sorted(tags)) if tags else ""
+                        return {"tags": tags_str}  # Wrap in dict for cache
                     finally:
-                        # Session cleanup is handled by the close() method
-                        pass
-                except Exception as e:
-                    LOGGER.warning("URLHaus enrichment failed for %s: %s", src_ip, e)
-                    enrichment["urlhaus"] = ""
-                    if self.telemetry:
-                        self.telemetry.record_api_call("urlhaus", False)
+                        session.close()
+
+                result = self._enrich_with_hybrid_cache("urlhaus", src_ip, urlhaus_api_call, {"tags": ""})
+                enrichment["urlhaus"] = result.get("tags", "")  # Extract string from dict
+                if self.telemetry:
+                    self.telemetry.record_api_call("urlhaus", bool(enrichment["urlhaus"]))
             else:
                 enrichment["urlhaus"] = ""
 
-            # SPUR enrichment
+            # SPUR enrichment using hybrid cache
             if self.spur_api:
-                try:
+
+                def spur_api_call() -> dict[str, Any]:
+                    """Make SPUR API request and wrap result in dict."""
                     session = self._session_factory("spur")
+                    if not hasattr(session, "headers"):
+                        session.headers = {}
+                    session.headers.update({"Token": self.spur_api})
                     try:
-                        enrichment["spur"] = read_spur_data(
-                            src_ip,
-                            self.spur_api,
-                            cache_base=self.cache_dir,
-                            session_factory=lambda: session,
-                            timeout=self._timeout,
+                        response = session.get(f"https://spur.us/api/v1/context/{src_ip}", timeout=self._timeout)
+                        response.raise_for_status()
+                        data = (
+                            response.json()
+                            if hasattr(response, 'json') and callable(response.json)
+                            else json.loads(response.text)
                         )
-                        if self.telemetry:
-                            self.telemetry.record_api_call("spur", True)
+                        # Extract fields into list format (legacy format)
+                        spur_list = [
+                            data.get("as", {}).get("organization", ""),
+                            data.get("client", {}).get("behaviors", []),
+                            data.get("client", {}).get("concentration", {}).get("country", ""),
+                            data.get("client", {}).get("concentration", {}).get("geohash", ""),
+                            data.get("client", {}).get("concentration", {}).get("skew", ""),
+                            data.get("client", {}).get("countries", ""),
+                            data.get("client", {}).get("count", ""),
+                            data.get("client", {}).get("proxies", []),
+                            data.get("client", {}).get("spread", ""),
+                            data.get("client", {}).get("types", []),
+                            data.get("infrastructure", ""),
+                            data.get("location", {}).get("city", ""),
+                            data.get("location", {}).get("country", ""),
+                            data.get("location", {}).get("state", ""),
+                            data.get("organization", ""),
+                            data.get("risks", []),
+                            data.get("services", []),
+                            data.get("tunnels", []),
+                        ]
+                        return {"spur_data": spur_list}  # Wrap in dict for cache
                     finally:
-                        # Session cleanup is handled by the close() method
-                        pass
-                except Exception as e:
-                    LOGGER.warning("SPUR enrichment failed for %s: %s", src_ip, e)
-                    enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
-                    if self.telemetry:
-                        self.telemetry.record_api_call("spur", False)
+                        session.close()
+
+                result = self._enrich_with_hybrid_cache(
+                    "spur", src_ip, spur_api_call, {"spur_data": list(_SPUR_EMPTY_PAYLOAD)}
+                )
+                enrichment["spur"] = result.get("spur_data", list(_SPUR_EMPTY_PAYLOAD))  # Extract list from dict
+                if self.telemetry:
+                    self.telemetry.record_api_call("spur", enrichment["spur"] != list(_SPUR_EMPTY_PAYLOAD))
             else:
                 enrichment["spur"] = list(_SPUR_EMPTY_PAYLOAD)
 
@@ -908,6 +1020,10 @@ class EnrichmentService:
         # Close VirusTotal handler
         if hasattr(self, 'vt_handler'):
             self.vt_handler.close()
+
+        # Close hybrid cache (Redis connection)
+        if isinstance(self.cache_manager, HybridEnrichmentCache):
+            self.cache_manager.close()
 
         # Close all active sessions
         for session in self._active_sessions:

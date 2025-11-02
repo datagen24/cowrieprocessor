@@ -11,12 +11,9 @@ Key test areas:
 - Error handling and retry logic
 """
 
-import json
 import os
 import tempfile
-from pathlib import Path
 from typing import Any, Generator
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -165,13 +162,13 @@ class TestSanitizationOptimization:
         """
         # Get initial count
         engine = sqlite_db_with_data._get_engine()
-        from sqlalchemy import select, text
+        from sqlalchemy import text
 
         with engine.connect() as conn:
             initial_records = conn.execute(text("SELECT id, payload FROM raw_events")).fetchall()
 
         # Run sanitization in dry-run mode
-        result = sqlite_db_with_data.sanitize_unicode_in_database(batch_size=10, dry_run=True)
+        sqlite_db_with_data.sanitize_unicode_in_database(batch_size=10, dry_run=True)
 
         # Verify records not modified
         with engine.connect() as conn:

@@ -2470,6 +2470,37 @@ class CowrieDatabase:
                 "error": str(e),
             }
 
+    def cleanup_cache(self, dry_run: bool = False) -> dict[str, Any]:
+        """Clean up expired enrichment cache entries from the database.
+
+        Args:
+            dry_run: If True, only count expired entries without deleting
+
+        Returns:
+            Dictionary with cleanup results:
+            - deleted_count: Number of expired entries deleted
+            - dry_run: Whether this was a dry run
+            - error: Error message if cleanup failed
+        """
+        try:
+            from cowrieprocessor.enrichment.db_cache import DatabaseCache
+
+            cache = DatabaseCache(self._get_engine())
+            deleted = cache.cleanup_expired(dry_run=dry_run)
+
+            return {
+                "deleted_count": deleted,
+                "dry_run": dry_run,
+            }
+
+        except Exception as e:
+            logger.error(f"Cache cleanup failed: {e}", exc_info=True)
+            return {
+                "deleted_count": 0,
+                "dry_run": dry_run,
+                "error": str(e),
+            }
+
 
 def main() -> None:
     """Main CLI entry point."""
@@ -2516,6 +2547,14 @@ def main() -> None:
     integrity_parser = subparsers.add_parser('integrity', help='Check database integrity and detect corruption')
     integrity_parser.add_argument(
         '--deep', action='store_true', help='Perform deep integrity check including page-level analysis (SQLite only)'
+    )
+
+    # Cleanup cache command
+    cleanup_cache_parser = subparsers.add_parser(
+        'cleanup-cache', help='Clean up expired enrichment cache entries from database'
+    )
+    cleanup_cache_parser.add_argument(
+        '--dry-run', action='store_true', help='Only count expired entries without deleting them'
     )
 
     # Backfill command
@@ -2721,6 +2760,18 @@ def main() -> None:
                 sys.exit(1)
             else:
                 print("✓ Database integrity verified")
+
+        elif args.command == 'cleanup-cache':
+            result = db.cleanup_cache(dry_run=args.dry_run)
+
+            if 'error' in result:
+                print(f"❌ Cache cleanup failed: {result['error']}", file=sys.stderr)
+                sys.exit(1)
+
+            if result['dry_run']:
+                print(f"🔍 DRY RUN: Would delete {result['deleted_count']:,} expired cache entries")
+            else:
+                print(f"✓ Deleted {result['deleted_count']:,} expired cache entries")
 
         elif args.command == 'backfill':
             print("Backfilling files table from historical data...")
