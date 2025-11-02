@@ -168,6 +168,52 @@ class TestUnicodeSanitizer:
         for text in unsafe_cases:
             assert not UnicodeSanitizer.is_safe_for_postgres_json(text)
 
+    def test_is_safe_for_postgres_json_escape_sequences(self) -> None:
+        r"""Test detection of JSON Unicode escape sequences from PostgreSQL payload::text.
+
+        When PostgreSQL casts JSONB to text, control characters appear as escape sequences
+        like \u0000 instead of actual bytes. This was causing all records to be skipped.
+        """
+        # Safe cases - no problematic escape sequences
+        safe_cases = [
+            '{"username": "test"}',  # Normal JSON text
+            '{"data": "\\u0009"}',  # Tab (safe whitespace)
+            '{"data": "\\u000a"}',  # Newline (safe whitespace)
+            '{"data": "\\u000d"}',  # Carriage return (safe whitespace)
+            '{"data": "\\u0020"}',  # Space (safe)
+            '{"data": "\\u00ff"}',  # High byte (safe)
+            'normal text without escapes',
+        ]
+
+        # Unsafe cases - contain problematic escape sequences
+        unsafe_cases = [
+            '{"username": "\\u0000test"}',  # Null byte escape
+            '{"data": "attack\\u0001data"}',  # SOH control char
+            '{"msg": "\\u0002\\u0003"}',  # Multiple control chars
+            '{"cmd": "echo\\u0008test"}',  # Backspace
+            '{"text": "data\\u001fmore"}',  # Unit separator
+            '{"value": "test\\u007f"}',  # DEL character
+            '{"value": "test\\u007F"}',  # DEL character (uppercase)
+            '{"mix": "\\u0000\\u0001\\u007f"}',  # Multiple problematic escapes
+        ]
+
+        for text in safe_cases:
+            assert UnicodeSanitizer.is_safe_for_postgres_json(text), f"Should be safe: {text}"
+
+        for text in unsafe_cases:
+            assert not UnicodeSanitizer.is_safe_for_postgres_json(text), f"Should be unsafe: {text}"
+
+    def test_is_safe_for_postgres_json_mixed_patterns(self) -> None:
+        """Test detection of both actual bytes and escape sequences together."""
+        # Mix actual control bytes with escape sequences (edge case)
+        unsafe_mixed = [
+            'text\x00with byte and \\u0001escape',  # Both patterns
+            '{"data": "\\u0000"}\x01',  # Escape sequence + actual byte
+        ]
+
+        for text in unsafe_mixed:
+            assert not UnicodeSanitizer.is_safe_for_postgres_json(text), f"Should be unsafe: {repr(text)}"
+
     def test_validate_and_sanitize_payload_string(self) -> None:
         """Test payload validation and sanitization with string input."""
         # Valid JSON string with control characters
