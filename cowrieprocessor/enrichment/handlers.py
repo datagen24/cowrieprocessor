@@ -10,9 +10,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Iterator, Mapping, Optional
 
 import requests
+from sqlalchemy.engine import Engine
 
 from cowrieprocessor.enrichment import EnrichmentCacheManager
 from cowrieprocessor.enrichment.hybrid_cache import HybridEnrichmentCache, create_redis_client
+from cowrieprocessor.utils.config import load_redis_config
 from cowrieprocessor.enrichment.rate_limiting import (
     RateLimitedSession,
     create_rate_limited_session_factory,
@@ -575,6 +577,7 @@ class EnrichmentService:
         urlhaus_api: str | None,
         spur_api: str | None,
         cache_manager: EnrichmentCacheManager | None = None,
+        engine: Engine | None = None,
         session_factory: SessionFactory = requests.session,
         timeout: int = DEFAULT_TIMEOUT,
         skip_enrich: bool = False,
@@ -596,15 +599,27 @@ class EnrichmentService:
         self.enable_rate_limiting = enable_rate_limiting
         self.enable_telemetry = enable_telemetry
 
-        # Initialize filesystem cache (L2)
+        # Initialize filesystem cache (L3 in hybrid mode, L2 otherwise)
         filesystem_cache = cache_manager or EnrichmentCacheManager(self.cache_dir)
 
-        # Initialize hybrid cache (Redis L1 + Filesystem L2)
+        # Load cache configuration from sensors.toml or environment variables
+        cache_config = load_redis_config()
+
+        # Create database cache if enabled and engine available (schema v15+)
+        database_cache = None
+        if cache_config.get("db_cache_enabled") and engine is not None:
+            from cowrieprocessor.enrichment.db_cache import DatabaseCache
+
+            database_cache = DatabaseCache(engine)
+            LOGGER.info("Database L2 cache enabled")
+
+        # Initialize hybrid cache (Redis L1 + Database L2 + Filesystem L3)
         if enable_redis_cache:
             redis_client = create_redis_client()
             self.cache_manager = HybridEnrichmentCache(
                 filesystem_cache=filesystem_cache,
                 redis_client=redis_client,
+                database_cache=database_cache,
             )
         else:
             # Use filesystem-only mode if Redis disabled

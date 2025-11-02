@@ -60,15 +60,17 @@ def _load_sensors_config() -> dict[str, Any] | None:
 
 
 def load_redis_config() -> dict[str, Any]:
-    """Load Redis configuration from sensors.toml or environment variables.
+    """Load Redis and database cache configuration from sensors.toml or environment variables.
 
     Configuration priority:
-    1. Environment variables (REDIS_HOST, REDIS_PORT, etc.)
+    1. Environment variables (REDIS_*, ENABLE_DB_CACHE, etc.)
     2. sensors.toml [global.cache] section
     3. Default values
 
     Returns:
-        Redis configuration dict with keys: host, port, password, db, enabled, ttl
+        Cache configuration dict with keys:
+        - Redis settings: host, port, password, db, enabled, ttl
+        - Database cache: db_cache_enabled
     """
     # Default configuration
     config = {
@@ -78,6 +80,7 @@ def load_redis_config() -> dict[str, Any]:
         "db": 0,
         "enabled": True,
         "ttl": 3600,
+        "db_cache_enabled": True,  # NEW: Enable database L2 cache by default
     }
 
     # Load from sensors.toml if available
@@ -104,6 +107,10 @@ def load_redis_config() -> dict[str, Any]:
             config["enabled"] = bool(cache_config["redis_enabled"])
         if "redis_ttl_seconds" in cache_config:
             config["ttl"] = int(cache_config["redis_ttl_seconds"])
+        
+        # NEW: Database cache configuration
+        if "db_cache_enabled" in cache_config:
+            config["db_cache_enabled"] = bool(cache_config["db_cache_enabled"])
 
     # Environment variables override TOML config
     if os.getenv("REDIS_HOST"):
@@ -118,6 +125,10 @@ def load_redis_config() -> dict[str, Any]:
         config["enabled"] = os.getenv("ENABLE_REDIS_CACHE", "true").lower() in ("true", "1", "yes")
     if os.getenv("REDIS_TTL_SECONDS"):
         config["ttl"] = int(os.getenv("REDIS_TTL_SECONDS"))
+    
+    # NEW: Database cache environment variable override
+    if os.getenv("ENABLE_DB_CACHE"):
+        config["db_cache_enabled"] = os.getenv("ENABLE_DB_CACHE", "true").lower() in ("true", "1", "yes")
 
     return config
 
