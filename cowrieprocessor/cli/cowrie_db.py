@@ -2734,7 +2734,7 @@ def main() -> None:
                 if result.get('errors', 0) > 0:
                     print(f"  Errors: {result['errors']:,}")
 
-            if 'error' in result:
+            if 'error' in result and result['error']:
                 print(f"❌ Sanitization failed: {result['error']}", file=sys.stderr)
                 sys.exit(1)
 
