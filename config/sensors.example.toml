@@ -13,6 +13,36 @@ report_dir = "/mnt/dshield/reports"
 # Optional: Log directory for status files (default: /mnt/dshield/data/logs)
 # log_dir = "/mnt/dshield/data/logs"
 
+# Cache Configuration (ADR-005 Hybrid Cache)
+# Three-tier caching architecture for enrichment data:
+#   L1: Redis (sub-millisecond lookups, volatile)
+#   L2: Database (persistent, ACID-compliant, schema v15+)
+#   L3: Filesystem (legacy compatibility)
+# Environment variables override these settings if present
+[global.cache]
+
+# Redis L1 Cache (hot data tier)
+redis_enabled = true
+redis_host = "localhost"
+redis_port = 6379
+redis_db = 0
+redis_ttl_seconds = 3600  # 1 hour TTL for hot cache
+
+# Redis password via secret reference (recommended)
+# redis_password = "env:REDIS_PASSWORD"
+# redis_password = "op://Security/Redis/password"
+# redis_password = "aws-sm://us-east-1/redis#password"
+# Or plain value (not recommended for production)
+# redis_password = "changeme"
+
+# Database L2 Cache (persistent tier, requires schema v15+)
+# Uses existing database connection from [global].db
+# TTLs: VT=30d, DShield=7d, URLhaus=3d, Spur=7d, HIBP=90d
+db_cache_enabled = true
+
+# Override with environment variable:
+# export ENABLE_DB_CACHE=false
+
 # Mode: By default, orchestrate_sensors.py uses the new cowrie-loader CLI
 # To use legacy process_cowrie.py, set environment variable:
 #   export USE_LEGACY_PROCESSOR=true
