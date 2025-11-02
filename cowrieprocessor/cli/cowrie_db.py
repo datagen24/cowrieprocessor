@@ -1039,13 +1039,20 @@ class CowrieDatabase:
                                         continue
 
                                     ids.append(record_id)
+                                    # Parameter name construction safety:
+                                    # - Loop counter 'i' is from enumerate() - trusted integer
+                                    # - SQLAlchemy parameter names are identifiers, not values
+                                    # - No SQL injection risk: parameter names don't execute as SQL
+                                    # - Parameter VALUES are properly bound via params dict
                                     id_param = f"id_{i}"
                                     val_param = f"val_{i}"
 
                                     # Parameterize both ID and value
+                                    # F-string constructs parameter NAMES (safe identifiers)
+                                    # Values are bound through SQLAlchemy's parameter system (secure)
                                     when_clauses.append(f"WHEN :{id_param} THEN CAST(:{val_param} AS jsonb)")
-                                    params[id_param] = record_id
-                                    params[val_param] = record['sanitized']
+                                    params[id_param] = record_id  # Validated integer
+                                    params[val_param] = record['sanitized']  # Bound as parameter
 
                                 update_query = text(f"""
                                     UPDATE raw_events
