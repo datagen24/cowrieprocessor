@@ -88,6 +88,26 @@ class DatabaseCache:
             f"DatabaseCache initialized with {self.dialect_name} backend, default TTL: {self.default_ttl // 86400} days"
         )
 
+    def __enter__(self) -> DatabaseCache:
+        """Support context manager protocol for resource cleanup."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Clean up database resources on context manager exit."""
+        self.close()
+
+    def close(self) -> None:
+        """Close database engine and dispose of connection pool.
+
+        This should be called when the cache is no longer needed to ensure
+        proper cleanup of database connections.
+        """
+        try:
+            self.engine.dispose()
+            LOGGER.debug("DatabaseCache resources cleaned up")
+        except Exception as e:
+            LOGGER.warning(f"Error during DatabaseCache cleanup: {e}")
+
     def get(self, service: str, cache_key: str) -> Optional[dict[str, Any]]:
         """Retrieve cached data for the given service and key.
 
@@ -290,26 +310,26 @@ class DatabaseCache:
         """
         try:
             with Session(self.engine) as session:
-                # Total entries
-                total_stmt = select(EnrichmentCache)
-                total = len(session.execute(total_stmt).scalars().all())
+                from sqlalchemy import func
 
-                # Expired entries
+                # Total entries (use COUNT instead of loading all rows)
+                total_stmt = select(func.count()).select_from(EnrichmentCache)
+                total = session.execute(total_stmt).scalar() or 0
+
+                # Expired entries (use COUNT instead of loading all rows)
                 if self.dialect_name == "sqlite":
                     now = datetime.now()
                 else:
                     now = datetime.now(timezone.utc)
-                expired_stmt = select(EnrichmentCache).where(EnrichmentCache.expires_at < now)
-                expired = len(session.execute(expired_stmt).scalars().all())
+                expired_stmt = select(func.count()).select_from(EnrichmentCache).where(EnrichmentCache.expires_at < now)
+                expired = session.execute(expired_stmt).scalar() or 0
 
-                # Per-service counts
-                services_stmt = select(EnrichmentCache.service, EnrichmentCache.id).distinct()
+                # Per-service counts (use SQL GROUP BY instead of Python aggregation)
+                services_stmt = select(EnrichmentCache.service, func.count(EnrichmentCache.id)).group_by(
+                    EnrichmentCache.service
+                )
                 services_data = session.execute(services_stmt).all()
-                service_counts: dict[str, int] = {}
-                for service, _ in services_data:
-                    if service not in service_counts:
-                        service_counts[service] = 0
-                    service_counts[service] += 1
+                service_counts = {service: count for service, count in services_data}
 
                 return {
                     "total_entries": total,
