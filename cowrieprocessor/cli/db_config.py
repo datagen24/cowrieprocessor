@@ -93,4 +93,4 @@ def add_database_argument(parser: Any, help_text: str | None = None) -> None:
         "Database connection URL (SQLite or PostgreSQL). If not provided, will read from sensors.toml or use default."
     )
 
-    parser.add_argument("--db-url", help=help_text or default_help)
+    parser.add_argument("--db-url", default=None, help=help_text or default_help)
