@@ -4,6 +4,21 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+- **Unicode Sanitization Bug** (November 2, 2025):
+  - **Critical fix**: `is_safe_for_postgres_json()` now detects JSON Unicode escape sequences (`\u0000`, `\u0001`, etc.)
+  - **Root cause**: PostgreSQL `payload::text` casts return escape sequences as literal strings, not actual bytes
+  - **Impact**: Previously skipped 1.43M records that contained problematic Unicode in JSONB fields
+  - **Detection added**: Dual-pattern checking for both actual control bytes (`\x00`) and JSON escapes (`\u0000`)
+  - **Regex pattern**: `\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]` (matches control chars except safe whitespace)
+  - **Files changed**:
+    - `cowrieprocessor/utils/unicode_sanitizer.py:213-278` (added escape sequence detection)
+    - `tests/unit/test_unicode_sanitizer.py:171-215` (added 2 new test methods, 22 total tests passing)
+    - `scripts/debug/verify_sanitization_fix.py` (verification script)
+    - `claudedocs/sanitization_bug_fix.md` (comprehensive documentation)
+  - **Verification**: All tests pass, verification script confirms fix works correctly
+  - **Action required**: Re-run `cowrie-db sanitize` to properly clean affected records
+
 ### Added - Test Coverage Improvements (Week 4, October 2025)
 - **Week 4 Days 16-20 COMPLETE** (October 25): CLI, database management, and small-module testing achieving 55% → 58% total coverage (+3%, +310 statements)
   - **Tests created**: 98 new tests (100% passing rate, zero technical debt)
