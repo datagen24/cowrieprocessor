@@ -957,16 +957,24 @@ class CowrieDatabase:
                 while True:
                     # Fetch only problematic records after last_id (O(1) cursor seek)
                     with self._get_engine().connect() as conn:
+                        # Pass regex as parameter to avoid SQLAlchemy parsing (?:...) as :0 parameter
                         query = text("""
                             SELECT id, payload::text as payload_text
                             FROM raw_events
                             WHERE id > :last_id
-                              AND payload::text ~ '\\\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\\\u007[fF]'
+                              AND payload::text ~ :regex_pattern
                             ORDER BY id
                             LIMIT :batch_size
                         """)
 
-                        batch_records = conn.execute(query, {"last_id": last_id, "batch_size": batch_size}).fetchall()
+                        batch_records = conn.execute(
+                            query,
+                            {
+                                "last_id": last_id,
+                                "batch_size": batch_size,
+                                "regex_pattern": r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]',
+                            },
+                        ).fetchall()
 
                     if not batch_records:
                         break
