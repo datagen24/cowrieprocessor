@@ -786,7 +786,7 @@ class EnrichmentService:
                         tags = set()
                         if isinstance(data, dict) and data.get("query_status") == "ok":
                             for url in data.get("urls", []):
-                                tags.update(url.get("tags", []))
+                                tags.update(url.get("tags") or [])
                         tags_str = ",".join(sorted(tags)) if tags else ""
                         return {"tags": tags_str}  # Wrap in dict for cache
                     finally:
