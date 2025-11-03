@@ -1,5 +1,10 @@
 """Database utilities for the refactored Cowrie processor."""
 
+# Phase 2: ORM-level sanitization listeners
+# Import sanitization_listeners module to register SQLAlchemy event listeners
+# These listeners automatically sanitize Unicode control characters on ORM assignment
+# Can be disabled via DatabaseSettings.enable_orm_sanitization = False
+from . import sanitization_listeners  # noqa: F401
 from .base import Base
 from .engine import (
     create_engine_from_settings,

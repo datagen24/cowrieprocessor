@@ -319,3 +319,78 @@ class TestConvenienceFunctions:
 
         assert is_safe_for_database("normal text")
         assert not is_safe_for_database("text with\x00null")
+
+    def test_cowrie_login_event_with_null_byte_username(self) -> None:
+        """Regression test for Issue #XX: Null bytes in nested username fields.
+
+        This test simulates the exact error scenario from the production database:
+        A Cowrie login event with a null byte (\u0000) in the username field,
+        which was causing PostgreSQL JSON processing errors when querying
+        session_summaries.enrichment data.
+        """
+        # Simulate a Cowrie login.success event with null byte in username
+        cowrie_event = {
+            "eventid": "cowrie.login.success",
+            "timestamp": "2024-11-13T17:06:45.665648+00:00",
+            "session": "a1b2c3d4e5f6",
+            "src_ip": "192.168.1.100",
+            "username": "\x00root",  # <-- Null byte at start (actual scenario from logs)
+            "password": "toor",
+            "message": "login attempt",
+        }
+
+        # Sanitize the event (mimics what BulkLoader._sanitize_event does)
+        sanitized = UnicodeSanitizer._sanitize_json_object(cowrie_event)
+
+        # Verify null byte is removed from username
+        assert sanitized["username"] == "root"
+        assert "\x00" not in sanitized["username"]
+
+        # Verify other fields are preserved
+        assert sanitized["eventid"] == "cowrie.login.success"
+        assert sanitized["session"] == "a1b2c3d4e5f6"
+        assert sanitized["password"] == "toor"
+
+        # Verify the sanitized payload is safe for PostgreSQL JSON
+        import json
+
+        payload_str = json.dumps(sanitized, ensure_ascii=False)
+        assert UnicodeSanitizer.is_safe_for_postgres_json(payload_str)
+
+    def test_cowrie_nested_enrichment_data_sanitization(self) -> None:
+        """Test sanitization of deeply nested enrichment data structures.
+
+        This simulates the structure found in session_summaries.enrichment
+        which can contain nested login attempt arrays and other enrichment data.
+        """
+        # Simulate enrichment data with nested login attempts containing null bytes
+        enrichment_data = {
+            "dshield": {"country": "US", "asn": "AS12345", "network": "192.168.0.0/16"},
+            "login_history": [
+                {"username": "admin\x00", "password": "password123", "timestamp": "2024-11-13T10:00:00Z"},
+                {"username": "\x00root\x01", "password": "toor\x02", "timestamp": "2024-11-13T11:00:00Z"},
+                {"username": "user", "password": "pass", "timestamp": "2024-11-13T12:00:00Z"},  # Clean
+            ],
+            "metadata": {"source": "honeypot-a\x00", "sensor": "cowrie"},
+        }
+
+        # Sanitize the entire structure
+        sanitized = UnicodeSanitizer._sanitize_json_object(enrichment_data)
+
+        # Verify all null bytes removed from login history
+        assert sanitized["login_history"][0]["username"] == "admin"
+        assert sanitized["login_history"][1]["username"] == "root"
+        assert sanitized["login_history"][1]["password"] == "toor"
+        assert sanitized["login_history"][2]["username"] == "user"  # Already clean
+
+        # Verify nested metadata sanitized
+        assert sanitized["metadata"]["source"] == "honeypot-a"
+
+        # Verify DShield data preserved (no control chars)
+        assert sanitized["dshield"]["country"] == "US"
+
+        # Verify entire structure is safe for PostgreSQL
+        import json
+
+        payload_str = json.dumps(sanitized, ensure_ascii=False)
+        assert UnicodeSanitizer.is_safe_for_postgres_json(payload_str)

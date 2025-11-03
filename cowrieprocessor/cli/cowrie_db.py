@@ -44,6 +44,545 @@ class SanitizationMetrics:
 logger = logging.getLogger(__name__)
 
 
+# Phase 3: Multi-Table Sanitization Strategy Pattern
+# =============================================================================
+
+
+class SanitizationStrategy:
+    """Base class for table-specific Unicode sanitization strategies.
+
+    Each strategy encapsulates the logic for sanitizing a specific database table,
+    including batch queries, record sanitization, and batch updates.
+
+    Design Pattern: Strategy pattern for table-specific sanitization logic
+    Performance: Cursor-based pagination + pre-filtering for 50-100x speedup
+    """
+
+    def __init__(self, engine: Engine):
+        """Initialize sanitization strategy.
+
+        Args:
+            engine: SQLAlchemy engine for database operations
+        """
+        self.engine = engine
+        self.dialect = get_dialect_name_from_engine(engine)
+        self.table_name: str = "unknown"  # Override in subclasses
+
+    def get_batch_query(self, last_id: int | str, batch_size: int) -> tuple[str, dict[str, Any]]:
+        """Get SQL query for fetching next batch of problematic records.
+
+        Uses cursor-based pagination (id > :last_id) for O(1) seeks instead of
+        O(n) OFFSET. Pre-filters using regex to fetch only dirty records.
+
+        Args:
+            last_id: ID of last processed record (for cursor pagination) - int for raw_events, str for others
+            batch_size: Number of records to fetch
+
+        Returns:
+            Tuple of (query_string, parameters_dict)
+        """
+        raise NotImplementedError("Subclasses must implement get_batch_query()")
+
+    def sanitize_record(self, record: Any) -> tuple[int | str, dict[str, Any]]:
+        """Sanitize a single database record.
+
+        Args:
+            record: Database row object from query result
+
+        Returns:
+            Tuple of (record_id, sanitized_fields_dict) - ID is int for raw_events, str for others
+
+        Raises:
+            ValueError: If record cannot be sanitized
+        """
+        raise NotImplementedError("Subclasses must implement sanitize_record()")
+
+    def update_batch(self, updates: list[tuple[int | str, dict[str, Any]]]) -> int:
+        """Update batch of records in database.
+
+        Uses CASE statement for efficient batch updates (1 query instead of N).
+
+        Args:
+            updates: List of (record_id, sanitized_fields) tuples - ID is int for raw_events, str for others
+
+        Returns:
+            Number of records successfully updated
+        """
+        raise NotImplementedError("Subclasses must implement update_batch()")
+
+
+class RawEventsSanitization(SanitizationStrategy):
+    """Strategy for sanitizing raw_events.payload column.
+
+    This refactors the existing sanitization logic into the strategy pattern.
+    """
+
+    def __init__(self, engine: Engine):
+        """Initialize raw_events sanitization strategy.
+
+        Args:
+            engine: SQLAlchemy engine for database operations
+        """
+        super().__init__(engine)
+        self.table_name = "raw_events"
+
+    def get_batch_query(self, last_id: int, batch_size: int) -> tuple[str, dict[str, Any]]:  # type: ignore[override]
+        """Fetch next batch of raw_events with problematic payload."""
+        if self.dialect == "postgresql":
+            # PostgreSQL: Pre-filter using regex for 50-100x speedup
+            query = """
+                SELECT id, payload::text as payload_text
+                FROM raw_events
+                WHERE id > :last_id
+                  AND payload::text ~ :regex_pattern
+                ORDER BY id
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+                "regex_pattern": r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]',
+            }
+        else:
+            # SQLite: No regex support, fetch all and filter in Python
+            query = """
+                SELECT id, payload as payload_text
+                FROM raw_events
+                WHERE id > :last_id
+                ORDER BY id
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+            }
+
+        return (query, params)
+
+    def sanitize_record(self, record: Any) -> tuple[int, dict[str, Any]]:
+        """Sanitize raw_events payload field."""
+        record_id = record.id
+        original_payload_text = record.payload_text
+
+        # For SQLite, check if payload actually needs sanitization
+        if self.dialect != "postgresql" and UnicodeSanitizer.is_safe_for_postgres_json(original_payload_text):
+            raise ValueError("Record does not need sanitization")
+
+        # Sanitize the payload
+        sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(original_payload_text)
+
+        # Verify the sanitized payload is valid JSON and safe
+        try:
+            json.loads(sanitized_payload_text)
+            if not UnicodeSanitizer.is_safe_for_postgres_json(sanitized_payload_text):
+                raise ValueError(f"Sanitized payload still unsafe for record {record_id}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON after sanitization for record {record_id}: {e}")
+
+        return (record_id, {"payload": sanitized_payload_text})
+
+    def update_batch(self, updates: list[tuple[int, dict[str, Any]]]) -> int:  # type: ignore[override]
+        """Batch update raw_events records using CASE statement."""
+        if not updates:
+            return 0
+
+        with self.engine.begin() as conn:
+            try:
+                # Build CASE statement for batch update
+                ids: list[int] = []
+                when_clauses: list[str] = []
+                params = {}
+
+                for i, (record_id, fields) in enumerate(updates):
+                    ids.append(record_id)
+                    id_param = f"id_{i}"
+                    val_param = f"val_{i}"
+
+                    if self.dialect == "postgresql":
+                        when_clauses.append(f"WHEN :{id_param} THEN CAST(:{val_param} AS jsonb)")
+                    else:
+                        when_clauses.append(f"WHEN :{id_param} THEN :{val_param}")
+
+                    params[id_param] = record_id
+                    params[val_param] = fields["payload"]
+
+                update_query = (
+                    text(f"""
+                    UPDATE raw_events
+                    SET payload = CASE id
+                        {' '.join(when_clauses)}
+                    END
+                    WHERE id = ANY(:ids)
+                """)
+                    if self.dialect == "postgresql"
+                    else text(f"""
+                    UPDATE raw_events
+                    SET payload = CASE id
+                        {' '.join(when_clauses)}
+                    END
+                    WHERE id IN ({','.join([f':id_{i}' for i in range(len(updates))])})
+                """)
+                )
+
+                if self.dialect == "postgresql":
+                    params['ids'] = ids  # type: ignore[assignment]
+
+                conn.execute(update_query, params)
+                return len(updates)
+
+            except Exception as e:
+                logger.error(f"Batch UPDATE failed for raw_events: {e}, falling back to individual UPDATEs")
+
+                # Fall back to individual UPDATEs
+                updated_count = 0
+                for record_id, fields in updates:
+                    try:
+                        if self.dialect == "postgresql":
+                            individual_query = text("""
+                                UPDATE raw_events
+                                SET payload = CAST(:payload AS jsonb)
+                                WHERE id = :record_id
+                            """)
+                        else:
+                            individual_query = text("""
+                                UPDATE raw_events
+                                SET payload = :payload
+                                WHERE id = :record_id
+                            """)
+
+                        conn.execute(individual_query, {"payload": fields["payload"], "record_id": record_id})
+                        updated_count += 1
+                    except Exception as ind_err:
+                        logger.error(f"Failed to update raw_events record {record_id}: {ind_err}")
+
+                return updated_count
+
+
+class SessionSummariesSanitization(SanitizationStrategy):
+    """Strategy for sanitizing session_summaries enrichment and source_files columns."""
+
+    def __init__(self, engine: Engine):
+        """Initialize session_summaries sanitization strategy.
+
+        Args:
+            engine: SQLAlchemy engine for database operations
+        """
+        super().__init__(engine)
+        self.table_name = "session_summaries"
+
+    def get_batch_query(self, last_id: int, batch_size: int) -> tuple[str, dict[str, Any]]:  # type: ignore[override]
+        """Fetch next batch of session_summaries with problematic JSON fields."""
+        if self.dialect == "postgresql":
+            # PostgreSQL: Pre-filter both enrichment and source_files columns
+            query = """
+                SELECT session_id, enrichment::text as enrichment_text, 
+                       source_files::text as source_files_text
+                FROM session_summaries
+                WHERE session_id > :last_id
+                  AND (enrichment::text ~ :regex_pattern OR source_files::text ~ :regex_pattern)
+                ORDER BY session_id
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+                "regex_pattern": r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]',
+            }
+        else:
+            # SQLite: Fetch all and filter in Python
+            query = """
+                SELECT session_id, enrichment as enrichment_text, 
+                       source_files as source_files_text
+                FROM session_summaries
+                WHERE session_id > :last_id
+                ORDER BY session_id
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+            }
+
+        return (query, params)
+
+    def sanitize_record(self, record: Any) -> tuple[str, dict[str, Any]]:
+        """Sanitize session_summaries enrichment and source_files fields."""
+        session_id = record.session_id
+        sanitized_fields = {}
+
+        # Sanitize enrichment if present and dirty
+        if record.enrichment_text:
+            if self.dialect != "postgresql" and UnicodeSanitizer.is_safe_for_postgres_json(record.enrichment_text):
+                # SQLite: Skip clean records
+                pass
+            else:
+                sanitized_enrichment = UnicodeSanitizer.sanitize_json_string(record.enrichment_text)
+                try:
+                    json.loads(sanitized_enrichment)
+                    sanitized_fields["enrichment"] = sanitized_enrichment
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Session {session_id}: Invalid JSON in enrichment after sanitization: {e}")
+
+        # Sanitize source_files if present and dirty
+        if record.source_files_text:
+            if self.dialect != "postgresql" and UnicodeSanitizer.is_safe_for_postgres_json(record.source_files_text):
+                # SQLite: Skip clean records
+                pass
+            else:
+                sanitized_source_files = UnicodeSanitizer.sanitize_json_string(record.source_files_text)
+                try:
+                    json.loads(sanitized_source_files)
+                    sanitized_fields["source_files"] = sanitized_source_files
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Session {session_id}: Invalid JSON in source_files after sanitization: {e}")
+
+        if not sanitized_fields:
+            raise ValueError(f"No fields to sanitize for session {session_id}")
+
+        return (session_id, sanitized_fields)
+
+    def update_batch(self, updates: list[tuple[str, dict[str, Any]]]) -> int:  # type: ignore[override]
+        """Batch update session_summaries records using CASE statements."""
+        if not updates:
+            return 0
+
+        with self.engine.begin() as conn:
+            try:
+                # Separate updates by field (some records may only update one field)
+                enrichment_updates = [(sid, fields["enrichment"]) for sid, fields in updates if "enrichment" in fields]
+                source_files_updates = [
+                    (sid, fields["source_files"]) for sid, fields in updates if "source_files" in fields
+                ]
+
+                # Track unique session_ids updated (not field count - a record with both fields counts as 1)
+                updated_session_ids: set[str] = set()
+
+                # Update enrichment field if needed
+                if enrichment_updates:
+                    session_ids: list[str] = []
+                    when_clauses: list[str] = []
+                    params: dict[str, Any] = {}
+
+                    for i, (session_id, enrichment_value) in enumerate(enrichment_updates):
+                        session_ids.append(session_id)
+                        updated_session_ids.add(session_id)  # Track unique records
+                        sid_param = f"sid_{i}"
+                        enr_param = f"enr_{i}"
+
+                        if self.dialect == "postgresql":
+                            when_clauses.append(f"WHEN :{sid_param} THEN CAST(:{enr_param} AS jsonb)")
+                        else:
+                            when_clauses.append(f"WHEN :{sid_param} THEN :{enr_param}")
+
+                        params[sid_param] = session_id
+                        params[enr_param] = enrichment_value
+
+                    if self.dialect == "postgresql":
+                        update_query = text(f"""
+                            UPDATE session_summaries
+                            SET enrichment = CASE session_id
+                                {' '.join(when_clauses)}
+                            END
+                            WHERE session_id = ANY(:session_ids)
+                        """)
+                        params['session_ids'] = session_ids
+                    else:
+                        update_query = text(f"""
+                            UPDATE session_summaries
+                            SET enrichment = CASE session_id
+                                {' '.join(when_clauses)}
+                            END
+                            WHERE session_id IN ({','.join([f':sid_{i}' for i in range(len(enrichment_updates))])})
+                        """)
+
+                    conn.execute(update_query, params)
+
+                # Update source_files field if needed
+                if source_files_updates:
+                    session_ids: list[int] = []  # type: ignore[no-redef]
+                    when_clauses: list[str] = []  # type: ignore[no-redef]
+                    params = {}
+
+                    for i, (session_id, source_files_value) in enumerate(source_files_updates):
+                        session_ids.append(session_id)
+                        updated_session_ids.add(session_id)  # Track unique records
+                        sid_param = f"sid_{i}"
+                        sf_param = f"sf_{i}"
+
+                        if self.dialect == "postgresql":
+                            when_clauses.append(f"WHEN :{sid_param} THEN CAST(:{sf_param} AS jsonb)")
+                        else:
+                            when_clauses.append(f"WHEN :{sid_param} THEN :{sf_param}")
+
+                        params[sid_param] = session_id
+                        params[sf_param] = source_files_value
+
+                    if self.dialect == "postgresql":
+                        update_query = text(f"""
+                            UPDATE session_summaries
+                            SET source_files = CASE session_id
+                                {' '.join(when_clauses)}
+                            END
+                            WHERE session_id = ANY(:session_ids)
+                        """)
+                        params['session_ids'] = session_ids
+                    else:
+                        update_query = text(f"""
+                            UPDATE session_summaries
+                            SET source_files = CASE session_id
+                                {' '.join(when_clauses)}
+                            END
+                            WHERE session_id IN ({','.join([f':sid_{i}' for i in range(len(source_files_updates))])})
+                        """)
+
+                    conn.execute(update_query, params)
+
+                # Return count of unique records updated (not field count - a record with both fields counts as 1)
+                return len(updated_session_ids)
+
+            except Exception as e:
+                logger.error(f"Batch UPDATE failed for session_summaries: {e}")
+                raise
+
+
+class FilesSanitization(SanitizationStrategy):
+    """Strategy for sanitizing files table text fields."""
+
+    def __init__(self, engine: Engine):
+        """Initialize files sanitization strategy.
+
+        Args:
+            engine: SQLAlchemy engine for database operations
+        """
+        super().__init__(engine)
+        self.table_name = "files"
+
+    def get_batch_query(self, last_id: int, batch_size: int) -> tuple[str, dict[str, Any]]:  # type: ignore[override]
+        """Fetch next batch of files with problematic text fields."""
+        if self.dialect == "postgresql":
+            # PostgreSQL: Pre-filter text fields
+            query = """
+                SELECT shasum, filename, download_url, vt_classification, vt_description
+                FROM files
+                WHERE shasum > :last_id
+                  AND (
+                    filename ~ :regex_pattern OR
+                    download_url ~ :regex_pattern OR
+                    vt_classification ~ :regex_pattern OR
+                    vt_description ~ :regex_pattern
+                  )
+                ORDER BY shasum
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+                "regex_pattern": r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]',
+            }
+        else:
+            # SQLite: Fetch all and filter in Python
+            query = """
+                SELECT shasum, filename, download_url, vt_classification, vt_description
+                FROM files
+                WHERE shasum > :last_id
+                ORDER BY shasum
+                LIMIT :batch_size
+            """
+            params = {
+                "last_id": last_id,
+                "batch_size": batch_size,
+            }
+
+        return (query, params)
+
+    def sanitize_record(self, record: Any) -> tuple[str, dict[str, Any]]:
+        """Sanitize files text fields (filename, download_url, vt_classification, vt_description)."""
+        shasum = record.shasum
+        sanitized_fields = {}
+
+        # Sanitize each text field if present and dirty
+        text_fields = ["filename", "download_url", "vt_classification", "vt_description"]
+
+        for field_name in text_fields:
+            field_value = getattr(record, field_name, None)
+            if field_value:
+                # Skip clean records for SQLite
+                if self.dialect != "postgresql" and UnicodeSanitizer.is_safe_for_postgres_json(field_value):
+                    continue
+
+                sanitized_value = UnicodeSanitizer.sanitize_unicode_string(field_value)
+                if sanitized_value != field_value:
+                    sanitized_fields[field_name] = sanitized_value
+
+        if not sanitized_fields:
+            raise ValueError(f"No fields to sanitize for file {shasum}")
+
+        return (shasum, sanitized_fields)
+
+    def update_batch(self, updates: list[tuple[str, dict[str, Any]]]) -> int:  # type: ignore[override]
+        """Batch update files records."""
+        if not updates:
+            return 0
+
+        with self.engine.begin() as conn:
+            try:
+                # Group updates by which fields need updating
+                # Build dynamic SET clauses for each field
+
+                # Collect all unique fields that need updating across all records
+                all_fields: set[str] = set()
+                for _, fields in updates:
+                    all_fields.update(fields.keys())
+
+                # Build CASE statements for each field
+                shasums: list[str] = []
+                params: dict[str, Any] = {}
+                field_case_statements: dict[str, list[str]] = {field: [] for field in all_fields}
+
+                for i, (shasum, fields) in enumerate(updates):
+                    shasums.append(shasum)
+                    shasum_param = f"shasum_{i}"
+                    params[shasum_param] = shasum
+
+                    for field in all_fields:
+                        if field in fields:
+                            field_param = f"{field}_{i}"
+                            field_case_statements[field].append(f"WHEN :{shasum_param} THEN :{field_param}")
+                            params[field_param] = fields[field]
+                        else:
+                            # Keep existing value for this field
+                            field_case_statements[field].append(f"WHEN :{shasum_param} THEN {field}")
+
+                # Build SET clause with all field CASE statements
+                set_clauses = [
+                    f"{field} = CASE shasum {' '.join(field_case_statements[field])} ELSE {field} END"
+                    for field in all_fields
+                ]
+
+                if self.dialect == "postgresql":
+                    update_query = text(f"""
+                        UPDATE files
+                        SET {', '.join(set_clauses)}
+                        WHERE shasum = ANY(:shasums)
+                    """)
+                    params['shasums'] = shasums
+                else:
+                    shasum_placeholders = ','.join([f':shasum_{i}' for i in range(len(updates))])
+                    update_query = text(f"""
+                        UPDATE files
+                        SET {', '.join(set_clauses)}
+                        WHERE shasum IN ({shasum_placeholders})
+                    """)
+
+                conn.execute(update_query, params)
+                return len(updates)
+
+            except Exception as e:
+                logger.error(f"Batch UPDATE failed for files: {e}")
+                raise
+
+
+
 class CowrieDatabase:
     """Database management operations for Cowrie Processor."""
 
@@ -900,377 +1439,236 @@ class CowrieDatabase:
             logger.error(f"Error inserting files batch: {e}")
             return 0
 
+
+# =============================================================================
     def sanitize_unicode_in_database(
         self,
+        table: Optional[str] = None,
+        all_tables: bool = False,
         batch_size: int = 1000,
         limit: Optional[int] = None,
         dry_run: bool = False,
         progress_callback: Optional[Callable[[SanitizationMetrics], None]] = None,
-        use_optimized: bool = True,
     ) -> Dict[str, Any]:
-        """Sanitize Unicode control characters in existing database records.
+        """Sanitize Unicode control characters across database tables.
 
-        Performance optimization: cursor-based pagination with pre-filtering provides
-        50-100x speedup over OFFSET pagination. Auto-enabled for PostgreSQL.
+        Phase 3: Multi-table backfill sanitization with strategy pattern.
+        Supports sanitizing raw_events, session_summaries, and files tables.
 
         Args:
+            table: Specific table to sanitize ("raw_events", "session_summaries", "files")
+                   If None and all_tables=False, sanitizes all tables (default behavior)
+            all_tables: Explicitly sanitize all tables (for clarity)
             batch_size: Number of records to process in each batch
-            limit: Maximum number of records to process (None for all)
+            limit: Maximum number of records to process per table (None for all)
             dry_run: If True, only report what would be changed without making changes
             progress_callback: Optional callback function to report progress
-            use_optimized: If True, use cursor-based pagination with pre-filtering (PostgreSQL only)
 
         Returns:
-            Sanitization result with statistics
+            Dictionary with results for each table processed
+
+        Example:
+            # Sanitize all tables (default)
+            results = db.sanitize_unicode_in_database()
+
+            # Sanitize specific table
+            results = db.sanitize_unicode_in_database(table="session_summaries")
+
+            # Dry run on all tables
+            results = db.sanitize_unicode_in_database(all_tables=True, dry_run=True)
         """
-        result: Dict[str, Any] = {
-            'records_processed': 0,
-            'records_updated': 0,
-            'records_skipped': 0,
-            'errors': 0,
-            'batches_processed': 0,
-            'dry_run': dry_run,
-            'message': '',  # Add message field
-            'error': '',  # Add error field
+        # Determine which tables to process
+        strategies: list[SanitizationStrategy] = []
+
+        if table:
+            # Specific table requested
+            if table == "raw_events":
+                if self._table_exists('raw_events'):
+                    strategies.append(RawEventsSanitization(self._get_engine()))
+            elif table == "session_summaries":
+                if self._table_exists('session_summaries'):
+                    strategies.append(SessionSummariesSanitization(self._get_engine()))
+            elif table == "files":
+                if self._table_exists('files'):
+                    strategies.append(FilesSanitization(self._get_engine()))
+            else:
+                raise ValueError(f"Unknown table: {table}. Valid tables: raw_events, session_summaries, files")
+        else:
+            # All tables (default behavior)
+            if self._table_exists('raw_events'):
+                strategies.append(RawEventsSanitization(self._get_engine()))
+            if self._table_exists('session_summaries'):
+                strategies.append(SessionSummariesSanitization(self._get_engine()))
+            if self._table_exists('files'):
+                strategies.append(FilesSanitization(self._get_engine()))
+
+        if not strategies:
+            return {
+                "error": "No tables found to sanitize",
+                "message": "Database schema not initialized or tables do not exist",
+            }
+
+        # Process each table using its strategy
+        overall_results: Dict[str, Any] = {
+            "tables_processed": 0,
+            "total_records_processed": 0,
+            "total_records_updated": 0,
+            "total_records_skipped": 0,
+            "total_errors": 0,
+            "dry_run": dry_run,
+            "tables": {},
         }
 
-        try:
-            # Check if raw_events table exists
-            if not self._table_exists('raw_events'):
-                raise Exception("Raw events table does not exist.")
+        for strategy in strategies:
+            logger.info(f"Processing table: {strategy.table_name}")
 
-            dialect_name = get_dialect_name_from_engine(self._get_engine())
-
-            logger.info(
-                f"Starting Unicode sanitization (dry_run={dry_run}, "
-                f"optimized={use_optimized and dialect_name == 'postgresql'})..."
+            table_result = self._sanitize_table(
+                strategy=strategy,
+                batch_size=batch_size,
+                limit=limit,
+                dry_run=dry_run,
+                progress_callback=progress_callback,
             )
 
-            # Choose optimized or legacy path
-            if use_optimized and dialect_name == "postgresql":
-                # ============================================================
-                # OPTIMIZED PATH: Cursor-based pagination with pre-filtering
-                # 50-100x faster for large databases (20 hours → 15-30 min)
-                # ============================================================
-                last_id = 0
+            overall_results["tables"][strategy.table_name] = table_result
+            overall_results["tables_processed"] += 1
+            overall_results["total_records_processed"] += table_result["records_processed"]
+            overall_results["total_records_updated"] += table_result["records_updated"]
+            overall_results["total_records_skipped"] += table_result["records_skipped"]
+            overall_results["total_errors"] += table_result["errors"]
 
-                while True:
-                    # Fetch only problematic records after last_id (O(1) cursor seek)
-                    with self._get_engine().connect() as conn:
-                        # Pass regex as parameter to avoid SQLAlchemy parsing (?:...) as :0 parameter
-                        query = text("""
-                            SELECT id, payload::text as payload_text
-                            FROM raw_events
-                            WHERE id > :last_id
-                              AND payload::text ~ :regex_pattern
-                            ORDER BY id
-                            LIMIT :batch_size
-                        """)
+        # Build summary message
+        if dry_run:
+            overall_results["message"] = (
+                f"Dry run completed: {overall_results['total_records_processed']} total records analyzed across "
+                f"{overall_results['tables_processed']} tables, "
+                f"{overall_results['total_records_updated']} would be updated, "
+                f"{overall_results['total_records_skipped']} would be skipped, "
+                f"{overall_results['total_errors']} errors"
+            )
+        else:
+            overall_results["message"] = (
+                f"Sanitization completed: {overall_results['total_records_processed']} total records processed across "
+                f"{overall_results['tables_processed']} tables, "
+                f"{overall_results['total_records_updated']} updated, "
+                f"{overall_results['total_records_skipped']} skipped, "
+                f"{overall_results['total_errors']} errors"
+            )
 
-                        batch_records = conn.execute(
-                            query,
-                            {
-                                "last_id": last_id,
-                                "batch_size": batch_size,
-                                "regex_pattern": r'\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]',
-                            },
-                        ).fetchall()
+        return overall_results
 
-                    if not batch_records:
-                        break
+    def _sanitize_table(
+        self,
+        strategy: SanitizationStrategy,
+        batch_size: int,
+        limit: Optional[int],
+        dry_run: bool,
+        progress_callback: Optional[Callable[[SanitizationMetrics], None]],
+    ) -> Dict[str, Any]:
+        """Sanitize a single table using the provided strategy.
 
-                    # Process batch (sanitize in Python)
-                    records_to_update = []
+        Args:
+            strategy: Sanitization strategy for the table
+            batch_size: Number of records per batch
+            limit: Maximum records to process (None for all)
+            dry_run: If True, don't make actual changes
+            progress_callback: Optional progress reporting callback
 
-                    for record in batch_records:
-                        try:
-                            record_id = record.id
-                            original_payload_text = record.payload_text
+        Returns:
+            Dictionary with sanitization results for this table
+        """
+        result: Dict[str, Any] = {
+            "table": strategy.table_name,
+            "records_processed": 0,
+            "records_updated": 0,
+            "records_skipped": 0,
+            "errors": 0,
+            "batches_processed": 0,
+        }
 
-                            # Sanitize the payload
-                            sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(original_payload_text)
+        last_id = 0 if strategy.table_name == "raw_events" else ""  # raw_events uses int ID, others use string
 
-                            # Verify the sanitized payload is valid JSON and safe
-                            try:
-                                parsed_payload = json.loads(sanitized_payload_text)
-                                if UnicodeSanitizer.is_safe_for_postgres_json(sanitized_payload_text):
-                                    records_to_update.append(
-                                        {
-                                            'id': record_id,
-                                            'sanitized': sanitized_payload_text,
-                                        }
-                                    )
-                                    # Count updated records:
-                                    # - In dry_run: count intent to update
-                                    # - In real run: will be counted after successful DB operation
-                                    if dry_run:
-                                        result['records_updated'] += 1
-                                else:
-                                    logger.warning(f"Record {record_id}: Sanitized payload still unsafe")
-                                    result['records_skipped'] += 1
-                            except json.JSONDecodeError as e:
-                                logger.warning(f"Record {record_id}: Invalid JSON after sanitization: {e}")
-                                result['records_skipped'] += 1
+        try:
+            while True:
+                # Fetch next batch using strategy
+                query_str, params = strategy.get_batch_query(last_id, batch_size)
 
-                            result['records_processed'] += 1
+                with self._get_engine().connect() as conn:
+                    batch_records = conn.execute(text(query_str), params).fetchall()
 
-                        except Exception as e:
-                            logger.error(f"Error processing record {record.id}: {e}")
-                            result['errors'] += 1
-                            result['records_processed'] += 1
+                if not batch_records:
+                    break  # No more records
 
-                    # Batch UPDATE using CASE statement (single transaction per batch)
-                    if records_to_update and not dry_run:
-                        with self._get_engine().begin() as conn:
-                            try:
-                                # Build CASE statement for batch update
-                                # Validate and parameterize IDs for defense-in-depth
-                                ids = []
-                                when_clauses = []
-                                params = {}
+                # Process batch
+                records_to_update = []
 
-                                for i, record in enumerate(records_to_update):
-                                    # Type validation: ensure ID is integer (defense-in-depth)
-                                    try:
-                                        record_id = int(record['id'])
-                                    except (ValueError, TypeError) as e:
-                                        logger.error(f"Invalid ID type for record {record.get('id')}: {e}")
-                                        result['errors'] += 1
-                                        continue
+                for record in batch_records:
+                    try:
+                        record_id, sanitized_fields = strategy.sanitize_record(record)
+                        records_to_update.append((record_id, sanitized_fields))
 
-                                    ids.append(record_id)
-                                    # Parameter name construction safety:
-                                    # - Loop counter 'i' is from enumerate() - trusted integer
-                                    # - SQLAlchemy parameter names are identifiers, not values
-                                    # - No SQL injection risk: parameter names don't execute as SQL
-                                    # - Parameter VALUES are properly bound via params dict
-                                    id_param = f"id_{i}"
-                                    val_param = f"val_{i}"
+                        if dry_run:
+                            result["records_updated"] += 1
 
-                                    # Parameterize both ID and value
-                                    # F-string constructs parameter NAMES (safe identifiers)
-                                    # Values are bound through SQLAlchemy's parameter system (secure)
-                                    when_clauses.append(f"WHEN :{id_param} THEN CAST(:{val_param} AS jsonb)")
-                                    params[id_param] = record_id  # Validated integer
-                                    params[val_param] = record['sanitized']  # Bound as parameter
+                        result["records_processed"] += 1
 
-                                update_query = text(f"""
-                                    UPDATE raw_events
-                                    SET payload = CASE id
-                                        {' '.join(when_clauses)}
-                                    END
-                                    WHERE id = ANY(:ids)
-                                """)
-                                params['ids'] = ids
+                    except ValueError:
+                        # Record doesn't need sanitization or can't be sanitized
+                        result["records_skipped"] += 1
+                        result["records_processed"] += 1
 
-                                conn.execute(update_query, params)
-                                result['records_updated'] += len(records_to_update)
+                    except Exception as e:
+                        logger.error(f"Error processing record in {strategy.table_name}: {e}")
+                        result["errors"] += 1
+                        result["records_processed"] += 1
 
-                            except Exception as batch_error:
-                                logger.error(f"Batch UPDATE failed: {batch_error}, falling back to individual UPDATEs")
+                # Update batch in database (unless dry run)
+                if records_to_update and not dry_run:
+                    try:
+                        updated_count = strategy.update_batch(records_to_update)
+                        result["records_updated"] += updated_count
+                    except Exception as e:
+                        logger.error(f"Failed to update batch in {strategy.table_name}: {e}")
+                        result["errors"] += len(records_to_update)
 
-                                # Fall back to individual UPDATEs for error recovery
-                                for record in records_to_update:
-                                    try:
-                                        individual_update = text("""
-                                            UPDATE raw_events
-                                            SET payload = CAST(:sanitized AS jsonb)
-                                            WHERE id = :record_id
-                                        """)
-                                        conn.execute(
-                                            individual_update,
-                                            {"sanitized": record['sanitized'], "record_id": record['id']},
-                                        )
-                                        result['records_updated'] += 1
-                                    except Exception as individual_error:
-                                        logger.error(
-                                            f"Failed to update record {record['id']} individually: {individual_error}"
-                                        )
-                                        result['errors'] += 1
+                result["batches_processed"] += 1
 
-                    result['batches_processed'] += 1
-                    last_id = batch_records[-1].id  # Update cursor
+                # Update cursor for next batch
+                if batch_records:
+                    if strategy.table_name == "raw_events":
+                        last_id = batch_records[-1].id
+                    elif strategy.table_name == "session_summaries":
+                        last_id = batch_records[-1].session_id
+                    elif strategy.table_name == "files":
+                        last_id = batch_records[-1].shasum
 
-                    # Log progress
-                    if result['batches_processed'] % 10 == 0:
-                        logger.info(
-                            f"Processed {result['records_processed']} records, "
-                            f"updated {result['records_updated']}, "
-                            f"errors {result['errors']}"
+                # Log progress
+                if result["batches_processed"] % 10 == 0:
+                    logger.info(
+                        f"{strategy.table_name}: Processed {result['records_processed']} records, "
+                        f"updated {result['records_updated']}, "
+                        f"errors {result['errors']}"
+                    )
+
+                    if progress_callback:
+                        metrics = SanitizationMetrics(
+                            records_processed=result["records_processed"],
+                            records_updated=result["records_updated"],
+                            records_skipped=result["records_skipped"],
+                            errors=result["errors"],
+                            batches_processed=result["batches_processed"],
+                            dry_run=dry_run,
                         )
+                        progress_callback(metrics)
 
-                        if progress_callback:
-                            metrics = SanitizationMetrics(
-                                records_processed=result['records_processed'],
-                                records_updated=result['records_updated'],
-                                records_skipped=result['records_skipped'],
-                                errors=result['errors'],
-                                batches_processed=result['batches_processed'],
-                                dry_run=dry_run,
-                            )
-                            progress_callback(metrics)
-
-                    # Check limit
-                    if limit and result['records_processed'] >= limit:
-                        break
-
-            else:
-                # ============================================================
-                # LEGACY PATH: OFFSET-based pagination (SQLite compatibility)
-                # Slower but works with all database types
-                # ============================================================
-                offset = 0
-                while True:
-                    # Get batch of records to process
-                    with self._get_engine().connect() as conn:
-                        if dialect_name == "postgresql":
-                            query = text("""
-                                SELECT id, payload::text as payload_text
-                                FROM raw_events
-                                ORDER BY id ASC
-                                LIMIT :batch_size OFFSET :offset
-                            """)
-                        else:
-                            query = text("""
-                                SELECT id, payload as payload_text
-                                FROM raw_events
-                                ORDER BY id ASC
-                                LIMIT :batch_size OFFSET :offset
-                            """)
-
-                        if limit and (offset + batch_size) > limit:
-                            query = text(str(query).replace(":batch_size", str(limit - offset)))
-
-                        batch_records = conn.execute(query, {"batch_size": batch_size, "offset": offset}).fetchall()
-
-                    if not batch_records:
-                        break
-
-                    # Process each record in the batch
-                    records_to_update = []
-
-                    for record in batch_records:
-                        try:
-                            record_id = record.id
-                            original_payload_text = record.payload_text
-
-                            # Check if payload contains problematic Unicode characters
-                            if not UnicodeSanitizer.is_safe_for_postgres_json(original_payload_text):
-                                # Sanitize the payload
-                                sanitized_payload_text = UnicodeSanitizer.sanitize_json_string(original_payload_text)
-
-                                # Verify the sanitized payload is valid JSON and safe
-                                try:
-                                    parsed_payload = json.loads(sanitized_payload_text)
-                                    if UnicodeSanitizer.is_safe_for_postgres_json(sanitized_payload_text):
-                                        records_to_update.append(
-                                            {
-                                                'id': record_id,
-                                                'original': original_payload_text,
-                                                'sanitized': sanitized_payload_text,
-                                                'parsed': parsed_payload,
-                                            }
-                                        )
-                                        result['records_updated'] += 1
-                                    else:
-                                        logger.warning(
-                                            f"Record {record_id}: Sanitized payload still not safe for PostgreSQL"
-                                        )
-                                        result['records_skipped'] += 1
-                                except json.JSONDecodeError as e:
-                                    logger.warning(f"Record {record_id}: Sanitized payload is not valid JSON: {e}")
-                                    result['records_skipped'] += 1
-                            else:
-                                result['records_skipped'] += 1
-
-                            result['records_processed'] += 1
-
-                        except Exception as e:
-                            logger.error(f"Error processing record {record.id}: {e}")
-                            result['errors'] += 1
-                            result['records_processed'] += 1
-
-                    # Update records in the database (unless dry run)
-                    if records_to_update and not dry_run:
-                        with self._get_engine().begin() as conn:
-                            for update_record in records_to_update:
-                                try:
-                                    if dialect_name == "postgresql":
-                                        # Update PostgreSQL JSONB column
-                                        # Use CAST() instead of :: to avoid parameter binding conflicts
-                                        update_query = text("""
-                                            UPDATE raw_events
-                                            SET payload = CAST(:sanitized_payload AS jsonb)
-                                            WHERE id = :record_id
-                                        """)
-                                    else:
-                                        # Update SQLite JSON column
-                                        update_query = text("""
-                                            UPDATE raw_events
-                                            SET payload = :sanitized_payload
-                                            WHERE id = :record_id
-                                        """)
-
-                                    conn.execute(
-                                        update_query,
-                                        {
-                                            "sanitized_payload": update_record['sanitized'],
-                                            "record_id": update_record['id'],
-                                        },
-                                    )
-
-                                except Exception as e:
-                                    logger.error(f"Error updating record {update_record['id']}: {e}")
-                                    result['errors'] += 1
-
-                    result['batches_processed'] += 1
-                    offset += batch_size
-
-                    # Log progress and emit status
-                    if result['batches_processed'] % 10 == 0:
-                        logger.info(
-                            f"Processed {result['records_processed']} records, "
-                            f"updated {result['records_updated']}, "
-                            f"skipped {result['records_skipped']}, "
-                            f"errors {result['errors']}"
-                        )
-
-                        # Emit progress via callback if provided
-                        if progress_callback:
-                            metrics = SanitizationMetrics(
-                                records_processed=result['records_processed'],
-                                records_updated=result['records_updated'],
-                                records_skipped=result['records_skipped'],
-                                errors=result['errors'],
-                                batches_processed=result['batches_processed'],
-                                dry_run=dry_run,
-                            )
-                            progress_callback(metrics)
-
-                    # Check if we've reached the limit
-                    if limit and result['records_processed'] >= limit:
-                        break
-
-            # Final result message
-            if dry_run:
-                result['message'] = (
-                    f"Dry run completed: {result['records_processed']} records analyzed, "
-                    f"{result['records_updated']} would be updated, "
-                    f"{result['records_skipped']} would be skipped, "
-                    f"{result['errors']} errors"
-                )
-            else:
-                result['message'] = (
-                    f"Sanitization completed: {result['records_processed']} records processed, "
-                    f"{result['records_updated']} updated, "
-                    f"{result['records_skipped']} skipped, "
-                    f"{result['errors']} errors"
-                )
+                # Check limit
+                if limit and result["records_processed"] >= limit:
+                    break
 
         except Exception as e:
-            result['error'] = str(e)
-            result['message'] = f"Sanitization failed: {e}"
-            raise Exception(f"Sanitization failed: {e}") from e
+            logger.error(f"Sanitization failed for {strategy.table_name}: {e}")
+            result["error"] = str(e)
+            raise
 
         return result
 
@@ -2571,18 +2969,21 @@ def main() -> None:
         'sanitize', help='Sanitize Unicode control characters in existing database records'
     )
     sanitize_parser.add_argument(
+        '--table',
+        choices=['raw_events', 'session_summaries', 'files'],
+        help='Specific table to sanitize (default: all tables)',
+    )
+    sanitize_parser.add_argument(
+        '--all', dest='all_tables', action='store_true', help='Explicitly sanitize all tables (for clarity)'
+    )
+    sanitize_parser.add_argument(
         '--batch-size', type=int, default=1000, help='Number of records to process in each batch (default: 1000)'
     )
     sanitize_parser.add_argument(
-        '--limit', type=int, help='Maximum number of records to process (default: all available records)'
+        '--limit', type=int, help='Maximum number of records to process per table (default: all available records)'
     )
     sanitize_parser.add_argument(
         '--dry-run', action='store_true', help='Show what would be changed without actually making changes'
-    )
-    sanitize_parser.add_argument(
-        '--no-optimized',
-        action='store_true',
-        help='Force legacy OFFSET-based pagination instead of cursor-based optimization (for testing)',
     )
     sanitize_parser.add_argument('--status-dir', help='Directory for status JSON files')
     sanitize_parser.add_argument('--ingest-id', help='Status identifier for progress tracking')
@@ -2790,7 +3191,15 @@ def main() -> None:
                 sys.exit(1)
 
         elif args.command == 'sanitize':
-            print("Sanitizing Unicode control characters in database records...")
+            # Determine scope message
+            if hasattr(args, 'table') and args.table:
+                scope_msg = f"Sanitizing {args.table} table..."
+            elif hasattr(args, 'all_tables') and args.all_tables:
+                scope_msg = "Sanitizing all tables..."
+            else:
+                scope_msg = "Sanitizing all tables (default)..."
+
+            print(scope_msg)
 
             # Set up status emitter for progress tracking
             ingest_id = args.ingest_id or f"sanitize-{int(time.time())}"
@@ -2804,30 +3213,44 @@ def main() -> None:
 
             # Run sanitization with progress callbacks
             result = db.sanitize_unicode_in_database(
+                table=getattr(args, 'table', None),
+                all_tables=getattr(args, 'all_tables', False),
                 batch_size=args.batch_size,
                 limit=args.limit,
                 dry_run=args.dry_run,
                 progress_callback=lambda m: emitter.record_metrics(m),
-                use_optimized=not args.no_optimized,  # Default True (optimized), unless --no-optimized flag
             )
 
-            # Update final metrics
-            metrics.records_processed = result['records_processed']
-            metrics.records_updated = result['records_updated']
-            metrics.records_skipped = result['records_skipped']
-            metrics.errors = result['errors']
-            metrics.batches_processed = result['batches_processed']
+            # Update final metrics (Phase 3: use total counts from multi-table results)
+            metrics.records_processed = result.get('total_records_processed', result.get('records_processed', 0))
+            metrics.records_updated = result.get('total_records_updated', result.get('records_updated', 0))
+            metrics.records_skipped = result.get('total_records_skipped', result.get('records_skipped', 0))
+            metrics.errors = result.get('total_errors', result.get('errors', 0))
+            metrics.batches_processed = result.get('batches_processed', 0)
             metrics.duration_seconds = time.perf_counter() - start_time
             emitter.record_metrics(metrics)
 
             print(f"✓ {result['message']}")
-            if result.get('records_processed', 0) > 0:
-                print(f"  Records processed: {result['records_processed']:,}")
-                print(f"  Records updated: {result['records_updated']:,}")
-                print(f"  Records skipped: {result['records_skipped']:,}")
-                print(f"  Batches processed: {result['batches_processed']:,}")
-                if result.get('errors', 0) > 0:
-                    print(f"  Errors: {result['errors']:,}")
+
+            # Display per-table results if multi-table sanitization
+            if 'tables' in result:
+                print(f"\n  Tables processed: {result['tables_processed']}")
+                for table_name, table_result in result['tables'].items():
+                    print(f"\n  {table_name}:")
+                    print(f"    Records processed: {table_result['records_processed']:,}")
+                    print(f"    Records updated: {table_result['records_updated']:,}")
+                    print(f"    Records skipped: {table_result['records_skipped']:,}")
+                    if table_result.get('errors', 0) > 0:
+                        print(f"    Errors: {table_result['errors']:,}")
+            else:
+                # Single table (legacy format for backward compatibility)
+                if result.get('records_processed', 0) > 0:
+                    print(f"  Records processed: {result['records_processed']:,}")
+                    print(f"  Records updated: {result['records_updated']:,}")
+                    print(f"  Records skipped: {result['records_skipped']:,}")
+                    print(f"  Batches processed: {result['batches_processed']:,}")
+                    if result.get('errors', 0) > 0:
+                        print(f"  Errors: {result['errors']:,}")
 
             if 'error' in result and result['error']:
                 print(f"❌ Sanitization failed: {result['error']}", file=sys.stderr)
