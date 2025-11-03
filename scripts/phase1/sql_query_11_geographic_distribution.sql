@@ -24,9 +24,9 @@
 \echo '======================================================================'
 
 SELECT
-    enrichment->'dshield'->>'country' as country,
+    enrichment->'dshield'->'ip'->>'ascountry' as country,
     COUNT(DISTINCT session_id) as session_count,
-    COUNT(DISTINCT enrichment->'dshield'->>'asn') as unique_asns,
+    COUNT(DISTINCT enrichment->'dshield'->'ip'->>'asn') as unique_asns,
     COUNT(DISTINCT DATE(first_event_at)) as days_active,
     MIN(first_event_at) as first_seen,
     MAX(first_event_at) as last_seen,
@@ -40,20 +40,20 @@ SELECT
         (SELECT COUNT(*) FROM session_summaries
          WHERE first_event_at >= '2024-11-01'
            AND first_event_at < '2025-11-01'
-           AND enrichment->'dshield'->>'country' IS NOT NULL),
+           AND enrichment->'dshield'->'ip'->>'ascountry' IS NOT NULL),
         2
     ) as country_percentage,
     -- Calculate ASN diversity (lower = more concentrated)
     ROUND(
-        COUNT(DISTINCT enrichment->'dshield'->>'asn')::numeric /
+        COUNT(DISTINCT enrichment->'dshield'->'ip'->>'asn')::numeric /
         NULLIF(COUNT(DISTINCT session_id), 0),
         3
     ) as asn_diversity_ratio
 FROM session_summaries
 WHERE first_event_at >= '2024-11-01'
   AND first_event_at < '2025-11-01'
-  AND enrichment->'dshield'->>'country' IS NOT NULL
-GROUP BY enrichment->'dshield'->>'country'
+  AND enrichment->'dshield'->'ip'->>'ascountry' IS NOT NULL
+GROUP BY enrichment->'dshield'->'ip'->>'ascountry'
 HAVING COUNT(DISTINCT session_id) >= 100  -- Min 100 sessions per country
 ORDER BY session_count DESC
 LIMIT 200;
