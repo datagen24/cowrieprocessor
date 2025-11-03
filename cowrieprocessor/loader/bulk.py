@@ -603,7 +603,7 @@ class BulkLoader:
                     "first_event_at": agg.first_event_at,
                     "last_event_at": agg.last_event_at,
                     "risk_score": agg.highest_risk,
-                    "source_files": sorted(agg.source_files) or None,
+                    "source_files": self._sanitize_source_files(agg.source_files),
                     "matcher": agg.sensor,
                     "vt_flagged": agg.vt_flagged,  # Keep as boolean, not int
                     "dshield_flagged": agg.dshield_flagged,  # Keep as boolean, not int
@@ -1075,18 +1075,38 @@ class BulkLoader:
             return True
 
     def _sanitize_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Sanitize a successfully parsed Cowrie event."""
+        """Sanitize a successfully parsed Cowrie event.
+
+        Recursively sanitizes all string values in the event payload, including
+        nested dictionaries and lists, to remove Unicode control characters
+        (especially null bytes) that cause PostgreSQL JSON errors.
+        """
         from ..utils.unicode_sanitizer import UnicodeSanitizer
 
-        # Sanitize string fields only, not the entire JSON structure
-        sanitized = {}
-        for key, value in payload.items():
-            if isinstance(value, str):
-                sanitized[key] = UnicodeSanitizer.sanitize_unicode_string(value)
-            else:
-                sanitized[key] = value
+        # Use recursive sanitization to handle nested JSON structures
+        # This ensures usernames, passwords, and other fields in nested objects
+        # are properly sanitized (fixes issue with \u0000 in login events)
+        sanitized = UnicodeSanitizer._sanitize_json_object(payload)
+        # Type assertion: _sanitize_json_object returns the same type as input
+        # when input is dict, it returns dict
+        return sanitized  # type: ignore[no-any-return]
 
-        return sanitized
+    def _sanitize_source_files(self, source_files: set[str]) -> list[str] | None:
+        """Sanitize source file paths to remove Unicode control characters.
+
+        Args:
+            source_files: Set of source file paths
+
+        Returns:
+            Sorted list of sanitized file paths, or None if empty
+        """
+        from ..utils.unicode_sanitizer import UnicodeSanitizer
+
+        if not source_files:
+            return None
+
+        sanitized = [UnicodeSanitizer.sanitize_unicode_string(path) for path in source_files]
+        return sorted(sanitized)
 
     def _resolve_opener(self, path: Path) -> Callable[[str], TextIO]:
         if path.suffix == ".gz":

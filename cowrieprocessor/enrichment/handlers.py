@@ -657,6 +657,27 @@ class EnrichmentService:
         self._active_sessions.append(session)
         return session
 
+    def _sanitize_enrichment(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize enrichment API response data to remove Unicode control characters.
+
+        This method recursively sanitizes all string values in enrichment data to remove
+        Unicode control characters (especially null bytes) that cause PostgreSQL JSON errors.
+
+        Args:
+            data: Enrichment data dictionary from API response
+
+        Returns:
+            Sanitized enrichment data dictionary
+
+        Note:
+            This is a critical security and data quality layer - all external API responses
+            must be sanitized before storage to prevent PostgreSQL Unicode errors when
+            querying session_summaries.enrichment fields.
+        """
+        from cowrieprocessor.utils.unicode_sanitizer import UnicodeSanitizer
+
+        return UnicodeSanitizer._sanitize_json_object(data)  # type: ignore[no-any-return]
+
     def cache_snapshot(self) -> Dict[str, int]:
         """Return current cache statistics for telemetry."""
         if isinstance(self.cache_manager, HybridEnrichmentCache):
@@ -683,21 +704,24 @@ class EnrichmentService:
             empty_value: Default value to return on error
 
         Returns:
-            Enrichment data from cache or API
+            Enrichment data from cache or API (sanitized)
         """
         # Try hybrid cache first (L1 Redis → L2 Database → L3 Filesystem)
         cached = self.cache_manager.get_cached(service, cache_key)
         if cached is not None:
             LOGGER.debug("Cache hit for %s/%s (hybrid cache)", service, cache_key)
-            return cached
+            # Sanitize cached data (may contain Unicode control chars from old cache entries)
+            return self._sanitize_enrichment(cached)
 
         # Cache miss - make API call
         try:
             result = api_call()
-            # Store in all cache tiers (L1/L2/L3)
-            self.cache_manager.store_cached(service, cache_key, result)
-            LOGGER.debug("API call and cache store for %s/%s", service, cache_key)
-            return result
+            # Sanitize API response before caching (prevents storing bad data)
+            sanitized_result = self._sanitize_enrichment(result)
+            # Store sanitized data in all cache tiers (L1/L2/L3)
+            self.cache_manager.store_cached(service, cache_key, sanitized_result)
+            LOGGER.debug("API call, sanitization, and cache store for %s/%s", service, cache_key)
+            return sanitized_result
         except Exception as e:
             LOGGER.warning("%s enrichment API call failed for %s: %s", service.upper(), cache_key, e)
             return empty_value

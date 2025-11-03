@@ -18,6 +18,8 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
     Returns:
         Dictionary with file data ready for Files table insertion, or None if invalid
     """
+    from ..utils.unicode_sanitizer import UnicodeSanitizer
+
     if event_payload.get("eventid") != "cowrie.session.file_download":
         return None
 
@@ -30,11 +32,11 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
     if len(shasum) != 64 or not all(c in "0123456789abcdefABCDEF" for c in shasum):
         return None
 
-    # Extract filename with basic validation
+    # Extract filename with Unicode sanitization
     filename = event_payload.get("filename")
     if filename and isinstance(filename, str):
-        # Basic filename sanitization - remove null bytes and limit length
-        filename = filename.replace("\x00", "").strip()
+        # Sanitize Unicode control characters (including null bytes)
+        filename = UnicodeSanitizer.sanitize_unicode_string(filename).strip()
         if len(filename) > 512:  # Match Files table column length
             filename = filename[:512]
     else:
@@ -50,11 +52,11 @@ def extract_file_data(event_payload: Dict[str, Any], session_id: str) -> Optiona
         except (ValueError, TypeError):
             file_size = None
 
-    # Extract download URL with validation
+    # Extract download URL with Unicode sanitization
     download_url = event_payload.get("url")
     if download_url and isinstance(download_url, str):
-        # Basic URL sanitization - remove null bytes and limit length
-        download_url = download_url.replace("\x00", "").strip()
+        # Sanitize Unicode control characters (including null bytes)
+        download_url = UnicodeSanitizer.sanitize_unicode_string(download_url).strip()
         if len(download_url) > 1024:  # Match Files table column length
             download_url = download_url[:1024]
     else:
