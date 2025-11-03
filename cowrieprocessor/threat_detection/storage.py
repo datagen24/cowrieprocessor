@@ -455,7 +455,9 @@ def store_longtail_analysis(
 
             # Store vectors if analyzer and sessions provided
             logger.info(
-                f"Checking vector storage conditions: analyzer={analyzer is not None}, sessions={sessions is not None if sessions else False}, vector_analysis_enabled={result.vector_analysis_enabled}"
+                f"Checking vector storage conditions: analyzer={analyzer is not None}, "
+                f"sessions={sessions is not None if sessions else False}, "
+                f"vector_analysis_enabled={result.vector_analysis_enabled}"
             )
             if analyzer and sessions and result.vector_analysis_enabled:
                 try:

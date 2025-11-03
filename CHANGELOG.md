@@ -4,6 +4,24 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+- **Unicode Sanitization Bug** (November 2, 2025):
+  - **Critical fix**: `is_safe_for_postgres_json()` now detects JSON Unicode escape sequences (`\u0000`, `\u0001`, etc.)
+  - **Root cause**: PostgreSQL `payload::text` casts return escape sequences as literal strings, not actual bytes
+  - **Impact**: Previously skipped 1.43M records that contained problematic Unicode in JSONB fields
+  - **Detection added**: Dual-pattern checking for both actual control bytes (`\x00`) and JSON escapes (`\u0000`)
+  - **Regex pattern**: `\\u00(?:0[0-8bcef]|1[0-9a-fA-F])|\\u007[fF]` (matches control chars except safe whitespace)
+  - **SQL syntax fix**: Changed `::jsonb` to `CAST(:param AS jsonb)` to avoid parameter binding conflicts
+  - **Files changed**:
+    - `cowrieprocessor/utils/unicode_sanitizer.py:213-278` (added escape sequence detection)
+    - `cowrieprocessor/cli/cowrie_db.py:1018-1025` (fixed SQL UPDATE syntax)
+    - `tests/unit/test_unicode_sanitizer.py:171-215` (added 2 new test methods, 22 total tests passing)
+    - `scripts/debug/verify_sanitization_fix.py` (verification script)
+    - `scripts/debug/test_sanitize_update_syntax.py` (SQL syntax test)
+    - `claudedocs/sanitization_bug_fix.md` (comprehensive documentation)
+  - **Verification**: All tests pass, verification script confirms fix works correctly
+  - **Action required**: Re-run `cowrie-db sanitize` to properly clean affected records
+
 ### Added - Test Coverage Improvements (Week 4, October 2025)
 - **Week 4 Days 16-20 COMPLETE** (October 25): CLI, database management, and small-module testing achieving 55% → 58% total coverage (+3%, +310 statements)
   - **Tests created**: 98 new tests (100% passing rate, zero technical debt)
@@ -306,6 +324,30 @@ Major release with comprehensive threat detection, SSH key intelligence, passwor
 - **Status Display** (PR #8):
   - Fixed misleading file count in status when using `--days` parameter
   - Accurate progress reporting
+
+- **Unicode Sanitization Detection** (PR #109):
+  - Fixed false negatives in `is_safe_for_postgres_json()` that skipped all problematic records
+  - Now detects both actual control character bytes (`\x00`-`\x1f`, `\x7f`) AND JSON Unicode escape sequences (`\u0000`-`\u001f`, `\u007f`)
+  - Root cause: PostgreSQL `payload::text` returns escape sequences as literal strings (e.g., `\u0000` as 6 characters, not byte `\x00`)
+  - Added comprehensive test coverage for escape sequence detection patterns
+  - Fixed SQL syntax error: replaced `::jsonb` with `CAST(:param AS jsonb)` to avoid conflict with SQLAlchemy parameter binding
+  - Files: `cowrieprocessor/utils/unicode_sanitizer.py`, `tests/unit/test_unicode_sanitizer.py`
+
+- **Unicode Sanitization Performance** (PR #112):
+  - **Production Results**: 20+ hours (estimated) → 4 min 15 sec (actual) = **~280x speedup**
+  - Pre-filter query: 42.3 seconds to identify 1,267 problematic records in 12.4M database (0.01%)
+  - Zero errors, 100% success rate on production database
+  - Replaced OFFSET pagination (O(n) complexity) with cursor-based pagination (O(1) complexity)
+  - Added pre-filtering with WHERE clause to only fetch problematic records
+  - Implemented batch UPDATEs using CASE statement (1 UPDATE per batch instead of per-record)
+  - Added batch UPDATE retry logic with individual fallback for error recovery
+  - Parameterized IDs in CASE statements for SQL injection prevention (defense-in-depth)
+  - Default behavior: Auto-enable optimized mode for PostgreSQL, fallback to legacy for SQLite
+  - New CLI flag: `--no-optimized` to force legacy OFFSET-based method if needed
+  - Reduced records scanned per batch from 12.4M → ~1K (12,400x reduction)
+  - Comprehensive test coverage: 16 integration tests covering all code paths
+  - Files: `cowrieprocessor/cli/cowrie_db.py` (`sanitize_unicode_in_database()` method)
+  - Documentation: ADR-006 documents pattern for all future database utilities
 
 - **Report Generation** (PRs #9, #10, #15):
   - Added progress tracking and timeout handling

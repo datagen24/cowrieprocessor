@@ -9,7 +9,7 @@ Cowrie Processor is a Python-based framework for processing and analyzing Cowrie
 ## Development Environment
 
 ### Python Environment Setup
-- **Target Python version**: 3.13 (minimum: 3.9)
+- **Target Python version**: 3.13 (minimum: 3.13)
 - **Package manager**: `uv` (MANDATORY - do not use pip directly)
 - **Environment setup**: `uv sync` (installs all dependencies including dev tools)
 - **Running commands**: Always use `uv run <command>` (e.g., `uv run python process_cowrie.py`)

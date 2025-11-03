@@ -13,10 +13,25 @@ from cowrieprocessor.status_emitter import StatusEmitter
 class EnrichmentMetrics:
     """Metrics for enrichment operations."""
 
-    # Cache statistics
+    # Cache statistics (overall)
     cache_hits: int = 0
     cache_misses: int = 0
     cache_stores: int = 0
+
+    # Cache tier statistics (L1 Redis, L2 Filesystem, L3 API)
+    l1_redis_hits: int = 0
+    l1_redis_misses: int = 0
+    l1_redis_stores: int = 0
+    l1_redis_errors: int = 0
+    l1_redis_latency_ms: float = 0.0
+
+    l2_filesystem_hits: int = 0
+    l2_filesystem_misses: int = 0
+    l2_filesystem_stores: int = 0
+    l2_filesystem_errors: int = 0
+    l2_filesystem_latency_ms: float = 0.0
+
+    l3_api_calls: int = 0
 
     # API call statistics
     api_calls_total: int = 0
@@ -61,11 +76,42 @@ class EnrichmentTelemetry:
         self.metrics = EnrichmentMetrics()
         self._start_time = time.time()
 
-    def record_cache_stats(self, cache_stats: Dict[str, int]) -> None:
-        """Record cache statistics."""
-        self.metrics.cache_hits = cache_stats.get("hits", 0)
-        self.metrics.cache_misses = cache_stats.get("misses", 0)
-        self.metrics.cache_stores = cache_stats.get("stores", 0)
+    def record_cache_stats(self, cache_stats: Dict[str, Any]) -> None:
+        """Record cache statistics.
+
+        Supports both legacy format (hits/misses/stores) and new hybrid cache format
+        with tier-specific statistics (L1 Redis, L2 Filesystem, L3 API).
+        """
+        # Check if this is hybrid cache stats (with tier breakdown)
+        if "l1_redis" in cache_stats and "l2_filesystem" in cache_stats:
+            # New hybrid cache format
+            l1_stats = cache_stats.get("l1_redis", {})
+            l2_stats = cache_stats.get("l2_filesystem", {})
+
+            self.metrics.l1_redis_hits = l1_stats.get("hits", 0)
+            self.metrics.l1_redis_misses = l1_stats.get("misses", 0)
+            self.metrics.l1_redis_stores = l1_stats.get("stores", 0)
+            self.metrics.l1_redis_errors = l1_stats.get("errors", 0)
+            self.metrics.l1_redis_latency_ms = l1_stats.get("avg_latency_ms", 0.0)
+
+            self.metrics.l2_filesystem_hits = l2_stats.get("hits", 0)
+            self.metrics.l2_filesystem_misses = l2_stats.get("misses", 0)
+            self.metrics.l2_filesystem_stores = l2_stats.get("stores", 0)
+            self.metrics.l2_filesystem_errors = l2_stats.get("errors", 0)
+            self.metrics.l2_filesystem_latency_ms = l2_stats.get("avg_latency_ms", 0.0)
+
+            self.metrics.l3_api_calls = cache_stats.get("l3_api_calls", 0)
+
+            # Update overall cache stats for backward compatibility
+            self.metrics.cache_hits = cache_stats.get("total_cache_hits", 0)
+            self.metrics.cache_misses = cache_stats.get("total_cache_misses", 0)
+            self.metrics.cache_stores = self.metrics.l1_redis_stores + self.metrics.l2_filesystem_stores
+        else:
+            # Legacy filesystem-only cache format
+            self.metrics.cache_hits = cache_stats.get("hits", 0)
+            self.metrics.cache_misses = cache_stats.get("misses", 0)
+            self.metrics.cache_stores = cache_stats.get("stores", 0)
+
         self._emit_metrics()
 
     def record_api_call(self, service: str, success: bool, duration_ms: float = 0.0) -> None:
@@ -151,7 +197,7 @@ class EnrichmentTelemetry:
 
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of current metrics."""
-        return {
+        summary: Dict[str, Any] = {
             "cache_stats": {
                 "hits": self.metrics.cache_hits,
                 "misses": self.metrics.cache_misses,
@@ -191,3 +237,33 @@ class EnrichmentTelemetry:
                 "ingest_id": self.metrics.ingest_id,
             },
         }
+
+        # Add cache tier breakdown if hybrid cache is being used
+        if self.metrics.l1_redis_hits > 0 or self.metrics.l1_redis_misses > 0:
+            l1_total = self.metrics.l1_redis_hits + self.metrics.l1_redis_misses
+            l1_hit_rate = (self.metrics.l1_redis_hits / l1_total * 100.0) if l1_total > 0 else 0.0
+
+            l2_total = self.metrics.l2_filesystem_hits + self.metrics.l2_filesystem_misses
+            l2_hit_rate = (self.metrics.l2_filesystem_hits / l2_total * 100.0) if l2_total > 0 else 0.0
+
+            summary["cache_tier_stats"] = {
+                "l1_redis": {
+                    "hits": self.metrics.l1_redis_hits,
+                    "misses": self.metrics.l1_redis_misses,
+                    "stores": self.metrics.l1_redis_stores,
+                    "errors": self.metrics.l1_redis_errors,
+                    "hit_rate_percent": l1_hit_rate,
+                    "avg_latency_ms": self.metrics.l1_redis_latency_ms,
+                },
+                "l2_filesystem": {
+                    "hits": self.metrics.l2_filesystem_hits,
+                    "misses": self.metrics.l2_filesystem_misses,
+                    "stores": self.metrics.l2_filesystem_stores,
+                    "errors": self.metrics.l2_filesystem_errors,
+                    "hit_rate_percent": l2_hit_rate,
+                    "avg_latency_ms": self.metrics.l2_filesystem_latency_ms,
+                },
+                "l3_api_calls": self.metrics.l3_api_calls,
+            }
+
+        return summary

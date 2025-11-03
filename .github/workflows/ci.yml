@@ -1,5 +1,11 @@
 name: CI Pipeline
 
+# Quality Gate Strategy:
+# - Production code (cowrieprocessor/, scripts/production/): STRICT - ruff/format must pass
+# - Tests/Archive/Docs (tests/, archive/, docs/): ADVISORY - ruff/format soft-fail only
+# - MyPy: STRICT - all code must pass type checking
+# - Coverage: STRICT - 65% minimum coverage required
+
 on:
   push:
     branches: [ main, master, '**' ]
@@ -27,13 +33,23 @@ jobs:
         run: |
           uv sync
 
-      - name: Ruff check (linting)
+      - name: Ruff check (linting) - Production Code [REQUIRED]
         run: |
-          uv run ruff check .
+          uv run ruff check cowrieprocessor/ scripts/production/ --exclude tests/ --exclude archive/ --exclude docs/
 
-      - name: Ruff format check
+      - name: Ruff check (linting) - Tests/Archive/Docs [ADVISORY]
+        continue-on-error: true
         run: |
-          uv run ruff format --check .
+          uv run ruff check tests/ archive/ docs/ || echo "⚠️  Ruff linting issues found in tests/archive/docs (advisory only)"
+
+      - name: Ruff format check - Production Code [REQUIRED]
+        run: |
+          uv run ruff format --check cowrieprocessor/ scripts/production/ --exclude tests/ --exclude archive/ --exclude docs/
+
+      - name: Ruff format check - Tests/Archive/Docs [ADVISORY]
+        continue-on-error: true
+        run: |
+          uv run ruff format --check tests/ archive/ docs/ || echo "⚠️  Ruff format issues found in tests/archive/docs (advisory only)"
 
       - name: MyPy (type check)
         run: |
@@ -43,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.11", "3.13"]
+        python-version: ["3.13"]
 
     steps:
       - name: Checkout

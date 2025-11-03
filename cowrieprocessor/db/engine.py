@@ -119,9 +119,14 @@ def create_engine_from_settings(settings: DatabaseSettings) -> Engine:
             engine_kwargs.pop("pool_timeout", None)
         engine = create_engine(url, connect_args=connect_args, **engine_kwargs)
         event.listen(engine, "connect", _sqlite_on_connect(settings))
-        return engine
+    else:
+        engine = create_engine(url, connect_args=connect_args, **engine_kwargs)
 
-    engine = create_engine(url, connect_args=connect_args, **engine_kwargs)
+    # Phase 2: Configure ORM sanitization listeners based on feature flag
+    from .sanitization_listeners import set_listeners_enabled
+
+    set_listeners_enabled(settings.enable_orm_sanitization)
+
     return engine
 
 

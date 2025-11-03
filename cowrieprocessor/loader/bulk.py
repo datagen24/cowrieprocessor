@@ -518,14 +518,14 @@ class BulkLoader:
                 index_elements=["source", "source_inode", "source_generation", "source_offset"]
             )
             result = session.execute(stmt)
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table).values(records)
             pg_stmt = pg_stmt.on_conflict_do_nothing(
                 index_elements=["source", "source_inode", "source_generation", "source_offset"]
             )
             result = session.execute(pg_stmt)
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
         inserted = 0
         for record in records:
@@ -548,12 +548,12 @@ class BulkLoader:
             stmt = sqlite_dialect.insert(table)
             stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(stmt, [self._files_to_dict(f) for f in files])
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table)
             pg_stmt = pg_stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(pg_stmt, [self._files_to_dict(f) for f in files])
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
         inserted = 0
         for file_record in files:
@@ -603,7 +603,7 @@ class BulkLoader:
                     "first_event_at": agg.first_event_at,
                     "last_event_at": agg.last_event_at,
                     "risk_score": agg.highest_risk,
-                    "source_files": sorted(agg.source_files) or None,
+                    "source_files": self._sanitize_source_files(agg.source_files),
                     "matcher": agg.sensor,
                     "vt_flagged": agg.vt_flagged,  # Keep as boolean, not int
                     "dshield_flagged": agg.dshield_flagged,  # Keep as boolean, not int
@@ -792,7 +792,8 @@ class BulkLoader:
         # If JSON processing modes are explicitly enabled, process anyway
         if not should_process and (self.config.multiline_json or self.config.hybrid_json):
             logger.info(
-                f"Forcing JSON processing for {path} due to explicit configuration (type: {file_type}, reason: {reason})"
+                f"Forcing JSON processing for {path} due to explicit configuration "
+                f"(type: {file_type}, reason: {reason})"
             )
             should_process = True
             file_type = 'json'
@@ -1074,18 +1075,38 @@ class BulkLoader:
             return True
 
     def _sanitize_event(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Sanitize a successfully parsed Cowrie event."""
+        """Sanitize a successfully parsed Cowrie event.
+
+        Recursively sanitizes all string values in the event payload, including
+        nested dictionaries and lists, to remove Unicode control characters
+        (especially null bytes) that cause PostgreSQL JSON errors.
+        """
         from ..utils.unicode_sanitizer import UnicodeSanitizer
 
-        # Sanitize string fields only, not the entire JSON structure
-        sanitized = {}
-        for key, value in payload.items():
-            if isinstance(value, str):
-                sanitized[key] = UnicodeSanitizer.sanitize_unicode_string(value)
-            else:
-                sanitized[key] = value
+        # Use recursive sanitization to handle nested JSON structures
+        # This ensures usernames, passwords, and other fields in nested objects
+        # are properly sanitized (fixes issue with \u0000 in login events)
+        sanitized = UnicodeSanitizer._sanitize_json_object(payload)
+        # Type assertion: _sanitize_json_object returns the same type as input
+        # when input is dict, it returns dict
+        return sanitized  # type: ignore[no-any-return]
 
-        return sanitized
+    def _sanitize_source_files(self, source_files: set[str]) -> list[str] | None:
+        """Sanitize source file paths to remove Unicode control characters.
+
+        Args:
+            source_files: Set of source file paths
+
+        Returns:
+            Sorted list of sanitized file paths, or None if empty
+        """
+        from ..utils.unicode_sanitizer import UnicodeSanitizer
+
+        if not source_files:
+            return None
+
+        sanitized = [UnicodeSanitizer.sanitize_unicode_string(path) for path in source_files]
+        return sorted(sanitized)
 
     def _resolve_opener(self, path: Path) -> Callable[[str], TextIO]:
         if path.suffix == ".gz":

@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +211,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v14(connection)
             _set_schema_version(connection, 14)
             version = 14
+
+        if version < 15:
+            _upgrade_to_v15(connection)
+            _set_schema_version(connection, 15)
+            version = 15
 
     return version
 
@@ -1887,6 +1892,99 @@ def _upgrade_to_v14(connection: Connection) -> None:
         logger.info("analysis_id column already exists in behavioral_vectors")
 
     logger.info("Vector table analysis_id migration (v14) completed successfully")
+
+
+def _upgrade_to_v15(connection: Connection) -> None:
+    """Upgrade to schema version 15: Add enrichment_cache table for database L2 cache.
+
+    This migration implements the database-backed L2 cache tier for the hybrid caching
+    architecture: Redis L1 → Database L2 → Filesystem L3 fallback.
+
+    The enrichment_cache table stores API responses from security services (VirusTotal,
+    DShield, URLHaus, SPUR, HIBP) with configurable TTLs and automatic expiration.
+    """
+    logger.info("Starting enrichment_cache schema migration (v15)...")
+
+    dialect_name = connection.dialect.name
+
+    # Create enrichment_cache table if it doesn't exist
+    if not _table_exists(connection, 'enrichment_cache'):
+        if dialect_name == 'postgresql':
+            # PostgreSQL syntax with JSONB for better performance
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE enrichment_cache (
+                    id SERIAL PRIMARY KEY,
+                    service VARCHAR(64) NOT NULL,
+                    cache_key VARCHAR(256) NOT NULL,
+                    cache_value JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    CONSTRAINT uq_enrichment_cache_service_key UNIQUE (service, cache_key)
+                )
+                """,
+                "Create enrichment_cache table (PostgreSQL)",
+            ):
+                raise Exception("Failed to create enrichment_cache table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_service_key ON enrichment_cache(service, cache_key)",
+                "Create composite index on enrichment_cache(service, cache_key)",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_expires_at ON enrichment_cache(expires_at)",
+                "Create index on enrichment_cache.expires_at",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_created_at ON enrichment_cache(created_at)",
+                "Create index on enrichment_cache.created_at",
+            )
+        else:
+            # SQLite syntax with JSON
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE enrichment_cache (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    service VARCHAR(64) NOT NULL,
+                    cache_key VARCHAR(256) NOT NULL,
+                    cache_value TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_enrichment_cache_service_key UNIQUE (service, cache_key)
+                )
+                """,
+                "Create enrichment_cache table (SQLite)",
+            ):
+                raise Exception("Failed to create enrichment_cache table")
+
+            # Create indexes
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_service_key ON enrichment_cache(service, cache_key)",
+                "Create composite index on enrichment_cache(service, cache_key)",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_expires_at ON enrichment_cache(expires_at)",
+                "Create index on enrichment_cache.expires_at",
+            )
+            _safe_execute_sql(
+                connection,
+                "CREATE INDEX ix_enrichment_cache_created_at ON enrichment_cache(created_at)",
+                "Create index on enrichment_cache.created_at",
+            )
+
+        logger.info("enrichment_cache table created successfully")
+    else:
+        logger.info("enrichment_cache table already exists, skipping creation")
+
+    logger.info("Enrichment cache schema migration (v15) completed successfully")
 
 
 def _downgrade_from_v9(connection: Connection) -> None:

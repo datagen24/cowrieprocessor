@@ -1,0 +1,3 @@
+"key_fingerprint","key_type","key_bits","pattern_type","first_seen","last_seen","campaign_duration","total_attempts","unique_ips","unique_sessions","session_efficiency_ratio","avg_time_between_attempts"
+"MkYY9qiVsFGBC5WkjoClCkwEFW5iSjcGQF7m4n4H7Cw","ssh-rsa",2048,"direct","2024-12-29 18:57:28.365683+00","2025-10-12 23:22:02.2599+00","287 days 04:24:33.894217",285249,9948,161001,"0.5644226623055646","86.9860153557663655"
+"78gkKoLYeUW62etRipAiAw2jImcwCMnvC5BO9+3mOtY","ssh-rsa",2048,"direct","2024-12-28 17:03:07.53903+00","2025-09-18 19:56:33.399971+00","264 days 02:53:25.860941",60,3,28,"0.4666666666666667","380333.431015683333"

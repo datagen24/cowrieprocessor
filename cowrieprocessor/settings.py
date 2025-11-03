@@ -44,6 +44,7 @@ class DatabaseSettings:
     sqlite_cache_size: int = -64000
     sqlite_synchronous: str = "NORMAL"
     sqlite_journal_fallback: str = "DELETE"
+    enable_orm_sanitization: bool = True  # Phase 2: ORM-level Unicode sanitization
 
     @classmethod
     def from_sources(
@@ -67,6 +68,7 @@ class DatabaseSettings:
             "sqlite_cache_size": -64000,
             "sqlite_synchronous": "NORMAL",
             "sqlite_journal_fallback": "DELETE",
+            "enable_orm_sanitization": True,
         }
 
         # Track which keys were explicitly provided in config
@@ -117,6 +119,11 @@ class DatabaseSettings:
             journal_fallback_override = env.get(f"{prefix}DB_SQLITE_JOURNAL_FALLBACK")
             if journal_fallback_override:
                 cfg["sqlite_journal_fallback"] = journal_fallback_override.strip().upper()
+
+        if "enable_orm_sanitization" not in config_keys:
+            cfg["enable_orm_sanitization"] = _coerce_bool(
+                env.get(f"{prefix}ENABLE_ORM_SANITIZATION"), bool(cfg["enable_orm_sanitization"])
+            )
 
         return cls(**cfg)
 

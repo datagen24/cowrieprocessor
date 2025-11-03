@@ -850,10 +850,13 @@ def get_session_query(engine: Engine) -> str:
             SELECT ss.session_id,
                    '192.168.1.1' AS src_ip
             FROM session_summaries ss
-            WHERE (ss.enrichment IS NULL 
+            WHERE (ss.enrichment IS NULL
                    OR ss.enrichment::text = 'null'
                    OR ss.enrichment::text = '{}'
-                   OR ss.enrichment::text = '')
+                   OR ss.enrichment::text = ''
+                   OR ss.enrichment->'dshield' IS NULL
+                   OR ss.enrichment->'spur' IS NULL
+                   OR ss.enrichment->'urlhaus' IS NULL)
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
     else:
@@ -865,10 +868,13 @@ def get_session_query(engine: Engine) -> str:
             WHERE json_extract(re.payload, '$.src_ip') IS NOT NULL
               AND json_extract(re.payload, '$.src_ip') != ''
               AND length(json_extract(re.payload, '$.src_ip')) > 0
-              AND (ss.enrichment IS NULL 
+              AND (ss.enrichment IS NULL
                    OR ss.enrichment = 'null'
                    OR ss.enrichment = '{}'
-                   OR ss.enrichment = '')
+                   OR ss.enrichment = ''
+                   OR json_extract(ss.enrichment, '$.dshield') IS NULL
+                   OR json_extract(ss.enrichment, '$.spur') IS NULL
+                   OR json_extract(ss.enrichment, '$.urlhaus') IS NULL)
             GROUP BY ss.session_id
             ORDER BY ss.last_event_at ASC, ss.session_id ASC
         """
@@ -1275,6 +1281,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             urlhaus_api=resolved_credentials.get("urlhaus_api"),
             spur_api=resolved_credentials.get("spur_api"),
             cache_manager=cache_manager,
+            engine=engine,  # Pass engine for database L2 cache
             enable_telemetry=False,  # Disable telemetry to avoid status directory issues
         )
 

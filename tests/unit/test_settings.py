@@ -1,9 +1,10 @@
 """Unit tests for settings module - comprehensive coverage of all settings classes."""
 
 from __future__ import annotations
-import pytest
 
 from pathlib import Path
+
+import pytest
 
 from cowrieprocessor.settings import (
     DatabaseSettings,
@@ -150,7 +151,9 @@ class TestDatabaseSettings:
         assert settings.pool_size == 15
         assert settings.sqlite_cache_size == -16000
 
-    def test_database_settings_from_sources_env_path_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_database_settings_from_sources_env_path_override(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Test DatabaseSettings.from_sources with DB_PATH environment variable."""
         db_path = tmp_path / "custom.sqlite"
         monkeypatch.delenv("COWRIEPROC_DB_URL", raising=False)
