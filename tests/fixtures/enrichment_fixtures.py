@@ -205,6 +205,24 @@ SPUR_RESPONSES = {
         "location": {"city": "Stockholm", "state": "", "country": "SE"},
         "tunnels": [{"anonymous": "YES", "entries": "10", "operator": "Mullvad", "type": "OPENVPN"}],
     },
+    "tor_exit": {
+        "asn": {"number": 62370, "organization": "Tor Network"},
+        "organization": "Tor Exit Node",
+        "infrastructure": "HOSTING",
+        "client": {
+            "behaviors": ["TOR"],
+            "proxies": "TOR",
+            "types": ["PROXY"],
+            "count": 100,
+            "concentration": "HIGH",
+            "countries": ["DE", "NL", "US", "FR"],
+            "spread": "GLOBAL",
+        },
+        "risks": ["ANONYMOUS"],
+        "services": ["SSH", "HTTP", "HTTPS"],
+        "location": {"city": "Frankfurt", "state": "Hesse", "country": "DE"},
+        "tunnels": [{"anonymous": "YES", "entries": "1000", "operator": "Tor Project", "type": "TOR"}],
+    },
 }
 
 # Mock OTX API responses

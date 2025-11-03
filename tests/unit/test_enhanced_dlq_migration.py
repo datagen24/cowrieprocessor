@@ -214,7 +214,7 @@ class TestEnhancedDLQMigration:
         mock_connection.dialect.name = 'postgresql'
         mock_connection.execute.side_effect = Exception("SQL execution failed")
 
-        with patch('builtins.print') as mock_print, pytest.raises(Exception, match="SQL execution failed"):
+        with patch('builtins.print'), pytest.raises(Exception, match="SQL execution failed"):
             upgrade_to_enhanced_dlq(mock_connection)
 
     def test_downgrade_handles_execution_errors_gracefully(self) -> None:
@@ -224,7 +224,7 @@ class TestEnhancedDLQMigration:
         mock_connection.dialect.name = 'postgresql'
         mock_connection.execute.side_effect = Exception("SQL execution failed")
 
-        with patch('builtins.print') as mock_print, pytest.raises(Exception, match="SQL execution failed"):
+        with patch('builtins.print'), pytest.raises(Exception, match="SQL execution failed"):
             downgrade_from_enhanced_dlq(mock_connection)
 
     def test_upgrade_creates_processing_metrics_table_with_correct_columns(self) -> None:

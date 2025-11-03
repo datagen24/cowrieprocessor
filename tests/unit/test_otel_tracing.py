@@ -1,6 +1,7 @@
 """Tests for optional OpenTelemetry integration helpers."""
 
 from __future__ import annotations
+
 import pytest
 
 from cowrieprocessor.telemetry import otel

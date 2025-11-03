@@ -4,7 +4,6 @@
 import argparse
 import time
 from datetime import datetime, timezone
-from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine

@@ -1,10 +1,10 @@
 """Tests for the status emitter."""
 
 from __future__ import annotations
-from pathlib import Path
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 from cowrieprocessor.loader.bulk import BulkLoaderMetrics, LoaderCheckpoint
 from cowrieprocessor.status_emitter import StatusEmitter

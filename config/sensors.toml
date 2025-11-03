@@ -7,14 +7,35 @@ db = "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cow
 
 report_dir = "/mnt/dshield/reports"
 
-# Longtail analysis configuration
-memory_limit_gb = 16.0  # Memory limit for longtail analysis (GB)
-memory_warning_threshold = 0.75  # Warning threshold as fraction of limit (0.75 = 75%)
+# Performance tuning configuration
+[global.performance]
+# Memory limit for processing operations (in GB)
+# Used for auto-calculating batch sizes in ORM loaders and analysis tasks
+memory_limit_gb = 16.0
+
+# Memory warning threshold (fraction of limit, 0.75 = 75%)
+# Triggers warnings when memory usage exceeds this threshold
+memory_warning_threshold = 0.75
+
+# Batch size for ORM bulk/delta loading (optional)
+# If omitted, auto-calculated based on memory_limit_gb using formula:
+#   batch_size = (memory_limit_gb * 0.8 * 1024 * 1024) / memory_per_session_kb
+#   where memory_per_session_kb defaults to 50 KB
+# Enforces bounds: min=100, max=10000
+# batch_size = 1000  # Explicit override (uncomment to set manually)
+
+[global.cache]
+redis_enabled = true
+redis_host = "localhost"
+redis_port = 32768
+redis_db = 0
+redis_ttl_seconds = 36000  # 1 hour TTL for hot cache
+db_cache_enabled = true
 
 [[sensor]]
 name = "aws-eastus-dshield"
 logpath = "/mnt/dshield/aws-eastus-dshield/NSM/cowrie"
-summarizedays = 360
+summarizedays = 390
 email = "steve@scpeterson.com"
 vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
 urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
@@ -23,5 +44,8 @@ urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
 [[sensor]]
 name = "inter-nj01-dshield"
 logpath = "/mnt/dshield/inter-nj01-dshield/NSM/cowrie"
-summarizedays = 90
+summarizedays = 190
+email = "steve@scpeterson.com"
+vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
+urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
 

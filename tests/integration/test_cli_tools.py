@@ -35,13 +35,13 @@ class TestCowrieDatabaseCLI:
 
             # Test migration
             result = db.migrate()
-            assert result['final_version'] == 6  # Current schema version
+            assert result['final_version'] == 15  # Current schema version (updated for Phase 2 database cache)
             assert 'Successfully migrated' in result['message']
 
             # Test schema validation
             validation = db.validate_schema()
             assert validation['is_valid'] is True
-            assert validation['schema_version'] == 6
+            assert validation['schema_version'] == 15
             assert validation['database_size_mb'] >= 0  # Can be 0 for very small databases
 
             # Test integrity check
@@ -216,7 +216,7 @@ class TestCLIIntegration:
 
             # 1. Migrate database
             migrate_result = db.migrate()
-            assert migrate_result['final_version'] == 6
+            assert migrate_result['final_version'] == 15  # Current schema version (updated for Phase 2 database cache)
 
             # 2. Validate schema
             validation = db.validate_schema()

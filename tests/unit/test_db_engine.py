@@ -238,7 +238,7 @@ class TestCreateEngineFromSettings:
         settings = DatabaseSettings(url="sqlite:///:memory:")
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+            with patch('cowrieprocessor.db.engine.event.listen'):
                 mock_engine = Mock()
                 mock_create_engine.return_value = mock_engine
 
@@ -255,7 +255,7 @@ class TestCreateEngineFromSettings:
         settings = DatabaseSettings(url="sqlite:///test.db", pool_size=10, pool_timeout=30, echo=True)
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+            with patch('cowrieprocessor.db.engine.event.listen'):
                 mock_engine = Mock()
                 mock_create_engine.return_value = mock_engine
 
@@ -275,7 +275,7 @@ class TestCreateEngineFromSettings:
         settings = DatabaseSettings(url="sqlite:///test.db")
 
         with patch('cowrieprocessor.db.engine.create_engine') as mock_create_engine:
-            with patch('cowrieprocessor.db.engine.event.listen') as mock_event_listen:
+            with patch('cowrieprocessor.db.engine.event.listen'):
                 mock_engine = Mock()
                 mock_create_engine.return_value = mock_engine
 
@@ -357,7 +357,7 @@ class TestDatabaseFeatureDetection:
         mock_engine.connect.return_value = mock_connection_context
         mock_connection.dialect.name = "sqlite"
 
-        with patch('cowrieprocessor.db.engine.text') as mock_text:
+        with patch('cowrieprocessor.db.engine.text'):
             mock_result = Mock()
             mock_result.scalar.return_value = "3.39.0"
             mock_connection.execute.return_value = mock_result
@@ -380,7 +380,7 @@ class TestDatabaseFeatureDetection:
         mock_engine.connect.return_value = mock_connection_context
         mock_connection.dialect.name = "postgresql"
 
-        with patch('cowrieprocessor.db.engine.text') as mock_text:
+        with patch('cowrieprocessor.db.engine.text'):
             mock_version_result = Mock()
             mock_version_result.scalar.return_value = "PostgreSQL 15.4"
             mock_connection.execute.return_value = mock_version_result
@@ -421,7 +421,7 @@ class TestDatabaseFeatureDetection:
         mock_engine.connect.return_value = mock_connection_context
         mock_connection.dialect.name = "postgresql"
 
-        with patch('cowrieprocessor.db.engine.text') as mock_text:
+        with patch('cowrieprocessor.db.engine.text'):
             # Mock version query
             mock_version_result = Mock()
             mock_version_result.scalar.return_value = "PostgreSQL 15.4"
@@ -472,7 +472,7 @@ class TestHasPgvector:
         mock_connection_context.__exit__ = Mock(return_value=None)
         mock_engine.connect.return_value = mock_connection_context
 
-        with patch('cowrieprocessor.db.engine.text') as mock_text:
+        with patch('cowrieprocessor.db.engine.text'):
             mock_result = Mock()
             mock_result.scalar.return_value = True
             mock_connection.execute.return_value = mock_result
@@ -510,7 +510,7 @@ class TestHasPgvector:
         mock_connection_context.__exit__ = Mock(return_value=None)
         mock_engine.connect.return_value = mock_connection_context
 
-        with patch('cowrieprocessor.db.engine.text') as mock_text:
+        with patch('cowrieprocessor.db.engine.text'):
             mock_result = Mock()
             mock_result.scalar.return_value = False
             mock_connection.execute.return_value = mock_result

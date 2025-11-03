@@ -1,10 +1,8 @@
 """Integration tests for cowrie_db.py SQLAlchemy 2.0 compatibility."""
 
-from typing import Any
-
-
 import os
 import tempfile
+from typing import Any
 
 import pytest
 
@@ -338,7 +336,7 @@ class TestCowrieDatabaseSQLAlchemy2Integration:
             assert conn is not None
 
             # Test that we can execute queries without type errors
-            result = conn.execute(cowrie_db._get_engine().dialect.do_ping(conn))
+            _ = conn.execute(cowrie_db._get_engine().dialect.do_ping(conn))
             # The result should be None for ping, but the operation should not raise type errors
 
 

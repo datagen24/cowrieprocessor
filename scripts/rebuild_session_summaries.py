@@ -288,7 +288,11 @@ class SessionSummaryRebuilder:
         self.status_emitter.record_metrics(self._current_metrics)
 
     def _sample_events_for_verification(
-        self, session: Session, sample_count: int, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None
+        self,
+        session: Session,
+        sample_count: int,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> None:
         """Sample events for verification and display summary statistics."""
         logger.info(f"Sampling {sample_count} events for verification...")

@@ -43,7 +43,7 @@ This project began as a fork of the original [cowrieprocessor](https://github.co
 
 ## Requirements
 
-- Python 3.9 or higher
+- Python 3.13 or higher
 - Virtual environment (recommended)
 - SQLite3 (default database)
 - PostgreSQL (optional - for production deployments)
@@ -51,7 +51,6 @@ This project began as a fork of the original [cowrieprocessor](https://github.co
   - `psycopg-pool>=3.1`
 - For Elasticsearch reporting:
   - `elasticsearch>=8,<9`
-  - `tomli` (if Python < 3.11)
 
 ## Installation
 

@@ -3,7 +3,7 @@ name = "cowrieprocessor"
 version = "0.1.0"
 description = "Process Cowrie honeypot logs with enrichments (VT, DShield, URLHaus, SPUR, Dropbox)."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.13"
 license = "BSD-4-Clause"
 keywords = ["cowrie", "honeypot", "security", "virustotal", "dshield", "urlhaus", "spur", "dropbox"]
 dependencies = [
@@ -13,7 +13,6 @@ dependencies = [
   "pathlib>=1.0.1",
   "python-dateutil>=2.8.2",
   "sqlalchemy>=2.0.36",
-  "tomli>=2.0.1; python_version < '3.11'",
   "types-python-dateutil>=2.9.0.20250822",
   "pip>=25.2",
   "tqdm>=4.67.1",
@@ -22,6 +21,7 @@ dependencies = [
   "pandas>=2.0.0",
   "numpy>=1.24.0",
   "vt-py>=0.21.0",
+  "redis>=7.0.1",
 ]
 
 [project.optional-dependencies]
