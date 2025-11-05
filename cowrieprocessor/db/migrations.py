@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 16
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +216,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v15(connection)
             _set_schema_version(connection, 15)
             version = 15
+
+        if version < 16:
+            _upgrade_to_v16(connection)
+            _set_schema_version(connection, 16)
+            version = 16
 
     return version
 
@@ -1985,6 +1990,451 @@ def _upgrade_to_v15(connection: Connection) -> None:
         logger.info("enrichment_cache table already exists, skipping creation")
 
     logger.info("Enrichment cache schema migration (v15) completed successfully")
+
+
+def _upgrade_to_v16(connection: Connection) -> None:
+    """Upgrade to schema version 16: Implement three-tier enrichment architecture (ADR-007).
+
+    This migration implements the three-tier architecture for IP/ASN enrichment normalization:
+    - Tier 1: ASN inventory (most stable, organization-level)
+    - Tier 2: IP inventory (current state, mutable enrichment)
+    - Tier 3: Session summaries (point-in-time snapshots, immutable)
+
+    The migration follows a four-phase approach:
+    1. Create and populate ASN inventory from existing session data
+    2. Create and populate IP inventory with computed columns
+    3. Add snapshot columns to session_summaries for fast queries
+    4. Add foreign key constraints using NOT VALID → VALIDATE pattern
+    """
+    logger.info("Starting three-tier enrichment architecture migration (v16)...")
+
+    dialect_name = connection.dialect.name
+
+    # Only apply to PostgreSQL (SQLite doesn't support required features)
+    if dialect_name != "postgresql":
+        logger.info("Three-tier enrichment architecture (v16) requires PostgreSQL, skipping for SQLite")
+        return
+
+    # ==========================================
+    # PHASE 1: ASN INVENTORY TABLE
+    # ==========================================
+    logger.info("Phase 1: Creating ASN inventory table...")
+
+    if not _table_exists(connection, "asn_inventory"):
+        if not _safe_execute_sql(
+            connection,
+            """
+            CREATE TABLE asn_inventory (
+                asn_number            INTEGER PRIMARY KEY CHECK (asn_number > 0),
+                organization_name     TEXT,
+                organization_country  VARCHAR(2)
+                    CHECK (organization_country IS NULL OR organization_country ~ '^[A-Z]{2}$'),
+                registry              VARCHAR(10),
+                asn_type              TEXT,
+                is_known_hosting      BOOLEAN DEFAULT false,
+                is_known_vpn          BOOLEAN DEFAULT false,
+
+                -- Aggregate statistics
+                first_seen            TIMESTAMPTZ NOT NULL,
+                last_seen             TIMESTAMPTZ NOT NULL,
+                unique_ip_count       INTEGER DEFAULT 0,
+                total_session_count   INTEGER DEFAULT 0,
+
+                -- Full enrichment
+                enrichment            JSONB DEFAULT '{}'::jsonb,
+                enrichment_updated_at TIMESTAMPTZ,
+
+                created_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+                updated_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL
+            )
+            """,
+            "Create asn_inventory table",
+        ):
+            raise Exception("Failed to create asn_inventory table")
+
+        logger.info("Created asn_inventory table successfully")
+    else:
+        logger.info("asn_inventory table already exists, skipping creation")
+
+    # Create indexes for ASN inventory
+    asn_indexes = [
+        ("idx_asn_org_name", "asn_inventory(organization_name)"),
+        ("idx_asn_type", "asn_inventory(asn_type)"),
+        ("idx_asn_session_count", "asn_inventory(total_session_count DESC)"),
+    ]
+
+    for index_name, index_def in asn_indexes:
+        _safe_execute_sql(
+            connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+        )
+
+    # Populate ASN inventory from session_summaries
+    logger.info("Populating ASN inventory from existing session data...")
+
+    if not _safe_execute_sql(
+        connection,
+        """
+        WITH asn_aggregates AS (
+            SELECT
+                (enrichment->'cymru'->>'asn')::int as asn,
+                MIN(first_event_at) as first_seen,
+                MAX(last_event_at) as last_seen,
+                COUNT(DISTINCT source_ip) as unique_ip_count,
+                COUNT(*) as total_session_count
+            FROM session_summaries
+            WHERE enrichment->'cymru'->>'asn' IS NOT NULL
+              AND (enrichment->'cymru'->>'asn')::int > 0
+            GROUP BY (enrichment->'cymru'->>'asn')::int
+        ),
+        latest_enrichment AS (
+            SELECT DISTINCT ON ((enrichment->'cymru'->>'asn')::int)
+                (enrichment->'cymru'->>'asn')::int as asn,
+                enrichment
+            FROM session_summaries
+            WHERE enrichment->'cymru'->>'asn' IS NOT NULL
+              AND (enrichment->'cymru'->>'asn')::int > 0
+            ORDER BY (enrichment->'cymru'->>'asn')::int, last_event_at DESC
+        )
+        INSERT INTO asn_inventory (
+            asn_number, first_seen, last_seen, unique_ip_count, total_session_count,
+            enrichment, enrichment_updated_at
+        )
+        SELECT
+            a.asn,
+            a.first_seen,
+            a.last_seen,
+            a.unique_ip_count,
+            a.total_session_count,
+            e.enrichment,
+            NULL  -- Force re-enrichment for staleness tracking
+        FROM asn_aggregates a
+        JOIN latest_enrichment e ON a.asn = e.asn
+        ON CONFLICT (asn_number) DO NOTHING
+        """,
+        "Populate ASN inventory from session summaries",
+    ):
+        logger.warning("Failed to populate ASN inventory - continuing with migration")
+
+    # ==========================================
+    # PHASE 2: IP INVENTORY TABLE
+    # ==========================================
+    logger.info("Phase 2: Creating IP inventory table...")
+
+    if not _table_exists(connection, "ip_inventory"):
+        if not _safe_execute_sql(
+            connection,
+            """
+            CREATE TABLE ip_inventory (
+                ip_address            INET PRIMARY KEY,
+
+                -- Current ASN (mutable)
+                current_asn           INTEGER,
+                asn_last_verified     TIMESTAMPTZ,
+
+                -- Temporal tracking
+                first_seen            TIMESTAMPTZ NOT NULL,
+                last_seen             TIMESTAMPTZ NOT NULL,
+                session_count         INTEGER DEFAULT 1 CHECK (session_count >= 0),
+
+                -- Current enrichment (MUTABLE)
+                enrichment            JSONB NOT NULL DEFAULT '{}'::jsonb,
+                enrichment_updated_at TIMESTAMPTZ,
+                enrichment_version    VARCHAR(20) DEFAULT '2.2',
+
+                -- Computed columns (defensive defaults)
+                geo_country           VARCHAR(2) GENERATED ALWAYS AS (
+                    UPPER(COALESCE(
+                        enrichment->'maxmind'->>'country',
+                        enrichment->'cymru'->>'country',
+                        enrichment->'dshield'->'ip'->>'ascountry',
+                        'XX'
+                    ))
+                ) STORED,
+
+                ip_types              TEXT[] GENERATED ALWAYS AS (
+                    COALESCE(
+                      CASE
+                        WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'array'
+                          THEN ARRAY(SELECT jsonb_array_elements_text(enrichment->'spur'->'client'->'types'))
+                        WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'string'
+                          THEN ARRAY[(enrichment->'spur'->'client'->>'types')]
+                        ELSE ARRAY[]::text[]
+                      END,
+                      ARRAY[]::text[]
+                    )
+                ) STORED,
+
+                is_scanner            BOOLEAN GENERATED ALWAYS AS (
+                    COALESCE((enrichment->'greynoise'->>'noise')::boolean, false)
+                ) STORED,
+
+                is_bogon              BOOLEAN GENERATED ALWAYS AS (
+                    COALESCE((enrichment->'validation'->>'is_bogon')::boolean, false)
+                ) STORED,
+
+                created_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+                updated_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL
+            )
+            """,
+            "Create ip_inventory table",
+        ):
+            raise Exception("Failed to create ip_inventory table")
+
+        logger.info("Created ip_inventory table successfully")
+    else:
+        logger.info("ip_inventory table already exists, skipping creation")
+
+    # Create indexes for IP inventory
+    ip_indexes = [
+        ("idx_ip_current_asn", "ip_inventory(current_asn)"),
+        ("idx_ip_geo_country", "ip_inventory(geo_country)"),
+        ("idx_ip_session_count", "ip_inventory(session_count DESC)"),
+        ("idx_ip_enrichment_updated", "ip_inventory(enrichment_updated_at)"),
+        (
+            "idx_ip_staleness_active",
+            "ip_inventory(enrichment_updated_at, last_seen) WHERE enrichment_updated_at IS NOT NULL",
+        ),
+    ]
+
+    for index_name, index_def in ip_indexes:
+        _safe_execute_sql(
+            connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+        )
+
+    # Populate IP inventory from session_summaries
+    logger.info("Populating IP inventory from existing session data...")
+
+    if not _safe_execute_sql(
+        connection,
+        """
+        INSERT INTO ip_inventory (
+            ip_address, first_seen, last_seen, session_count,
+            current_asn, enrichment, enrichment_updated_at
+        )
+        SELECT DISTINCT ON (source_ip)
+            source_ip,
+            MIN(first_event_at) OVER (PARTITION BY source_ip) as first_seen,
+            MAX(last_event_at) OVER (PARTITION BY source_ip) as last_seen,
+            COUNT(*) OVER (PARTITION BY source_ip) as session_count,
+            (enrichment->'cymru'->>'asn')::int as current_asn,
+            enrichment,
+            NULL as enrichment_updated_at
+        FROM session_summaries
+        WHERE source_ip IS NOT NULL
+        ORDER BY source_ip, last_event_at DESC
+        ON CONFLICT (ip_address) DO NOTHING
+        """,
+        "Populate IP inventory from session summaries",
+    ):
+        logger.warning("Failed to populate IP inventory - continuing with migration")
+
+    # ==========================================
+    # PHASE 3: SESSION SNAPSHOT COLUMNS
+    # ==========================================
+    logger.info("Phase 3: Adding snapshot columns to session_summaries...")
+
+    # Convert timestamp columns to TIMESTAMPTZ if needed
+    _safe_execute_sql(
+        connection,
+        """
+        ALTER TABLE session_summaries
+          ALTER COLUMN first_event_at TYPE TIMESTAMPTZ USING first_event_at AT TIME ZONE 'UTC',
+          ALTER COLUMN last_event_at TYPE TIMESTAMPTZ USING last_event_at AT TIME ZONE 'UTC'
+        """,
+        "Convert session timestamp columns to TIMESTAMPTZ",
+    )
+
+    # Add snapshot columns
+    snapshot_columns = [
+        ("enrichment_at", "TIMESTAMPTZ"),
+        ("snapshot_asn", "INTEGER"),
+        ("snapshot_country", "VARCHAR(2)"),
+        ("snapshot_ip_types", "TEXT[]"),
+    ]
+
+    for column_name, column_type in snapshot_columns:
+        if not _column_exists(connection, "session_summaries", column_name):
+            _safe_execute_sql(
+                connection,
+                f"ALTER TABLE session_summaries ADD COLUMN {column_name} {column_type}",
+                f"Add {column_name} column to session_summaries",
+            )
+
+    # Add constraints
+    _safe_execute_sql(
+        connection,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.check_constraints
+                WHERE constraint_name = 'snapshot_country_iso'
+            ) THEN
+                ALTER TABLE session_summaries
+                ADD CONSTRAINT snapshot_country_iso
+                CHECK (snapshot_country IS NULL OR snapshot_country ~ '^[A-Z]{2}$');
+            END IF;
+        END $$
+        """,
+        "Add snapshot_country_iso constraint",
+    )
+
+    # Set source_ip NOT NULL
+    _safe_execute_sql(
+        connection,
+        "ALTER TABLE session_summaries ALTER COLUMN source_ip SET NOT NULL",
+        "Set source_ip as NOT NULL",
+    )
+
+    # Backfill snapshot columns
+    logger.info("Backfilling snapshot columns (this may take a while)...")
+
+    if not _safe_execute_sql(
+        connection,
+        """
+        CREATE TEMP TABLE tmp_session_snapshots AS
+        SELECT
+          s.session_id,
+          COALESCE(
+            (s.enrichment->>'enriched_at')::timestamptz,
+            s.created_at,
+            s.last_event_at
+          ) AS enrichment_at,
+          (s.enrichment->'cymru'->>'asn')::int AS snapshot_asn,
+          UPPER(COALESCE(
+            s.enrichment->'maxmind'->>'country',
+            s.enrichment->'cymru'->>'country'
+          )) AS snapshot_country,
+          COALESCE(
+            CASE
+              WHEN jsonb_typeof(s.enrichment->'spur'->'client'->'types') = 'array'
+                THEN ARRAY(SELECT jsonb_array_elements_text(s.enrichment->'spur'->'client'->'types'))
+              WHEN jsonb_typeof(s.enrichment->'spur'->'client'->'types') = 'string'
+                THEN ARRAY[(s.enrichment->'spur'->'client'->>'types')]
+              ELSE ARRAY[]::text[]
+            END,
+            ARRAY[]::text[]
+          ) AS snapshot_ip_types
+        FROM session_summaries s
+        """,
+        "Create temporary snapshot table",
+    ):
+        logger.warning("Failed to create temporary snapshot table")
+    else:
+        _safe_execute_sql(
+            connection,
+            """
+            UPDATE session_summaries s
+            SET enrichment_at = t.enrichment_at,
+                snapshot_asn = t.snapshot_asn,
+                snapshot_country = t.snapshot_country,
+                snapshot_ip_types = t.snapshot_ip_types
+            FROM tmp_session_snapshots t
+            WHERE s.session_id = t.session_id
+            """,
+            "Backfill snapshot columns from temp table",
+        )
+
+        _safe_execute_sql(connection, "DROP TABLE tmp_session_snapshots", "Drop temporary snapshot table")
+
+    # Create indexes for snapshot columns
+    snapshot_indexes = [
+        ("idx_session_source_ip", "session_summaries(source_ip)"),
+        ("idx_session_first_event_brin", "session_summaries USING brin (first_event_at)"),
+        ("idx_session_last_event_brin", "session_summaries USING brin (last_event_at)"),
+        ("idx_session_snapshot_asn", "session_summaries(snapshot_asn)"),
+        ("idx_session_snapshot_country", "session_summaries(snapshot_country)"),
+    ]
+
+    for index_name, index_def in snapshot_indexes:
+        _safe_execute_sql(
+            connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+        )
+
+    # ==========================================
+    # PHASE 4: FOREIGN KEY CONSTRAINTS
+    # ==========================================
+    logger.info("Phase 4: Adding foreign key constraints...")
+
+    # Pre-validation to avoid orphans
+    _safe_execute_sql(
+        connection,
+        """
+        DO $$
+        DECLARE
+            orphan_sessions INTEGER;
+            orphan_ips INTEGER;
+        BEGIN
+            SELECT COUNT(*) INTO orphan_sessions
+            FROM session_summaries s
+            WHERE NOT EXISTS (SELECT 1 FROM ip_inventory i WHERE i.ip_address = s.source_ip);
+
+            IF orphan_sessions > 0 THEN
+                RAISE WARNING 'Found % orphan sessions without IP inventory entries', orphan_sessions;
+            END IF;
+
+            SELECT COUNT(*) INTO orphan_ips
+            FROM ip_inventory i
+            WHERE current_asn IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM asn_inventory a WHERE a.asn_number = i.current_asn);
+
+            IF orphan_ips > 0 THEN
+                RAISE WARNING 'Found % IPs with invalid ASNs', orphan_ips;
+            END IF;
+        END $$
+        """,
+        "Pre-validate foreign key integrity",
+    )
+
+    # Add foreign keys using NOT VALID → VALIDATE pattern
+    _safe_execute_sql(
+        connection,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE constraint_name = 'fk_ip_current_asn'
+            ) THEN
+                ALTER TABLE ip_inventory
+                ADD CONSTRAINT fk_ip_current_asn
+                FOREIGN KEY (current_asn) REFERENCES asn_inventory(asn_number) NOT VALID;
+            END IF;
+        END $$
+        """,
+        "Add ip_inventory → asn_inventory FK (NOT VALID)",
+    )
+
+    _safe_execute_sql(
+        connection,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE constraint_name = 'fk_session_source_ip'
+            ) THEN
+                ALTER TABLE session_summaries
+                ADD CONSTRAINT fk_session_source_ip
+                FOREIGN KEY (source_ip) REFERENCES ip_inventory(ip_address) NOT VALID;
+            END IF;
+        END $$
+        """,
+        "Add session_summaries → ip_inventory FK (NOT VALID)",
+    )
+
+    # Validate constraints
+    _safe_execute_sql(
+        connection, "ALTER TABLE ip_inventory VALIDATE CONSTRAINT fk_ip_current_asn", "Validate ASN FK constraint"
+    )
+
+    _safe_execute_sql(
+        connection,
+        "ALTER TABLE session_summaries VALIDATE CONSTRAINT fk_session_source_ip",
+        "Validate IP FK constraint",
+    )
+
+    logger.info("Three-tier enrichment architecture migration (v16) completed successfully")
 
 
 def _downgrade_from_v9(connection: Connection) -> None:

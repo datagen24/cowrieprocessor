@@ -152,11 +152,25 @@ The system uses a **layered database architecture** optimized for honeypot data 
    - Risk scoring and quarantine capabilities for suspicious events
    - Dead Letter Queue (DLQ) tracking for failed processing
 
-2. **Session Aggregation Layer** (`session_summaries` table)
-   - Aggregates events into logical attack sessions
-   - Stores enrichment data (VirusTotal, DShield, URLHaus, SPUR, HIBP)
-   - Computed flags for malware/reputation detection (`vt_flagged`, `dshield_flagged`)
-   - Tracks commands, file operations, and authentication attempts per session
+2. **Three-Tier Enrichment Architecture** (ADR-007, Schema v16) 🆕
+   - **Tier 1 - ASN Inventory** (`asn_inventory` table)
+     - Organization-level metadata tracking (most stable)
+     - Aggregate statistics (unique IPs, total sessions)
+     - Enrichment from multiple sources (Cymru, SPUR, MaxMind)
+   - **Tier 2 - IP Inventory** (`ip_inventory` table)
+     - Current state enrichment with staleness tracking (mutable)
+     - Computed columns for fast filtering (geo_country, ip_types, is_scanner)
+     - Foreign key to ASN inventory, 30-90 day refresh cycle
+   - **Tier 3 - Session Summaries** (`session_summaries` table)
+     - Point-in-time snapshot columns (immutable: snapshot_asn, snapshot_country, snapshot_ip_type)
+     - Full enrichment JSONB for deep analysis
+     - Foreign key to IP inventory for JOIN when current state needed
+
+   **Key Benefits**:
+   - 82% API call reduction (1.68M → 300K calls for unique IPs)
+   - 95% of queries avoid JOINs via snapshot columns (2-5 second response)
+   - Temporal accuracy preserved ("what was it at time of attack")
+   - ASN-level infrastructure clustering and attribution
 
 3. **File Tracking** (`files` table)
    - SHA256-indexed file metadata for downloaded/uploaded malware
@@ -285,12 +299,20 @@ The system uses a **layered database architecture** optimized for honeypot data 
 
 ### Key Design Patterns
 
-1. **Enrichment Pipeline**: All API enrichments flow through a unified caching layer with TTLs, rate limiting, and telemetry
-2. **ORM-First**: All database operations use SQLAlchemy 2.0 ORM (no raw SQL except stored procedures)
-3. **Status Emitter**: All long-running operations emit JSON status files for real-time monitoring
-4. **Dead Letter Queue**: Failed events are tracked with reason/payload for reprocessing
-5. **Feature Flags**: `USE_NEW_ENRICHMENT` environment variable controls enrichment pipeline routing
-6. **Dependency Injection**: Services use constructor injection for testability
+1. **Three-Tier Enrichment** (ADR-007): IP/ASN enrichment normalization with snapshot columns for temporal accuracy 🆕
+   - **Tier 1 (ASN)**: Organizational attribution, most stable (yearly updates)
+   - **Tier 2 (IP)**: Current mutable state with staleness tracking (30-90 day refresh)
+   - **Tier 3 (Session)**: Immutable point-in-time snapshots for campaign clustering
+   - **Query Pattern**: Use snapshot columns (NO JOIN) for 95% of queries, JOIN for infrastructure analysis
+   - **Benefits**: 82% API reduction, 10x faster queries, temporal accuracy preserved
+
+2. **Enrichment Pipeline**: All API enrichments flow through a unified caching layer with TTLs, rate limiting, and telemetry
+3. **ORM-First**: All database operations use SQLAlchemy 2.0 ORM (no raw SQL except stored procedures)
+4. **Hybrid Properties**: Cross-database computed logic (PostgreSQL JSONB vs SQLite json_extract) with single source of truth 🆕
+5. **Status Emitter**: All long-running operations emit JSON status files for real-time monitoring
+6. **Dead Letter Queue**: Failed events are tracked with reason/payload for reprocessing
+7. **Feature Flags**: `USE_NEW_ENRICHMENT` environment variable controls enrichment pipeline routing
+8. **Dependency Injection**: Services use constructor injection for testability
 
 ## Code Quality Standards
 
