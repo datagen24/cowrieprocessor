@@ -2192,18 +2192,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
                     ))
                 ) STORED,
 
-                ip_types              TEXT[] GENERATED ALWAYS AS (
-                    COALESCE(
-                      CASE
-                        WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'array'
-                          THEN ARRAY(SELECT jsonb_array_elements_text(enrichment->'spur'->'client'->'types'))
-                        WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'string'
-                          THEN ARRAY[(enrichment->'spur'->'client'->>'types')]
-                        ELSE ARRAY[]::text[]
-                      END,
-                      ARRAY[]::text[]
-                    )
-                ) STORED,
+                -- ip_types: Cannot use GENERATED with array conversion (requires set-returning functions)
+                -- Will be populated via application logic or trigger
+                ip_types              TEXT[] DEFAULT ARRAY[]::text[],
 
                 is_scanner            BOOLEAN GENERATED ALWAYS AS (
                     COALESCE((enrichment->'greynoise'->>'noise')::boolean, false)
@@ -2270,18 +2261,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
                         ))
                     ) STORED,
 
-                    ip_types              TEXT[] GENERATED ALWAYS AS (
-                        COALESCE(
-                          CASE
-                            WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'array'
-                              THEN ARRAY(SELECT jsonb_array_elements_text(enrichment->'spur'->'client'->'types'))
-                            WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'string'
-                              THEN ARRAY[(enrichment->'spur'->'client'->>'types')]
-                            ELSE ARRAY[]::text[]
-                          END,
-                          ARRAY[]::text[]
-                        )
-                    ) STORED,
+                    -- ip_types: Cannot use GENERATED with array conversion (requires set-returning functions)
+                    -- Will be populated via application logic or trigger
+                    ip_types              TEXT[] DEFAULT ARRAY[]::text[],
 
                     is_scanner            BOOLEAN GENERATED ALWAYS AS (
                         COALESCE((enrichment->'greynoise'->>'noise')::boolean, false)
@@ -2330,6 +2312,8 @@ def _upgrade_to_v16(connection: Connection) -> None:
 
     # Populate IP inventory from session_summaries
     logger.info("Populating IP inventory from existing session data...")
+    # Note: ip_types column not populated during migration (would require complex JSONB array parsing)
+    # Will be populated by cowrie-loader during normal ingestion operations
 
     if not _safe_execute_sql(
         connection,
