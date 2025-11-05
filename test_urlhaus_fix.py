@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Quick test to verify URLHaus null tags fix."""
 
+from typing import Any
+
+
 # Simulate the fixed code
-def extract_tags_fixed(data):
+def extract_tags_fixed(data: dict[str, Any]) -> str:
     """Extract tags using the FIXED code (with 'or []')."""
-    tags = set()
+    tags: set[str] = set()
     if isinstance(data, dict) and data.get("query_status") == "ok":
         for url in data.get("urls", []):
             tags.update(url.get("tags") or [])  # ✅ FIX: Handle None tags
     return ",".join(sorted(tags)) if tags else ""
 
 
-def extract_tags_broken(data):
+def extract_tags_broken(data: dict[str, Any]) -> str:
     """Extract tags using the BROKEN code (without 'or []')."""
-    tags = set()
+    tags: set[str] = set()
     if isinstance(data, dict) and data.get("query_status") == "ok":
         for url in data.get("urls", []):
             tags.update(url.get("tags", []))  # ❌ BUG: Fails when tags is None
@@ -21,7 +24,7 @@ def extract_tags_broken(data):
 
 
 # Test cases
-test_cases = [
+test_cases: list[dict[str, Any]] = [
     {
         "name": "Normal response with tags",
         "data": {
@@ -109,7 +112,10 @@ print("=" * 80)
 print("❌ Testing BROKEN version (without 'or []') - should fail on null tags:")
 print("-" * 80)
 for i, test in enumerate(test_cases, 1):
-    if "null" in test["name"].lower() or test["data"].get("urls", [{}])[0].get("tags") is None:
+    test_name: str = str(test["name"])
+    urls_data = test["data"].get("urls", [{}])
+    first_url = urls_data[0] if urls_data else {}
+    if "null" in test_name.lower() or first_url.get("tags") is None:
         try:
             result = extract_tags_broken(test["data"])
             print(f"⚠️  UNEXPECTED: Test {i} should have failed but didn't")
