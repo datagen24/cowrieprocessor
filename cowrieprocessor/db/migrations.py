@@ -2323,7 +2323,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             current_asn, enrichment, enrichment_updated_at
         )
         SELECT DISTINCT ON (source_ip)
-            source_ip,
+            source_ip::inet,
             MIN(first_event_at) OVER (PARTITION BY source_ip) as first_seen,
             MAX(last_event_at) OVER (PARTITION BY source_ip) as last_seen,
             COUNT(*) OVER (PARTITION BY source_ip) as session_count,
