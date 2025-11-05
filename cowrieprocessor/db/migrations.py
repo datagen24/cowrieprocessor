@@ -2166,7 +2166,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             connection,
             """
             CREATE TABLE ip_inventory (
-                ip_address            INET PRIMARY KEY,
+                ip_address            VARCHAR(45) PRIMARY KEY,
 
                 -- Current ASN (mutable)
                 current_asn           INTEGER,
@@ -2235,7 +2235,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
                 connection,
                 """
                 CREATE TABLE ip_inventory (
-                    ip_address            INET PRIMARY KEY,
+                    ip_address            VARCHAR(45) PRIMARY KEY,
 
                     -- Current ASN (mutable)
                     current_asn           INTEGER,
@@ -2323,7 +2323,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             current_asn, enrichment, enrichment_updated_at
         )
         SELECT DISTINCT ON (source_ip)
-            source_ip::inet,
+            source_ip,
             MIN(first_event_at) OVER (PARTITION BY source_ip) as first_seen,
             MAX(last_event_at) OVER (PARTITION BY source_ip) as last_seen,
             COUNT(*) OVER (PARTITION BY source_ip) as session_count,
@@ -2466,7 +2466,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             SELECT COUNT(*) INTO orphan_sessions
             FROM session_summaries s
             WHERE s.source_ip IS NOT NULL
-              AND NOT EXISTS (SELECT 1 FROM ip_inventory i WHERE i.ip_address = s.source_ip::inet);
+              AND NOT EXISTS (SELECT 1 FROM ip_inventory i WHERE i.ip_address = s.source_ip);
 
             IF orphan_sessions > 0 THEN
                 RAISE WARNING 'Found % orphan sessions without IP inventory entries', orphan_sessions;
