@@ -783,7 +783,7 @@ class EnrichmentService:
                             else json.loads(response.text)
                         )
                         # Extract tags from response
-                        tags = set()
+                        tags: set[str] = set()
                         if isinstance(data, dict) and data.get("query_status") == "ok":
                             for url in data.get("urls", []):
                                 tags.update(url.get("tags") or [])
