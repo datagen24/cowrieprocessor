@@ -2016,9 +2016,43 @@ def _upgrade_to_v16(connection: Connection) -> None:
         return
 
     # ==========================================
-    # PHASE 1: ASN INVENTORY TABLE
+    # PHASE 1: SESSION SOURCE_IP COLUMN
     # ==========================================
-    logger.info("Phase 1: Creating ASN inventory table...")
+    logger.info("Phase 1: Adding source_ip column to session_summaries...")
+
+    # Add source_ip column first (required by later phases)
+    if not _column_exists(connection, "session_summaries", "source_ip"):
+        _safe_execute_sql(
+            connection,
+            "ALTER TABLE session_summaries ADD COLUMN source_ip VARCHAR(45)",
+            "Add source_ip column to session_summaries",
+        )
+
+    # Populate source_ip from enrichment JSONB
+    logger.info("Populating source_ip from enrichment data...")
+    if not _safe_execute_sql(
+        connection,
+        """
+        UPDATE session_summaries
+        SET source_ip = enrichment->'dshield'->'ip'->>'number'
+        WHERE source_ip IS NULL
+          AND enrichment->'dshield'->'ip'->>'number' IS NOT NULL
+        """,
+        "Populate source_ip from DShield enrichment",
+    ):
+        logger.warning("Failed to populate source_ip - some sessions may lack IP data")
+
+    # Create index on source_ip for JOIN performance (used by Phase 2 & 3)
+    _safe_execute_sql(
+        connection,
+        "CREATE INDEX IF NOT EXISTS idx_session_source_ip ON session_summaries(source_ip)",
+        "Create index on source_ip",
+    )
+
+    # ==========================================
+    # PHASE 2: ASN INVENTORY TABLE
+    # ==========================================
+    logger.info("Phase 2: Creating ASN inventory table...")
 
     if not _table_exists(connection, "asn_inventory"):
         if not _safe_execute_sql(
@@ -2116,9 +2150,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
         logger.warning("Failed to populate ASN inventory - continuing with migration")
 
     # ==========================================
-    # PHASE 2: IP INVENTORY TABLE
+    # PHASE 3: IP INVENTORY TABLE
     # ==========================================
-    logger.info("Phase 2: Creating IP inventory table...")
+    logger.info("Phase 3: Creating IP inventory table...")
 
     if not _table_exists(connection, "ip_inventory"):
         if not _safe_execute_sql(
@@ -2229,9 +2263,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
         logger.warning("Failed to populate IP inventory - continuing with migration")
 
     # ==========================================
-    # PHASE 3: SESSION SNAPSHOT COLUMNS
+    # PHASE 4: SESSION SNAPSHOT COLUMNS
     # ==========================================
-    logger.info("Phase 3: Adding snapshot columns to session_summaries...")
+    logger.info("Phase 4: Adding remaining snapshot columns to session_summaries...")
 
     # Convert timestamp columns to TIMESTAMPTZ if needed
     _safe_execute_sql(
@@ -2337,9 +2371,8 @@ def _upgrade_to_v16(connection: Connection) -> None:
 
         _safe_execute_sql(connection, "DROP TABLE tmp_session_snapshots", "Drop temporary snapshot table")
 
-    # Create indexes for snapshot columns
+    # Create indexes for snapshot columns (source_ip index already created in Phase 1)
     snapshot_indexes = [
-        ("idx_session_source_ip", "session_summaries(source_ip)"),
         ("idx_session_first_event_brin", "session_summaries USING brin (first_event_at)"),
         ("idx_session_last_event_brin", "session_summaries USING brin (last_event_at)"),
         ("idx_session_snapshot_asn", "session_summaries(snapshot_asn)"),
@@ -2352,9 +2385,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
         )
 
     # ==========================================
-    # PHASE 4: FOREIGN KEY CONSTRAINTS
+    # PHASE 5: FOREIGN KEY CONSTRAINTS
     # ==========================================
-    logger.info("Phase 4: Adding foreign key constraints...")
+    logger.info("Phase 5: Adding foreign key constraints...")
 
     # Pre-validation to avoid orphans
     _safe_execute_sql(
