@@ -2090,17 +2090,24 @@ def _upgrade_to_v16(connection: Connection) -> None:
     else:
         logger.info("asn_inventory table already exists, skipping creation")
 
-    # Create indexes for ASN inventory
+    # Create indexes for ASN inventory (with column existence checks)
     asn_indexes = [
-        ("idx_asn_org_name", "asn_inventory(organization_name)"),
-        ("idx_asn_type", "asn_inventory(asn_type)"),
-        ("idx_asn_session_count", "asn_inventory(total_session_count DESC)"),
+        ("idx_asn_org_name", "asn_inventory(organization_name)", "organization_name"),
+        ("idx_asn_type", "asn_inventory(asn_type)", "asn_type"),
+        ("idx_asn_session_count", "asn_inventory(total_session_count DESC)", "total_session_count"),
     ]
 
-    for index_name, index_def in asn_indexes:
-        _safe_execute_sql(
-            connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
-        )
+    for index_data in asn_indexes:
+        index_name, index_def, column_name = index_data
+        if _column_exists(connection, "asn_inventory", column_name):
+            _safe_execute_sql(
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+            )
+        else:
+            logger.warning(
+                f"Skipping index {index_name} - column {column_name} does not exist. "
+                "Table may be from incomplete migration."
+            )
 
     # Populate ASN inventory from session_summaries
     logger.info("Populating ASN inventory from existing session data...")
@@ -2218,22 +2225,42 @@ def _upgrade_to_v16(connection: Connection) -> None:
     else:
         logger.info("ip_inventory table already exists, skipping creation")
 
-    # Create indexes for IP inventory
+        # Validate schema - check if GENERATED columns exist
+        if not _column_exists(connection, "ip_inventory", "geo_country"):
+            logger.error(
+                "ip_inventory table exists but is missing GENERATED columns (geo_country, ip_types, etc.). "
+                "This indicates an incomplete migration from a previous attempt. "
+                "Please drop the table manually and re-run migration: "
+                "DROP TABLE IF EXISTS ip_inventory CASCADE;"
+            )
+            raise Exception("Incomplete ip_inventory schema detected. Drop table and re-run migration.")
+
+    # Create indexes for IP inventory (only if columns exist)
+    # Note: geo_country is a GENERATED column - if table exists from failed migration, it may not have this column
     ip_indexes = [
-        ("idx_ip_current_asn", "ip_inventory(current_asn)"),
-        ("idx_ip_geo_country", "ip_inventory(geo_country)"),
-        ("idx_ip_session_count", "ip_inventory(session_count DESC)"),
-        ("idx_ip_enrichment_updated", "ip_inventory(enrichment_updated_at)"),
+        ("idx_ip_current_asn", "ip_inventory(current_asn)", "current_asn"),
+        ("idx_ip_geo_country", "ip_inventory(geo_country)", "geo_country"),
+        ("idx_ip_session_count", "ip_inventory(session_count DESC)", "session_count"),
+        ("idx_ip_enrichment_updated", "ip_inventory(enrichment_updated_at)", "enrichment_updated_at"),
         (
             "idx_ip_staleness_active",
             "ip_inventory(enrichment_updated_at, last_seen) WHERE enrichment_updated_at IS NOT NULL",
+            "enrichment_updated_at",
         ),
     ]
 
-    for index_name, index_def in ip_indexes:
-        _safe_execute_sql(
-            connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
-        )
+    for index_data in ip_indexes:
+        index_name, index_def, column_name = index_data
+        # Check if column exists before creating index (handles incomplete migrations)
+        if _column_exists(connection, "ip_inventory", column_name):
+            _safe_execute_sql(
+                connection, f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}", f"Create {index_name} index"
+            )
+        else:
+            logger.warning(
+                f"Skipping index {index_name} - column {column_name} does not exist. "
+                "Table may be from incomplete migration. Drop and recreate ip_inventory table."
+            )
 
     # Populate IP inventory from session_summaries
     logger.info("Populating IP inventory from existing session data...")
