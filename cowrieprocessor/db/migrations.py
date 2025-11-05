@@ -55,7 +55,7 @@ def _table_exists(connection: Connection, table_name: str) -> bool:
         True if table exists, False otherwise
     """
     inspector = inspect(connection)
-    return inspector.has_table(table_name)
+    return bool(inspector.has_table(table_name))
 
 
 def _column_exists(connection: Connection, table_name: str, column_name: str) -> bool:
@@ -2465,7 +2465,8 @@ def _upgrade_to_v16(connection: Connection) -> None:
         BEGIN
             SELECT COUNT(*) INTO orphan_sessions
             FROM session_summaries s
-            WHERE NOT EXISTS (SELECT 1 FROM ip_inventory i WHERE i.ip_address = s.source_ip);
+            WHERE s.source_ip IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM ip_inventory i WHERE i.ip_address = s.source_ip::inet);
 
             IF orphan_sessions > 0 THEN
                 RAISE WARNING 'Found % orphan sessions without IP inventory entries', orphan_sessions;
