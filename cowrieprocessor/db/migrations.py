@@ -2390,12 +2390,9 @@ def _upgrade_to_v16(connection: Connection) -> None:
         "Add snapshot_country_iso constraint",
     )
 
-    # Set source_ip NOT NULL
-    _safe_execute_sql(
-        connection,
-        "ALTER TABLE session_summaries ALTER COLUMN source_ip SET NOT NULL",
-        "Set source_ip as NOT NULL",
-    )
+    # Note: source_ip remains NULLABLE
+    # Some sessions may not have IP data in enrichment (e.g., malformed JSON, incomplete data)
+    # Foreign key to ip_inventory will handle NULL gracefully
 
     # Backfill snapshot columns
     logger.info("Backfilling snapshot columns (this may take a while)...")
