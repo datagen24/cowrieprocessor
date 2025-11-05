@@ -2413,16 +2413,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             s.enrichment->'maxmind'->>'country',
             s.enrichment->'cymru'->>'country'
           )) AS snapshot_country,
-          COALESCE(
-            CASE
-              WHEN jsonb_typeof(s.enrichment->'spur'->'client'->'types') = 'array'
-                THEN ARRAY(SELECT jsonb_array_elements_text(s.enrichment->'spur'->'client'->'types'))
-              WHEN jsonb_typeof(s.enrichment->'spur'->'client'->'types') = 'string'
-                THEN ARRAY[(s.enrichment->'spur'->'client'->>'types')]
-              ELSE ARRAY[]::text[]
-            END,
-            ARRAY[]::text[]
-          ) AS snapshot_ip_types
+          ARRAY[]::text[] AS snapshot_ip_types
         FROM session_summaries s
         """,
         "Create temporary snapshot table",
