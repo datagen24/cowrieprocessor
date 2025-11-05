@@ -164,7 +164,7 @@ def get_dialect_name(connection: Connection) -> str:
     Returns:
         Dialect name ('sqlite' or 'postgresql')
     """
-    return connection.dialect.name
+    return str(connection.dialect.name)
 
 
 def get_dialect_name_from_engine(engine: Engine) -> str:
@@ -176,7 +176,7 @@ def get_dialect_name_from_engine(engine: Engine) -> str:
     Returns:
         Dialect name ('sqlite' or 'postgresql')
     """
-    return engine.dialect.name
+    return str(engine.dialect.name)
 
 
 # Convenience functions for common operations

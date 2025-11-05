@@ -163,11 +163,34 @@ class RawEvent(Base):
 
 
 class SessionSummary(Base):
-    """Aggregated per-session metrics derived during ingest."""
+    """Tier 3: Aggregated per-session metrics with point-in-time enrichment snapshots.
+
+    This table stores session-level attack data with lightweight snapshot columns for fast
+    filtering WITHOUT JOINs. The snapshot columns capture "what was it at time of attack"
+    for temporal accuracy in botnet clustering.
+
+    Two enrichment patterns:
+    1. **Snapshot columns** (fast filtering): `snapshot_asn`, `snapshot_country`, `snapshot_ip_type`
+    2. **Full enrichment JSONB** (deep analysis): `enrichment` column with complete data
+
+    Example use cases:
+    - "Find sessions with SSH key abc123 from China" (NO JOIN - use snapshot_country)
+    - "Group sessions by ASN at time of attack" (NO JOIN - use snapshot_asn)
+    - "Compare snapshot vs current IP state" (JOIN with ip_inventory for delta analysis)
+    """
 
     __tablename__ = "session_summaries"
 
     session_id = Column(String(64), primary_key=True)
+
+    # Foreign key to IP inventory (for JOIN when current state needed)
+    source_ip = Column(
+        String(45),
+        ForeignKey("ip_inventory.ip_address"),
+        nullable=True,
+        doc="Source IP address (links to ip_inventory)",
+    )
+
     first_event_at = Column(DateTime(timezone=True))
     last_event_at = Column(DateTime(timezone=True))
     event_count = Column(Integer, nullable=False, server_default="0")
@@ -181,15 +204,42 @@ class SessionSummary(Base):
     risk_score = Column(Integer, nullable=True)
     matcher = Column(String(32), nullable=True)
     source_files = Column(JSON, nullable=True)
-    enrichment = Column(JSON, nullable=True)
+
+    # Behavioral clustering keys (for campaign correlation)
+    ssh_key_fingerprint = Column(String(128), nullable=True, doc="SSH key fingerprint for campaign clustering")
+    password_hash = Column(String(64), nullable=True, doc="Password hash for credential tracking")
+    command_signature = Column(Text, nullable=True, doc="Command pattern signature for behavioral clustering")
+
+    # LIGHTWEIGHT SNAPSHOT COLUMNS (for fast filtering WITHOUT JOIN)
+    snapshot_asn = Column(Integer, nullable=True, doc="ASN at time of attack (immutable snapshot)")
+    snapshot_country = Column(String(2), nullable=True, doc="Country code at time of attack (immutable snapshot)")
+    snapshot_ip_type = Column(
+        Text, nullable=True, doc="IP type at time of attack (e.g., 'RESIDENTIAL', 'DATACENTER', 'VPN')"
+    )
+
+    # FULL ENRICHMENT SNAPSHOT (for deep analysis - IMMUTABLE)
+    enrichment = Column(JSON, nullable=True, doc="Complete enrichment data snapshot at time of attack")
+    enrichment_at = Column(
+        DateTime(timezone=True), nullable=True, doc="Timestamp when enrichment snapshot was captured"
+    )
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        Index("ix_session_summaries_source_ip", "source_ip"),
         Index("ix_session_summaries_first_event", "first_event_at"),
         Index("ix_session_summaries_last_event", "last_event_at"),
         Index("ix_session_summaries_flags", "vt_flagged", "dshield_flagged"),
         Index("ix_session_summaries_ssh_keys", "ssh_key_injections"),
+        # Snapshot indexes for fast filtering (NO JOIN required)
+        Index("ix_session_summaries_snapshot_asn", "snapshot_asn"),
+        Index("ix_session_summaries_snapshot_country", "snapshot_country"),
+        Index("ix_session_summaries_snapshot_ip_type", "snapshot_ip_type"),
+        # Behavioral clustering indexes
+        Index("ix_session_summaries_ssh_key_fp", "ssh_key_fingerprint"),
+        Index("ix_session_summaries_password_hash", "password_hash"),
+        Index("ix_session_summaries_command_sig", "command_signature"),
     )
 
 
@@ -615,6 +665,274 @@ class EnrichmentCache(Base):
     )
 
 
+class ASNInventory(Base):
+    """Tier 1: ASN-level tracking for organizational attribution.
+
+    ASNs (Autonomous System Numbers) represent organizations that own IP blocks.
+    This table tracks ASN metadata and aggregate statistics for infrastructure analysis.
+    ASNs are highly stable entities (e.g., China Telecom AS4134 remains consistent over years).
+
+    Example use cases:
+    - "What hosting providers are used by this botnet?"
+    - "Find other campaigns using the same ASN infrastructure"
+    - "Track persistent threat actors by ASN preference"
+    """
+
+    __tablename__ = "asn_inventory"
+
+    # Primary key
+    asn_number = Column(Integer, primary_key=True, doc="Autonomous System Number (e.g., 4134 for China Telecom)")
+
+    # Organization metadata
+    organization_name = Column(Text, nullable=True, doc="ASN owner organization name")
+    organization_country = Column(String(2), nullable=True, doc="ISO 3166-1 alpha-2 country code")
+    rir_registry = Column(
+        String(10), nullable=True, doc="Regional Internet Registry (ARIN, RIPE, APNIC, LACNIC, AFRINIC)"
+    )
+    asn_type = Column(Text, nullable=True, doc="Classification: HOSTING, ISP, CLOUD, EDUCATION, GOVERNMENT")
+    is_known_hosting = Column(
+        Boolean, nullable=False, server_default=false(), doc="True if known datacenter/hosting provider"
+    )
+    is_known_vpn = Column(Boolean, nullable=False, server_default=false(), doc="True if known VPN provider")
+
+    # Aggregate statistics
+    first_seen = Column(DateTime(timezone=True), nullable=False, doc="First time any IP from this ASN was observed")
+    last_seen = Column(
+        DateTime(timezone=True), nullable=False, doc="Most recent time any IP from this ASN was observed"
+    )
+    unique_ip_count = Column(
+        Integer, nullable=False, server_default="0", doc="Count of unique IPs observed in this ASN"
+    )
+    total_session_count = Column(Integer, nullable=False, server_default="0", doc="Total attack sessions from this ASN")
+
+    # Full enrichment data from multiple sources
+    enrichment = Column(
+        JSON, nullable=False, server_default='{}', doc="Combined enrichment from DShield, SPUR, MaxMind, etc."
+    )
+    enrichment_updated_at = Column(DateTime(timezone=True), nullable=True, doc="Last time enrichment data was updated")
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("ix_asn_inventory_org_name", "organization_name"),
+        Index("ix_asn_inventory_asn_type", "asn_type"),
+        Index("ix_asn_inventory_session_count", "total_session_count"),
+        Index("ix_asn_inventory_first_seen", "first_seen"),
+        Index("ix_asn_inventory_last_seen", "last_seen"),
+    )
+
+
+class IPInventory(Base):
+    """Tier 2: IP-level tracking with current enrichment state.
+
+    Tracks individual source IPs with their current enrichment data and temporal patterns.
+    IPs can move between ASNs (cloud reassignments, residential DHCP), so we track
+    the current ASN relationship with last verification timestamp.
+
+    This table serves as the L2 cache for IP enrichment data, reducing redundant API calls
+    by 80%+ (300K unique IPs vs 1.68M sessions).
+
+    Example use cases:
+    - "What is the current state of this IP?"
+    - "Has this IP changed ASN ownership?"
+    - "Find IPs active for >30 days"
+    - "What IPs are VPN/proxy vs residential?"
+    """
+
+    __tablename__ = "ip_inventory"
+
+    # Primary key
+    ip_address = Column(String(45), primary_key=True, doc="IPv4 or IPv6 address in string format")
+
+    # Current ASN relationship (mutable - IPs can move between ASNs)
+    current_asn = Column(
+        Integer, ForeignKey("asn_inventory.asn_number"), nullable=True, doc="Current ASN owning this IP"
+    )
+    asn_last_verified = Column(DateTime(timezone=True), nullable=True, doc="Last time ASN ownership was verified")
+
+    # Temporal tracking
+    first_seen = Column(DateTime(timezone=True), nullable=False, doc="First time this IP was observed attacking")
+    last_seen = Column(DateTime(timezone=True), nullable=False, doc="Most recent attack from this IP")
+    session_count = Column(
+        Integer, nullable=False, server_default="1", doc="Total number of attack sessions from this IP"
+    )
+
+    # Current enrichment data (MUTABLE - can be refreshed)
+    enrichment = Column(
+        JSON, nullable=False, server_default='{}', doc="Full enrichment from DShield, SPUR, MaxMind, URLHaus, etc."
+    )
+    enrichment_updated_at = Column(
+        DateTime(timezone=True), nullable=True, doc="Last time enrichment was updated/refreshed"
+    )
+    enrichment_version = Column(String(10), nullable=False, server_default="2.2", doc="Enrichment schema version")
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    @hybrid_property
+    def geo_country(self) -> str:
+        """Computed country code from enrichment sources (priority: MaxMind > Cymru > DShield).
+
+        Returns:
+            ISO 3166-1 alpha-2 country code, or 'XX' if unknown.
+        """
+        if not self.enrichment:
+            return 'XX'
+        return (
+            (self.enrichment.get('maxmind', {}) or {}).get('country')
+            or (self.enrichment.get('cymru', {}) or {}).get('country')
+            or (self.enrichment.get('dshield', {}) or {}).get('ip', {}).get('ascountry')
+            or 'XX'
+        )
+
+    @geo_country.expression
+    @classmethod
+    def geo_country_expr(cls) -> ColumnElement[str]:
+        """SQL expression for extracting country code from enrichment JSONB.
+
+        Returns:
+            SQLAlchemy case expression with COALESCE fallback logic.
+        """
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+
+        if dialect_name == "postgresql":
+            # PostgreSQL: Use -> and ->> operators for JSONB access
+            return func.coalesce(
+                cls.enrichment.op('->')('maxmind').op('->>')('country'),
+                cls.enrichment.op('->')('cymru').op('->>')('country'),
+                cls.enrichment.op('->')('dshield').op('->')('ip').op('->>')('ascountry'),
+                'XX',
+            )
+        else:
+            # SQLite: Use json_extract function
+            return func.coalesce(
+                func.json_extract(cls.enrichment, '$.maxmind.country'),
+                func.json_extract(cls.enrichment, '$.cymru.country'),
+                func.json_extract(cls.enrichment, '$.dshield.ip.ascountry'),
+                'XX',
+            )
+
+    @hybrid_property
+    def ip_type(self) -> Any:
+        """IP type classification from SPUR (e.g., 'RESIDENTIAL', 'DATACENTER', 'VPN').
+
+        Returns:
+            IP type string or None if not enriched.
+        """
+        if not self.enrichment:
+            return None
+        return (self.enrichment.get('spur', {}) or {}).get('client', {}).get('types')
+
+    @ip_type.expression
+    @classmethod
+    def ip_type_expr(cls) -> ColumnElement[Any]:
+        """SQL expression for extracting IP type from enrichment JSONB.
+
+        Returns:
+            SQLAlchemy expression for IP type extraction.
+        """
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+
+        if dialect_name == "postgresql":
+            return cls.enrichment.op('->')('spur').op('->')('client').op('->>')('types')
+        else:
+            return func.json_extract(cls.enrichment, '$.spur.client.types')
+
+    @hybrid_property
+    def is_scanner(self) -> bool:
+        """Whether this IP is flagged as a known scanner by GreyNoise.
+
+        Returns:
+            True if flagged as scanner noise, False otherwise.
+        """
+        if not self.enrichment:
+            return False
+        return bool((self.enrichment.get('greynoise', {}) or {}).get('noise', False))
+
+    @is_scanner.expression
+    @classmethod
+    def is_scanner_expr(cls) -> ColumnElement[bool]:
+        """SQL expression for scanner detection from enrichment JSONB.
+
+        Returns:
+            SQLAlchemy expression returning boolean.
+        """
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+
+        if dialect_name == "postgresql":
+            return func.coalesce(func.cast(cls.enrichment.op('->')('greynoise').op('->>')('noise'), Boolean), False)
+        else:
+            return func.coalesce(func.cast(func.json_extract(cls.enrichment, '$.greynoise.noise'), Boolean), False)
+
+    @hybrid_property
+    def is_bogon(self) -> bool:
+        """Whether this IP is a bogon (invalid/reserved IP address).
+
+        Returns:
+            True if bogon, False otherwise.
+        """
+        if not self.enrichment:
+            return False
+        return bool((self.enrichment.get('validation', {}) or {}).get('is_bogon', False))
+
+    @is_bogon.expression
+    @classmethod
+    def is_bogon_expr(cls) -> ColumnElement[bool]:
+        """SQL expression for bogon detection from enrichment JSONB.
+
+        Returns:
+            SQLAlchemy expression returning boolean.
+        """
+        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
+
+        if dialect_name == "postgresql":
+            return func.coalesce(func.cast(cls.enrichment.op('->')('validation').op('->>')('is_bogon'), Boolean), False)
+        else:
+            return func.coalesce(func.cast(func.json_extract(cls.enrichment, '$.validation.is_bogon'), Boolean), False)
+
+    __table_args__ = (
+        Index("ix_ip_inventory_current_asn", "current_asn"),
+        Index("ix_ip_inventory_first_seen", "first_seen"),
+        Index("ix_ip_inventory_last_seen", "last_seen"),
+        Index("ix_ip_inventory_session_count", "session_count"),
+        Index("ix_ip_inventory_enrichment_updated", "enrichment_updated_at"),
+    )
+
+
+class IPASNHistory(Base):
+    """Optional: Track IP→ASN movement over time for infrastructure analysis.
+
+    Records historical ASN ownership changes for IPs, useful for detecting:
+    - Cloud IP reassignments
+    - ISP IP block transfers
+    - IP hijacking attempts
+    - Infrastructure migration patterns
+    """
+
+    __tablename__ = "ip_asn_history"
+
+    ip_address = Column(String(45), primary_key=True, doc="IPv4 or IPv6 address")
+    asn_number = Column(Integer, primary_key=True, doc="ASN number at this observation")
+    observed_at = Column(
+        DateTime(timezone=True),
+        primary_key=True,
+        server_default=func.now(),
+        doc="When this ASN assignment was observed",
+    )
+    verification_source = Column(
+        String(50), nullable=True, doc="Source of verification (e.g., 'dshield', 'maxmind', 'cymru')"
+    )
+
+    __table_args__ = (
+        Index("ix_ip_asn_history_ip", "ip_address"),
+        Index("ix_ip_asn_history_asn", "asn_number"),
+        Index("ix_ip_asn_history_observed", "observed_at"),
+    )
+
+
 __all__ = [
     "SchemaState",
     "SchemaMetadata",
@@ -634,4 +952,7 @@ __all__ = [
     "SessionSSHKeys",
     "SSHKeyAssociations",
     "EnrichmentCache",
+    "ASNInventory",
+    "IPInventory",
+    "IPASNHistory",
 ]

@@ -223,7 +223,7 @@ def is_postgresql(engine: Engine) -> bool:
     Returns:
         True if engine is PostgreSQL, False otherwise
     """
-    return engine.dialect.name == 'postgresql'
+    return bool(engine.dialect.name == 'postgresql')
 
 
 def has_pgvector(engine: Engine) -> bool:

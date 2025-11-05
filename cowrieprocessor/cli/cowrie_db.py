@@ -582,7 +582,6 @@ class FilesSanitization(SanitizationStrategy):
                 raise
 
 
-
 class CowrieDatabase:
     """Database management operations for Cowrie Processor."""
 
@@ -1439,8 +1438,7 @@ class CowrieDatabase:
             logger.error(f"Error inserting files batch: {e}")
             return 0
 
-
-# =============================================================================
+    # =============================================================================
     def sanitize_unicode_in_database(
         self,
         table: Optional[str] = None,
