@@ -383,11 +383,62 @@ All enrichment tests MUST pass without network access using mock fixtures in `te
 ### Migration Workflow
 
 When modifying database schema:
-1. Update ORM models in `cowrieprocessor/db/models.py`
+
+#### Step 1: Verify ORM-Migration Type Alignment (CRITICAL)
+**Before writing any migration code**, check existing ORM column types:
+```bash
+# Check column types in ORM models
+grep -A 2 "source_ip\|ip_address" cowrieprocessor/db/models.py
+```
+
+**Type Mapping Rules** (ORM → Migration SQL):
+- `Column(String(45))` → `VARCHAR(45)` ⚠️ NOT `TEXT`, NOT `INET`
+- `Column(Integer)` → `INTEGER` ⚠️ NOT `INT`, NOT `BIGINT` (unless model specifies BigInteger)
+- `Column(JSON)` → `JSON` ⚠️ NOT `JSONB` (unless explicitly using postgresql.JSONB)
+- `Column(DateTime(timezone=True))` → `TIMESTAMPTZ`
+
+**Foreign Key Type Consistency**: FK columns MUST have identical types. PostgreSQL will reject:
+- `session_summaries.source_ip VARCHAR(45)` → `ip_inventory.ip_address INET` ❌ FAILS
+- `session_summaries.source_ip VARCHAR(45)` → `ip_inventory.ip_address VARCHAR(45)` ✅ WORKS
+
+**Red Flags During Development**:
+- If you need `::inet`, `::integer`, or `::jsonb` casts in migration queries, your column types are wrong
+- Type casts in WHERE clauses or JOINs indicate schema mismatch, not query bugs
+- Fix the schema types first, then remove the casts
+
+#### Step 2: Write Migration Logic
+1. Update ORM models in `cowrieprocessor/db/models.py` (if adding new tables/columns)
 2. Add migration logic to `cowrieprocessor/db/migrations.py`
 3. Increment `TARGET_SCHEMA_VERSION` constant
-4. Test migration on both SQLite and PostgreSQL
-5. Update data dictionary in `docs/data_dictionary.md`
+4. Run type validation checks:
+   ```bash
+   # Check for type cast red flags in migration
+   grep "::inet\|::jsonb\|::text" cowrieprocessor/db/migrations.py
+   # Should return NO results (casts indicate type mismatches)
+   ```
+
+#### Step 3: Test Migration
+1. Test on empty SQLite database (fast iteration)
+2. Test on PostgreSQL with production-like data
+3. Verify foreign key constraints with type checking query:
+   ```sql
+   SELECT tc.table_name, kcu.column_name, c1.data_type as local_type,
+          ccu.table_name AS fk_table, ccu.column_name AS fk_column, c2.data_type as fk_type
+   FROM information_schema.table_constraints tc
+   JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+   JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+   JOIN information_schema.columns c1 ON c1.table_name = tc.table_name AND c1.column_name = kcu.column_name
+   JOIN information_schema.columns c2 ON c2.table_name = ccu.table_name AND c2.column_name = ccu.column_name
+   WHERE tc.constraint_type = 'FOREIGN KEY';
+   ```
+4. After code changes, **always run** `uv sync` to rebuild package before testing CLI commands
+
+#### Step 4: Documentation
+1. Update data dictionary in `docs/data_dictionary.md`
+2. Document migration rationale in ADR or PDCA documentation
+3. Update recovery procedures if adding new failure modes
+
+**Lesson from ADR-007 (Nov 2025)**: Type mismatch between ORM (VARCHAR) and migration (INET) caused 12 failed attempts. Always validate ORM-migration type alignment BEFORE writing migration logic. See memory: `migration_type_mismatch_debugging_adr007`
 
 ### Testing Strategy
 
