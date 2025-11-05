@@ -25,8 +25,18 @@ Use the provided cleanup script to reset to v15 schema:
 # Option 1: Using psql directly
 psql $DATABASE_URL -f scripts/migrations/cleanup_v16_incomplete.sql
 
-# Option 2: Using environment variable
-psql "postgresql://user:pass@host:port/database" -f scripts/migrations/cleanup_v16_incomplete.sql
+# Option 2: With explicit connection parameters
+psql -h hostname -U username -d database -f scripts/migrations/cleanup_v16_incomplete.sql
+
+# Option 3: Single-line manual cleanup (if script fails)
+psql -h hostname -U username -d database -c "
+DROP TABLE IF EXISTS ip_asn_history CASCADE;
+DROP TABLE IF EXISTS ip_inventory CASCADE;
+DROP TABLE IF EXISTS asn_inventory CASCADE;
+ALTER TABLE session_summaries DROP COLUMN IF EXISTS source_ip CASCADE;
+UPDATE schema_state SET value = '15' WHERE key = 'schema_version';
+SELECT 'Cleanup complete. Schema version: ' || value FROM schema_state WHERE key = 'schema_version';
+"
 ```
 
 **What the script does**:
@@ -52,8 +62,8 @@ psql $DATABASE_URL
 
 ### 2. Check Current State
 ```sql
--- Check schema version
-SELECT * FROM schema_metadata WHERE key = 'schema_version';
+-- Check schema version (uses schema_state table)
+SELECT * FROM schema_state WHERE key = 'schema_version';
 
 -- Check if problematic tables exist
 \dt asn_inventory ip_inventory ip_asn_history
@@ -92,13 +102,14 @@ DROP INDEX IF EXISTS idx_session_snapshot_country;
 
 ### 6. Reset Schema Version
 ```sql
-UPDATE schema_metadata SET value = '15' WHERE key = 'schema_version';
+-- Note: Uses schema_state table (not schema_metadata)
+UPDATE schema_state SET value = '15' WHERE key = 'schema_version';
 ```
 
 ### 7. Verify Clean State
 ```sql
 -- Should return v15
-SELECT value FROM schema_metadata WHERE key = 'schema_version';
+SELECT value FROM schema_state WHERE key = 'schema_version';
 
 -- Should show no ADR-007 tables
 \dt asn_inventory ip_inventory ip_asn_history
@@ -170,7 +181,8 @@ It means the table exists but is missing GENERATED columns. Follow the recovery 
 **Cause**: Schema version wasn't reset
 **Solution**: Manually update:
 ```sql
-UPDATE schema_metadata SET value = '15' WHERE key = 'schema_version';
+-- Note: Uses schema_state table (not schema_metadata)
+UPDATE schema_state SET value = '15' WHERE key = 'schema_version';
 ```
 
 ### Issue: "GENERATED columns can't be added with ALTER TABLE"
@@ -200,8 +212,8 @@ After successful migration, validate:
 
 ```bash
 # Check schema version
-psql $DATABASE_URL -c "SELECT * FROM schema_metadata WHERE key = 'schema_version'"
-# Should show: v16
+psql $DATABASE_URL -c "SELECT * FROM schema_state WHERE key = 'schema_version'"
+# Should show: 16
 
 # Check table counts
 psql $DATABASE_URL -c "SELECT COUNT(*) FROM asn_inventory"
