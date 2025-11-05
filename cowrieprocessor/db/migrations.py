@@ -2223,17 +2223,83 @@ def _upgrade_to_v16(connection: Connection) -> None:
 
         logger.info("Created ip_inventory table successfully")
     else:
-        logger.info("ip_inventory table already exists, skipping creation")
+        logger.info("ip_inventory table already exists, checking schema completeness...")
 
         # Validate schema - check if GENERATED columns exist
         if not _column_exists(connection, "ip_inventory", "geo_country"):
-            logger.error(
+            logger.warning(
                 "ip_inventory table exists but is missing GENERATED columns (geo_country, ip_types, etc.). "
                 "This indicates an incomplete migration from a previous attempt. "
-                "Please drop the table manually and re-run migration: "
-                "DROP TABLE IF EXISTS ip_inventory CASCADE;"
+                "Dropping and recreating table with complete schema..."
             )
-            raise Exception("Incomplete ip_inventory schema detected. Drop table and re-run migration.")
+
+            # Drop incomplete table and recreate
+            if not _safe_execute_sql(
+                connection, "DROP TABLE IF EXISTS ip_inventory CASCADE", "Drop incomplete ip_inventory table"
+            ):
+                raise Exception("Failed to drop incomplete ip_inventory table")
+
+            logger.info("Recreating ip_inventory table with complete schema...")
+            if not _safe_execute_sql(
+                connection,
+                """
+                CREATE TABLE ip_inventory (
+                    ip_address            INET PRIMARY KEY,
+
+                    -- Current ASN (mutable)
+                    current_asn           INTEGER,
+                    asn_last_verified     TIMESTAMPTZ,
+
+                    -- Temporal tracking
+                    first_seen            TIMESTAMPTZ NOT NULL,
+                    last_seen             TIMESTAMPTZ NOT NULL,
+                    session_count         INTEGER DEFAULT 1 CHECK (session_count >= 0),
+
+                    -- Current enrichment (MUTABLE)
+                    enrichment            JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    enrichment_updated_at TIMESTAMPTZ,
+                    enrichment_version    VARCHAR(20) DEFAULT '2.2',
+
+                    -- Computed columns (defensive defaults)
+                    geo_country           VARCHAR(2) GENERATED ALWAYS AS (
+                        UPPER(COALESCE(
+                            enrichment->'maxmind'->>'country',
+                            enrichment->'cymru'->>'country',
+                            enrichment->'dshield'->'ip'->>'ascountry',
+                            'XX'
+                        ))
+                    ) STORED,
+
+                    ip_types              TEXT[] GENERATED ALWAYS AS (
+                        COALESCE(
+                          CASE
+                            WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'array'
+                              THEN ARRAY(SELECT jsonb_array_elements_text(enrichment->'spur'->'client'->'types'))
+                            WHEN jsonb_typeof(enrichment->'spur'->'client'->'types') = 'string'
+                              THEN ARRAY[(enrichment->'spur'->'client'->>'types')]
+                            ELSE ARRAY[]::text[]
+                          END,
+                          ARRAY[]::text[]
+                        )
+                    ) STORED,
+
+                    is_scanner            BOOLEAN GENERATED ALWAYS AS (
+                        COALESCE((enrichment->'greynoise'->>'noise')::boolean, false)
+                    ) STORED,
+
+                    is_bogon              BOOLEAN GENERATED ALWAYS AS (
+                        COALESCE((enrichment->'validation'->>'is_bogon')::boolean, false)
+                    ) STORED,
+
+                    created_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+                    updated_at            TIMESTAMPTZ DEFAULT NOW() NOT NULL
+                )
+                """,
+                "Recreate ip_inventory table with GENERATED columns",
+            ):
+                raise Exception("Failed to recreate ip_inventory table")
+
+            logger.info("ip_inventory table recreated successfully with complete schema")
 
     # Create indexes for IP inventory (only if columns exist)
     # Note: geo_country is a GENERATED column - if table exists from failed migration, it may not have this column
