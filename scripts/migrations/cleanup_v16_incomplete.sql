@@ -56,10 +56,11 @@ DROP INDEX IF EXISTS idx_session_snapshot_asn;
 DROP INDEX IF EXISTS idx_session_snapshot_country;
 
 -- Reset schema version to v15 (pre-ADR-007)
-UPDATE schema_metadata SET value = '15' WHERE key = 'schema_version';
+-- Note: Uses schema_state table (not schema_metadata)
+UPDATE schema_state SET value = '15' WHERE key = 'schema_version';
 
 COMMIT;
 
 -- Verify cleanup
 SELECT 'Cleanup complete. Current schema version: ' || value as status
-FROM schema_metadata WHERE key = 'schema_version';
+FROM schema_state WHERE key = 'schema_version';
