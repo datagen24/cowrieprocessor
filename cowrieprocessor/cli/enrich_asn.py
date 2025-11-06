@@ -8,13 +8,11 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import create_engine, func
 from tqdm import tqdm
 
-from cowrieprocessor.db import apply_migrations, create_engine_from_settings, create_session_maker
+from cowrieprocessor.db import apply_migrations, create_session_maker
 from cowrieprocessor.db.models import ASNInventory, IPInventory
-
-from .db_config import resolve_database_settings
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +54,7 @@ def build_asn_inventory(
 
     try:
         # Connect to database
-        engine = create_engine_from_settings({"DATABASE_URL": db_url})  # type: ignore[arg-type]
+        engine = create_engine(db_url)
         session_maker = create_session_maker(engine)
 
         # Apply migrations if needed
@@ -125,7 +123,7 @@ def build_asn_inventory(
                         continue
 
                     # Extract metadata from enrichment JSON
-                    enrichment: dict[str, Any] = sample_ip.enrichment or {}  # type: ignore[assignment]
+                    enrichment: Any = sample_ip.enrichment or {}
                     organization_name: str | None = None
                     organization_country: str | None = None
                     rir_registry: str | None = None
@@ -234,13 +232,9 @@ Examples:
     args = parser.parse_args()
 
     try:
-        # Resolve database settings (supports env:, file:, etc.)
-        db_settings = resolve_database_settings(args.db)
-        db_url: str = db_settings.get("DATABASE_URL", args.db)  # type: ignore[assignment]
-
-        # Build ASN inventory
+        # Build ASN inventory (db_url passed directly)
         created = build_asn_inventory(
-            db_url=db_url,
+            db_url=args.db,
             batch_size=args.batch_size,
             progress=args.progress,
             verbose=args.verbose,

@@ -43,13 +43,17 @@ def mock_maxmind():
 @pytest.fixture
 def mock_cymru():
     """Mock Cymru client."""
-    return Mock()
+    client = Mock()
+    client.lookup_asn.return_value = None
+    return client
 
 
 @pytest.fixture
 def mock_greynoise():
     """Mock GreyNoise client."""
-    return Mock()
+    client = Mock()
+    client.lookup_ip.return_value = None
+    return client
 
 
 @pytest.fixture
