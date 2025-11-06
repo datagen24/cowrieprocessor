@@ -415,10 +415,10 @@ class SSHKeyAnalytics:
                     for key_record in campaign_keys:
                         key_types.add(str(key_record.key_type))
                         if key_record.first_seen:
-                            if first_seen is None or key_record.first_seen < first_seen:  # type: ignore[unreachable]
+                            if first_seen is None or key_record.first_seen < first_seen:
                                 first_seen = key_record.first_seen
                         if key_record.last_seen:
-                            if last_seen is None or key_record.last_seen > last_seen:  # type: ignore[unreachable]
+                            if last_seen is None or key_record.last_seen > last_seen:
                                 last_seen = key_record.last_seen
 
                     # Get injection methods from sessions

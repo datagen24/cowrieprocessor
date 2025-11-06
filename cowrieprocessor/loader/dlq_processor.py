@@ -716,8 +716,8 @@ class DLQProcessor:
 
                     if success:
                         # Mark DLQ event as resolved
-                        dlq_event.resolved = True  # type: ignore[assignment]
-                        dlq_event.resolved_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+                        dlq_event.resolved = True
+                        dlq_event.resolved_at = datetime.now(timezone.utc)
                         stats["repaired"] += 1
                     else:
                         stats["failed"] += 1
@@ -728,12 +728,12 @@ class DLQProcessor:
 
         return stats
 
-    def _extract_malformed_content(self, dlq_event: DeadLetterEvent) -> Optional[str]:  # type: ignore[misc,unreachable,unused-ignore]
+    def _extract_malformed_content(self, dlq_event: DeadLetterEvent) -> Optional[str]:
         """Extract malformed content from DLQ event."""
         payload = dlq_event.payload
 
-        if isinstance(payload, dict):  # type: ignore[unreachable]
-            return payload.get("malformed_content")  # type: ignore[unreachable]
+        if isinstance(payload, dict):
+            return payload.get("malformed_content")
 
         return None
 
@@ -806,14 +806,14 @@ class DLQProcessor:
 
                 if existing_event:
                     # Event already exists, update it with repaired data
-                    existing_event.payload = repaired_event  # type: ignore[assignment]
-                    existing_event.risk_score = 50  # type: ignore[assignment]
-                    existing_event.quarantined = False  # type: ignore[assignment]
-                    existing_event.session_id = repaired_event.get("session")  # type: ignore[assignment]
-                    existing_event.event_type = repaired_event.get("eventid")  # type: ignore[assignment]
-                    existing_event.event_timestamp = event_timestamp  # type: ignore[assignment]
+                    existing_event.payload = repaired_event
+                    existing_event.risk_score = 50
+                    existing_event.quarantined = False
+                    existing_event.session_id = repaired_event.get("session")
+                    existing_event.event_type = repaired_event.get("eventid")
+                    existing_event.event_timestamp = event_timestamp
                     # Update the ingest timestamp to reflect the repair
-                    existing_event.ingest_at = datetime.now(timezone.utc)  # type: ignore[assignment]
+                    existing_event.ingest_at = datetime.now(timezone.utc)
                     return True
 
                 # Create new raw event record

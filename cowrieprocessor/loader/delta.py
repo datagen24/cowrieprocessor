@@ -325,7 +325,7 @@ class DeltaLoader:
         table = cast(Table, DeadLetterEvent.__table__)
         try:
             result = session.execute(table.insert(), records)
-            return int(result.rowcount or 0)  # type: ignore[attr-defined]
+            return int(result.rowcount or 0)
         except IntegrityError:
             session.rollback()
             inserted = 0

@@ -34,7 +34,7 @@ def get_enrichment_dict(session: SessionSummary) -> dict[str, Any] | None:
     """
     enrichment = session.enrichment
     if enrichment is None:
-        return None  # type: ignore[unreachable]
+        return None
     # Use type guard to safely check if it's a dict
     if is_dict(enrichment):
         return enrichment
@@ -52,7 +52,7 @@ def get_payload_dict(event: RawEvent) -> dict[str, Any] | None:
     """
     payload = event.payload
     if payload is None:
-        return None  # type: ignore[unreachable]
+        return None
     # Use type guard to safely check if it's a dict
     if is_dict(payload):
         return payload

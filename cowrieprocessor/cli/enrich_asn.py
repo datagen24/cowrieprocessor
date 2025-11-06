@@ -8,44 +8,57 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import func
 from tqdm import tqdm
 
 from cowrieprocessor.db import apply_migrations, create_session_maker
+from cowrieprocessor.db.engine import create_engine_from_settings
 from cowrieprocessor.db.models import ASNInventory, IPInventory
+from cowrieprocessor.settings import DatabaseSettings
+
+from .db_config import add_database_argument, resolve_database_settings
 
 logger = logging.getLogger(__name__)
 
 
 def build_asn_inventory(
-    db_url: str,
+    db_settings: DatabaseSettings,
     batch_size: int = 1000,
     progress: bool = True,
     verbose: bool = False,
 ) -> int:
-    """Build ASN inventory from existing IP inventory data.
+    """Build and update ASN inventory from existing IP inventory data.
 
-    This function extracts unique ASNs from the ip_inventory table and creates
-    corresponding records in the asn_inventory table. It includes organization
-    metadata extracted from enrichment JSON and calculates statistics.
+    This function extracts unique ASNs from the ip_inventory table and processes
+    them idempotently: creates new ASN records and updates existing ones with
+    current IP counts and metadata. Safe to run repeatedly (e.g., via cron).
+
+    For each ASN:
+    - Creates new record with organization metadata and IP count (if new)
+    - Updates unique_ip_count, first_seen, last_seen (if existing)
+    - Backfills missing metadata fields (organization, country, RIR)
+
+    Metadata is extracted from IP enrichment JSON (MaxMind or Cymru).
 
     Args:
-        db_url: Database URL for connection
+        db_settings: Database settings object (from sensors.toml or CLI args)
         batch_size: Number of records to process per batch
         progress: Show progress bar
         verbose: Enable detailed logging
 
     Returns:
-        Number of ASN records created
+        Total number of ASN records processed (created + updated)
 
     Example:
+        >>> from cowrieprocessor.settings import load_database_settings
+        >>> db_settings = load_database_settings()
         >>> count = build_asn_inventory(
-        ...     db_url="postgresql://user:pass@host/db",
+        ...     db_settings=db_settings,
         ...     batch_size=1000,
         ...     progress=True,
         ... )
-        >>> print(f"Created {count} ASN records")
-        Created 5432 ASN records
+        >>> print(f"Processed {count} ASN records")
+        Processed 5432 ASN records (120 created, 5312 updated)
     """
     if verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -54,7 +67,7 @@ def build_asn_inventory(
 
     try:
         # Connect to database
-        engine = create_engine(db_url)
+        engine = create_engine_from_settings(db_settings)
         session_maker = create_session_maker(engine)
 
         # Apply migrations if needed
@@ -85,34 +98,28 @@ def build_asn_inventory(
                 logger.warning("No ASNs found in IP inventory. Run IP enrichment first.")
                 return 0
 
-            # Step 2: Check which ASNs already exist
-            existing_asns = {
-                row[0]
-                for row in session.query(ASNInventory.asn_number).filter(
-                    ASNInventory.asn_number.in_([asn for asn, _, _, _ in unique_asns])
-                )
+            # Step 2: Get existing ASN records for update logic
+            existing_asn_map = {
+                record.asn_number: record
+                for record in session.query(ASNInventory)
+                .filter(ASNInventory.asn_number.in_([asn for asn, _, _, _ in unique_asns]))
+                .all()
             }
 
-            logger.info(f"Found {len(existing_asns)} existing ASN records")
-            new_asns = [
-                (asn, ip_count, earliest, latest)
-                for asn, ip_count, earliest, latest in unique_asns
-                if asn not in existing_asns
-            ]
+            new_count = len([asn for asn, _, _, _ in unique_asns if asn not in existing_asn_map])
+            existing_count = len(existing_asn_map)
+            logger.info(
+                f"Found {len(unique_asns)} total ASNs: {new_count} new, {existing_count} existing (will update)"
+            )
 
-            if not new_asns:
-                logger.info("All ASNs already exist in inventory. Nothing to backfill.")
-                return 0
-
-            logger.info(f"Creating {len(new_asns)} new ASN records...")
-
-            # Step 3: Create ASN records in batches
+            # Step 3: Process all ASNs (create new + update existing)
             created_count = 0
+            updated_count = 0
             skipped_count = 0
             now = datetime.now(timezone.utc)
 
             # Use tqdm for progress if enabled
-            asn_iterator = tqdm(new_asns, desc="Building ASN inventory", disable=not progress)
+            asn_iterator = tqdm(unique_asns, desc="Processing ASN inventory", disable=not progress)
 
             for asn, ip_count, earliest_seen, latest_seen in asn_iterator:
                 try:
@@ -208,46 +215,79 @@ def build_asn_inventory(
                         organization_country = None
                         rir_registry = None
 
-                    # Create ASN inventory record
-                    asn_record = ASNInventory(
-                        asn_number=asn,
-                        organization_name=organization_name,
-                        organization_country=organization_country,
-                        rir_registry=rir_registry,
-                        first_seen=earliest_seen or now,
-                        last_seen=latest_seen or now,
-                        unique_ip_count=ip_count,
-                        total_session_count=0,  # Will be calculated separately if needed
-                        enrichment={},
-                        created_at=now,
-                        updated_at=now,
-                    )
+                    # Check if ASN exists - update or create
+                    if asn in existing_asn_map:
+                        # Update existing record with current counts and metadata
+                        asn_record = existing_asn_map[asn]
+                        asn_record.unique_ip_count = ip_count
 
-                    session.add(asn_record)
-                    created_count += 1
+                        # Update first_seen to earliest timestamp
+                        new_first_seen = earliest_seen or now
+                        if new_first_seen < asn_record.first_seen:
+                            asn_record.first_seen = new_first_seen  # type: ignore[assignment]
+
+                        # Update last_seen to latest timestamp
+                        new_last_seen = latest_seen or now
+                        if new_last_seen > asn_record.last_seen:
+                            asn_record.last_seen = new_last_seen  # type: ignore[assignment]
+
+                        asn_record.updated_at = now  # type: ignore[assignment]
+
+                        # Update metadata if it was missing before
+                        if not asn_record.organization_name and organization_name:
+                            asn_record.organization_name = organization_name  # type: ignore[assignment]
+                        if not asn_record.organization_country and organization_country:
+                            asn_record.organization_country = organization_country  # type: ignore[assignment]
+                        if not asn_record.rir_registry and rir_registry:
+                            asn_record.rir_registry = rir_registry  # type: ignore[assignment]
+
+                        updated_count += 1
+                    else:
+                        # Create new ASN inventory record
+                        asn_record = ASNInventory(
+                            asn_number=asn,
+                            organization_name=organization_name,
+                            organization_country=organization_country,
+                            rir_registry=rir_registry,
+                            first_seen=earliest_seen or now,
+                            last_seen=latest_seen or now,
+                            unique_ip_count=ip_count,
+                            total_session_count=0,  # Will be calculated separately if needed
+                            enrichment={},
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(asn_record)
+                        created_count += 1
 
                     # Commit in batches
-                    if created_count % batch_size == 0:
+                    if (created_count + updated_count) % batch_size == 0:
                         session.commit()
                         logger.debug(f"Committed batch of {batch_size} ASN records")
 
                 except Exception as e:
-                    logger.error(f"Error creating ASN {asn}: {e}")
+                    logger.error(f"Error processing ASN {asn}: {e}")
                     skipped_count += 1
                     continue
 
             # Final commit
             session.commit()
 
+            # Summary reporting
+            total_processed = created_count + updated_count
             if skipped_count > 0:
                 logger.info(
-                    f"Successfully created {created_count} ASN inventory records "
+                    f"Successfully processed {total_processed} ASN records: "
+                    f"{created_count} created, {updated_count} updated "
                     f"({skipped_count} skipped due to errors)"
                 )
             else:
-                logger.info(f"Successfully created {created_count} ASN inventory records")
+                logger.info(
+                    f"Successfully processed {total_processed} ASN records: "
+                    f"{created_count} created, {updated_count} updated"
+                )
 
-            return created_count
+            return total_processed
 
     except Exception as e:
         logger.error(f"Failed to build ASN inventory: {e}")
@@ -255,30 +295,32 @@ def build_asn_inventory(
 
 
 def main() -> None:
-    """CLI entry point for building ASN inventory."""
+    """CLI entry point for building and updating ASN inventory."""
     parser = argparse.ArgumentParser(
-        description="Build ASN inventory from IP enrichment data",
+        description="Build and update ASN inventory from IP enrichment data (idempotent, cron-safe)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Build ASN inventory from IP data
-  cowrie-enrich build-asn-inventory --db postgresql://user:pass@host/db
+  # Process ASN inventory (creates new + updates existing, uses sensors.toml)
+  cowrie-enrich-asn --progress --verbose
 
-  # With custom batch size and progress tracking
-  cowrie-enrich build-asn-inventory --db sqlite:////path/to/db.sqlite \\
-      --batch-size 500 --progress
+  # With explicit database URL
+  cowrie-enrich-asn --db-url postgresql://user:pass@host/db --progress
 
-  # With status output
-  cowrie-enrich build-asn-inventory --db postgresql://... \\
-      --status-dir /var/log/cowrie --verbose
+  # With custom batch size for large databases
+  cowrie-enrich-asn --db-url sqlite:////path/to/db.sqlite --batch-size 500 --progress
+
+  # Safe for cron jobs (idempotent, updates counts from current IP inventory)
+  0 */6 * * * /usr/local/bin/cowrie-enrich-asn --progress
         """,
     )
 
-    parser.add_argument(
-        "--db",
-        required=True,
-        help="Database URL (e.g., postgresql://user:pass@host:port/database or sqlite:////path/to/db.sqlite)",
+    # Add standard database argument (--db-url, with sensors.toml fallback)
+    add_database_argument(
+        parser,
+        help_text="Database connection URL. If not provided, reads from sensors.toml config file.",
     )
+
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -299,15 +341,18 @@ Examples:
     args = parser.parse_args()
 
     try:
-        # Build ASN inventory (db_url passed directly)
-        created = build_asn_inventory(
-            db_url=args.db,
+        # Resolve database settings from --db-url or sensors.toml
+        db_settings = resolve_database_settings(args.db_url)
+
+        # Build/update ASN inventory
+        processed = build_asn_inventory(
+            db_settings=db_settings,
             batch_size=args.batch_size,
             progress=args.progress,
             verbose=args.verbose,
         )
 
-        print(f"\n✅ Successfully created {created} ASN inventory records")
+        print(f"\n✅ Successfully processed {processed} ASN inventory records")
         sys.exit(0)
 
     except Exception as e:
