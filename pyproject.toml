@@ -22,6 +22,8 @@ dependencies = [
   "numpy>=1.24.0",
   "vt-py>=0.21.0",
   "redis>=7.0.1",
+  "geoip2>=4.7.0",
+  "dnspython>=2.4.0",
 ]
 
 [project.optional-dependencies]
