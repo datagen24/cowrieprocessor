@@ -109,6 +109,8 @@ class SessionAggregate:
     # SSH key intelligence tracking
     ssh_key_injections: int = 0
     unique_ssh_keys: Set[str] = field(default_factory=set)
+    # Canonical source IP for ip_inventory FK and snapshot population
+    canonical_source_ip: Optional[str] = None  # First IP seen chronologically
 
     def update_timestamp(self, ts: Optional[datetime]) -> None:
         if ts is None:
@@ -262,6 +264,9 @@ class BulkLoader:
                                     src_ip_val = payload_ref.get("src_ip") or payload_ref.get("peer_ip")
                                     if isinstance(src_ip_val, str) and src_ip_val:
                                         agg.src_ips.add(src_ip_val)
+                                        # Track canonical IP (first one seen chronologically)
+                                        if agg.canonical_source_ip is None:
+                                            agg.canonical_source_ip = src_ip_val
                                 if processed.event_type and any(
                                     hint in processed.event_type for hint in COMMAND_EVENT_HINTS
                                 ):
@@ -458,6 +463,69 @@ class BulkLoader:
                 vt_store[file_hash] = vt_data
                 self._update_vt_flag(aggregate, vt_data)
 
+    def _lookup_ip_snapshots(self, session: Session, ip_addresses: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Batch lookup snapshot data from ip_inventory for given IPs.
+
+        Args:
+            session: SQLAlchemy session
+            ip_addresses: List of IP addresses to look up
+
+        Returns:
+            Dict mapping IP address to snapshot data dict with keys:
+            - asn: Integer ASN number
+            - country: 2-letter country code
+            - ip_type: String IP type (e.g., 'RESIDENTIAL', 'DATACENTER', 'VPN')
+            - enrichment_at: Timestamp of enrichment
+
+        Note:
+            Missing IPs return empty dict. IPs without enrichment return
+            partial data (e.g., asn may be None if Cymru failed).
+        """
+        from ..db.models import IPInventory
+
+        if not ip_addresses:
+            return {}
+
+        # Batch query for all IPs - single query for entire batch
+        results = (
+            session.query(
+                IPInventory.ip_address,
+                IPInventory.current_asn,
+                IPInventory.geo_country,
+                IPInventory.ip_type,
+                IPInventory.enrichment_updated_at,
+            )
+            .filter(IPInventory.ip_address.in_(ip_addresses))
+            .all()
+        )
+
+        snapshots: Dict[str, Dict[str, Any]] = {}
+        for row in results:
+            ip, asn, country, ip_type, enriched_at = row
+
+            # Determine primary IP type from SPUR enrichment
+            # ip_type from hybrid property returns the value or array from SPUR
+            # Priority: VPN > TOR > PROXY > DATACENTER > RESIDENTIAL > MOBILE
+            primary_type = None
+            if ip_type:
+                if isinstance(ip_type, str):
+                    # Single type string
+                    primary_type = ip_type
+                elif isinstance(ip_type, list) and ip_type:
+                    # Array of types - prioritize by threat level
+                    type_priority = {"VPN": 1, "TOR": 2, "PROXY": 3, "DATACENTER": 4, "RESIDENTIAL": 5, "MOBILE": 6}
+                    sorted_types = sorted(ip_type, key=lambda t: type_priority.get(t, 99))
+                    primary_type = sorted_types[0] if sorted_types else None
+
+            snapshots[ip] = {
+                "asn": asn,
+                "country": country if country != "XX" else None,  # XX = unknown
+                "ip_type": primary_type,
+                "enrichment_at": enriched_at,
+            }
+
+        return snapshots
+
     def _update_session_flags(self, aggregate: SessionAggregate, enrichment: Mapping[str, Any]) -> None:
         """Set aggregate flags based on session-level enrichment payload."""
         dshield_data = enrichment.get("dshield")
@@ -591,8 +659,16 @@ class BulkLoader:
 
         dialect_name = session.bind.dialect.name if session.bind else ""
         table = cast(Table, SessionSummary.__table__)
+
+        # Batch lookup IP snapshots for all canonical IPs (single query for entire batch)
+        canonical_ips = [agg.canonical_source_ip for agg in aggregates.values() if agg.canonical_source_ip]
+        ip_snapshots = self._lookup_ip_snapshots(session, canonical_ips) if canonical_ips else {}
+
         values = []
         for session_id, agg in aggregates.items():
+            # Get snapshot data for this session's canonical IP
+            snapshot = ip_snapshots.get(agg.canonical_source_ip, {}) if agg.canonical_source_ip else {}
+
             values.append(
                 {
                     "session_id": session_id,
@@ -610,6 +686,12 @@ class BulkLoader:
                     "enrichment": agg.enrichment_payload or None,
                     "ssh_key_injections": agg.ssh_key_injections,
                     "unique_ssh_keys": len(agg.unique_ssh_keys),
+                    # Populate snapshot columns from ip_inventory lookup
+                    "source_ip": agg.canonical_source_ip,  # FK to ip_inventory
+                    "snapshot_asn": snapshot.get("asn"),
+                    "snapshot_country": snapshot.get("country"),
+                    "snapshot_ip_type": snapshot.get("ip_type"),
+                    "enrichment_at": snapshot.get("enrichment_at"),
                 }
             )
 
@@ -633,6 +715,12 @@ class BulkLoader:
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "ssh_key_injections": SessionSummary.ssh_key_injections + excluded.ssh_key_injections,
                     "unique_ssh_keys": excluded.unique_ssh_keys,  # Use the new count
+                    # Snapshots are IMMUTABLE - use COALESCE to preserve existing values (first ingestion wins)
+                    "source_ip": func.coalesce(SessionSummary.source_ip, excluded.source_ip),
+                    "snapshot_asn": func.coalesce(SessionSummary.snapshot_asn, excluded.snapshot_asn),
+                    "snapshot_country": func.coalesce(SessionSummary.snapshot_country, excluded.snapshot_country),
+                    "snapshot_ip_type": func.coalesce(SessionSummary.snapshot_ip_type, excluded.snapshot_ip_type),
+                    "enrichment_at": func.coalesce(SessionSummary.enrichment_at, excluded.enrichment_at),
                     "updated_at": func.now(),
                 },
             )
@@ -659,6 +747,12 @@ class BulkLoader:
                     "enrichment": func.coalesce(excluded.enrichment, SessionSummary.enrichment),
                     "ssh_key_injections": SessionSummary.ssh_key_injections + excluded.ssh_key_injections,
                     "unique_ssh_keys": excluded.unique_ssh_keys,  # Use the new count
+                    # Snapshots are IMMUTABLE - use COALESCE to preserve existing values (first ingestion wins)
+                    "source_ip": func.coalesce(SessionSummary.source_ip, excluded.source_ip),
+                    "snapshot_asn": func.coalesce(SessionSummary.snapshot_asn, excluded.snapshot_asn),
+                    "snapshot_country": func.coalesce(SessionSummary.snapshot_country, excluded.snapshot_country),
+                    "snapshot_ip_type": func.coalesce(SessionSummary.snapshot_ip_type, excluded.snapshot_ip_type),
+                    "enrichment_at": func.coalesce(SessionSummary.enrichment_at, excluded.enrichment_at),
                     "updated_at": func.now(),
                 },
             )
