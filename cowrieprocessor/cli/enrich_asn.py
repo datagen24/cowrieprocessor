@@ -108,6 +108,7 @@ def build_asn_inventory(
 
             # Step 3: Create ASN records in batches
             created_count = 0
+            skipped_count = 0
             now = datetime.now(timezone.utc)
 
             # Use tqdm for progress if enabled
@@ -120,34 +121,92 @@ def build_asn_inventory(
 
                     if not sample_ip:
                         logger.warning(f"No sample IP found for ASN {asn}, skipping")
+                        skipped_count += 1
                         continue
 
-                    # Extract metadata from enrichment JSON
-                    enrichment: Any = sample_ip.enrichment or {}
+                    # Extract metadata from enrichment JSON with defensive parsing
+                    enrichment: Any = sample_ip.enrichment
                     organization_name: str | None = None
                     organization_country: str | None = None
                     rir_registry: str | None = None
 
-                    # Try MaxMind first
-                    if "maxmind" in enrichment and isinstance(enrichment["maxmind"], dict):
-                        organization_name = (
-                            str(enrichment["maxmind"].get("asn_org")) if enrichment["maxmind"].get("asn_org") else None
+                    # Validate enrichment is dict-like before processing
+                    if not isinstance(enrichment, dict):
+                        logger.warning(
+                            f"ASN {asn}: enrichment data is not a dict (type: {type(enrichment).__name__}), "
+                            f"creating record without metadata"
                         )
-                        organization_country = (
-                            str(enrichment["maxmind"].get("country")) if enrichment["maxmind"].get("country") else None
-                        )
+                        enrichment = {}
 
-                    # Fall back to Cymru if MaxMind didn't have it
-                    if "cymru" in enrichment and isinstance(enrichment["cymru"], dict) and not organization_name:
-                        organization_name = (
-                            str(enrichment["cymru"].get("asn_org")) if enrichment["cymru"].get("asn_org") else None
+                    try:
+                        # Try MaxMind first with defensive type checking
+                        if "maxmind" in enrichment:
+                            maxmind_data = enrichment["maxmind"]
+                            if isinstance(maxmind_data, dict):
+                                asn_org = maxmind_data.get("asn_org")
+                                if asn_org is not None and not isinstance(asn_org, str):
+                                    logger.debug(
+                                        f"ASN {asn}: maxmind.asn_org has unexpected type "
+                                        f"{type(asn_org).__name__}, converting to string"
+                                    )
+                                    asn_org = str(asn_org)
+                                organization_name = asn_org if asn_org else None
+
+                                country = maxmind_data.get("country")
+                                if country is not None and not isinstance(country, str):
+                                    logger.debug(
+                                        f"ASN {asn}: maxmind.country has unexpected type "
+                                        f"{type(country).__name__}, converting to string"
+                                    )
+                                    country = str(country)
+                                organization_country = country if country else None
+                            else:
+                                logger.debug(
+                                    f"ASN {asn}: maxmind data is not a dict (type: {type(maxmind_data).__name__})"
+                                )
+
+                        # Fall back to Cymru if MaxMind didn't have it
+                        if "cymru" in enrichment and not organization_name:
+                            cymru_data = enrichment["cymru"]
+                            if isinstance(cymru_data, dict):
+                                asn_org = cymru_data.get("asn_org")
+                                if asn_org is not None and not isinstance(asn_org, str):
+                                    logger.debug(
+                                        f"ASN {asn}: cymru.asn_org has unexpected type "
+                                        f"{type(asn_org).__name__}, converting to string"
+                                    )
+                                    asn_org = str(asn_org)
+                                organization_name = asn_org if asn_org else None
+
+                                country = cymru_data.get("country")
+                                if country is not None and not isinstance(country, str):
+                                    logger.debug(
+                                        f"ASN {asn}: cymru.country has unexpected type "
+                                        f"{type(country).__name__}, converting to string"
+                                    )
+                                    country = str(country)
+                                organization_country = country if country else None
+
+                                registry = cymru_data.get("registry")
+                                if registry is not None and not isinstance(registry, str):
+                                    logger.debug(
+                                        f"ASN {asn}: cymru.registry has unexpected type "
+                                        f"{type(registry).__name__}, converting to string"
+                                    )
+                                    registry = str(registry)
+                                rir_registry = registry if registry else None
+                            else:
+                                logger.debug(f"ASN {asn}: cymru data is not a dict (type: {type(cymru_data).__name__})")
+
+                    except (KeyError, TypeError, AttributeError) as parse_error:
+                        logger.warning(
+                            f"ASN {asn}: failed to parse enrichment metadata: {parse_error}, "
+                            f"creating record without metadata"
                         )
-                        organization_country = (
-                            str(enrichment["cymru"].get("country")) if enrichment["cymru"].get("country") else None
-                        )
-                        rir_registry = (
-                            str(enrichment["cymru"].get("registry")) if enrichment["cymru"].get("registry") else None
-                        )
+                        # Reset to None to ensure record creation with empty metadata
+                        organization_name = None
+                        organization_country = None
+                        rir_registry = None
 
                     # Create ASN inventory record
                     asn_record = ASNInventory(
@@ -174,11 +233,19 @@ def build_asn_inventory(
 
                 except Exception as e:
                     logger.error(f"Error creating ASN {asn}: {e}")
+                    skipped_count += 1
                     continue
 
             # Final commit
             session.commit()
-            logger.info(f"Successfully created {created_count} ASN inventory records")
+
+            if skipped_count > 0:
+                logger.info(
+                    f"Successfully created {created_count} ASN inventory records "
+                    f"({skipped_count} skipped due to errors)"
+                )
+            else:
+                logger.info(f"Successfully created {created_count} ASN inventory records")
 
             return created_count
 
