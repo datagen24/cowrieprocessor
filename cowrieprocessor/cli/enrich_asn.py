@@ -8,17 +8,21 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import func
 from tqdm import tqdm
 
 from cowrieprocessor.db import apply_migrations, create_session_maker
+from cowrieprocessor.db.engine import create_engine_from_settings
 from cowrieprocessor.db.models import ASNInventory, IPInventory
+from cowrieprocessor.settings import DatabaseSettings
+
+from .db_config import add_database_argument, resolve_database_settings
 
 logger = logging.getLogger(__name__)
 
 
 def build_asn_inventory(
-    db_url: str,
+    db_settings: DatabaseSettings,
     batch_size: int = 1000,
     progress: bool = True,
     verbose: bool = False,
@@ -30,7 +34,7 @@ def build_asn_inventory(
     metadata extracted from enrichment JSON and calculates statistics.
 
     Args:
-        db_url: Database URL for connection
+        db_settings: Database settings object (from sensors.toml or CLI args)
         batch_size: Number of records to process per batch
         progress: Show progress bar
         verbose: Enable detailed logging
@@ -39,8 +43,10 @@ def build_asn_inventory(
         Number of ASN records created
 
     Example:
+        >>> from cowrieprocessor.settings import load_database_settings
+        >>> db_settings = load_database_settings()
         >>> count = build_asn_inventory(
-        ...     db_url="postgresql://user:pass@host/db",
+        ...     db_settings=db_settings,
         ...     batch_size=1000,
         ...     progress=True,
         ... )
@@ -54,7 +60,7 @@ def build_asn_inventory(
 
     try:
         # Connect to database
-        engine = create_engine(db_url)
+        engine = create_engine_from_settings(db_settings)
         session_maker = create_session_maker(engine)
 
         # Apply migrations if needed
@@ -261,24 +267,23 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Build ASN inventory from IP data
-  cowrie-enrich build-asn-inventory --db postgresql://user:pass@host/db
+  # Build ASN inventory from IP data (uses sensors.toml automatically)
+  cowrie-enrich-asn --progress --verbose
 
-  # With custom batch size and progress tracking
-  cowrie-enrich build-asn-inventory --db sqlite:////path/to/db.sqlite \\
-      --batch-size 500 --progress
+  # With explicit database URL
+  cowrie-enrich-asn --db-url postgresql://user:pass@host/db --progress
 
-  # With status output
-  cowrie-enrich build-asn-inventory --db postgresql://... \\
-      --status-dir /var/log/cowrie --verbose
+  # With custom batch size
+  cowrie-enrich-asn --db-url sqlite:////path/to/db.sqlite --batch-size 500 --progress
         """,
     )
 
-    parser.add_argument(
-        "--db",
-        required=True,
-        help="Database URL (e.g., postgresql://user:pass@host:port/database or sqlite:////path/to/db.sqlite)",
+    # Add standard database argument (--db-url, with sensors.toml fallback)
+    add_database_argument(
+        parser,
+        help_text="Database connection URL. If not provided, reads from sensors.toml config file.",
     )
+
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -299,9 +304,12 @@ Examples:
     args = parser.parse_args()
 
     try:
-        # Build ASN inventory (db_url passed directly)
+        # Resolve database settings from --db-url or sensors.toml
+        db_settings = resolve_database_settings(args.db_url)
+
+        # Build ASN inventory
         created = build_asn_inventory(
-            db_url=args.db,
+            db_settings=db_settings,
             batch_size=args.batch_size,
             progress=args.progress,
             verbose=args.verbose,
