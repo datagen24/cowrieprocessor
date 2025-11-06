@@ -34,16 +34,19 @@ Example:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, attributes
 
-from cowrieprocessor.db.models import IPInventory, SessionSummary
+from cowrieprocessor.db.models import ASNInventory, IPInventory, SessionSummary
 from cowrieprocessor.enrichment.cymru_client import CymruClient, CymruResult
 from cowrieprocessor.enrichment.greynoise_client import GreyNoiseClient, GreyNoiseResult
 from cowrieprocessor.enrichment.maxmind_client import MaxMindClient, MaxMindResult
+from cowrieprocessor.telemetry import start_span
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,10 @@ class CascadeStats:
         cymru_hits: Number of successful Cymru lookups
         greynoise_hits: Number of successful GreyNoise lookups
         errors: Number of errors encountered during enrichment
+        asn_records_created: Number of new ASN records created in inventory
+        asn_records_updated: Number of existing ASN records updated
+        asn_operation_duration_ms: Total time spent on ASN operations (ms)
+        asn_unique_seen: Set of unique ASN numbers processed in this session
     """
 
     total_ips: int = 0
@@ -67,6 +74,12 @@ class CascadeStats:
     cymru_hits: int = 0
     greynoise_hits: int = 0
     errors: int = 0
+
+    # ASN inventory metrics
+    asn_records_created: int = 0
+    asn_records_updated: int = 0
+    asn_operation_duration_ms: float = 0.0
+    asn_unique_seen: set[int] = field(default_factory=set)
 
 
 class CascadeEnricher:
@@ -164,6 +177,15 @@ class CascadeEnricher:
                 logger.debug(f"MaxMind hit for {ip_address}: {maxmind_result.country_code}, ASN {maxmind_result.asn}")
                 self._stats.maxmind_hits += 1
 
+                # Create or update ASN inventory record if ASN present
+                if maxmind_result.asn:
+                    self._ensure_asn_inventory(
+                        asn=maxmind_result.asn,
+                        organization_name=maxmind_result.asn_org,
+                        organization_country=maxmind_result.country_code,
+                        rir_registry=None,  # MaxMind doesn't provide RIR
+                    )
+
             # Step 2b: Cymru fallback if ASN missing
             if not maxmind_result or maxmind_result.asn is None:
                 logger.debug(f"ASN missing for {ip_address}, trying Cymru")
@@ -171,6 +193,14 @@ class CascadeEnricher:
                 if cymru_result and cymru_result.asn:
                     logger.debug(f"Cymru hit for {ip_address}: ASN {cymru_result.asn}")
                     self._stats.cymru_hits += 1
+
+                    # Create or update ASN inventory record
+                    self._ensure_asn_inventory(
+                        asn=cymru_result.asn,
+                        organization_name=cymru_result.asn_org,
+                        organization_country=cymru_result.country_code,
+                        rir_registry=cymru_result.registry,
+                    )
 
             # Step 2c: GreyNoise for scanner classification (independent)
             try:
@@ -430,6 +460,26 @@ class CascadeEnricher:
         """Reset cascade statistics counters."""
         self._stats = CascadeStats()
 
+    def get_asn_inventory_size(self) -> int:
+        """Query current ASN inventory size from database.
+
+        This is an expensive operation (database query) and should be called
+        sparingly (e.g., once per enrichment batch, not per IP).
+
+        Returns:
+            Total number of ASN records in asn_inventory table
+
+        Example:
+            >>> cascade = CascadeEnricher(...)
+            >>> total_asns = cascade.get_asn_inventory_size()
+            >>> print(f"Total ASN inventory: {total_asns}")
+            Total ASN inventory: 12345
+        """
+        from sqlalchemy import func
+
+        count = self.session.query(func.count(ASNInventory.asn_number)).scalar()
+        return count or 0
+
     # Private helper methods
 
     def _is_fresh(self, inventory: IPInventory) -> bool:
@@ -586,6 +636,117 @@ class CascadeEnricher:
             created_at=now,
             updated_at=now,
         )
+
+    def _ensure_asn_inventory(
+        self,
+        asn: int,
+        organization_name: str | None,
+        organization_country: str | None,
+        rir_registry: str | None,
+    ) -> ASNInventory:
+        """Create or update ASN inventory record with row-level locking.
+
+        This method ensures the ASN inventory table stays synchronized with IP enrichment data.
+        It uses SELECT FOR UPDATE to prevent race conditions when multiple processes enrich
+        IPs from the same ASN concurrently.
+
+        Telemetry: Emits OpenTelemetry spans and updates CascadeStats metrics for monitoring.
+
+        Args:
+            asn: Autonomous System Number (e.g., 15169 for Google)
+            organization_name: ASN owner organization name (e.g., "GOOGLE")
+            organization_country: ISO 3166-1 alpha-2 country code (e.g., "US")
+            rir_registry: Regional Internet Registry (ARIN, RIPE, APNIC, LACNIC, AFRINIC)
+
+        Returns:
+            ASNInventory object (either newly created or updated existing)
+
+        Example:
+            >>> asn_record = cascade._ensure_asn_inventory(
+            ...     asn=15169,
+            ...     organization_name="GOOGLE",
+            ...     organization_country="US",
+            ...     rir_registry=None
+            ... )
+            >>> print(f"ASN {asn_record.asn_number}: {asn_record.organization_name}")
+            ASN 15169: GOOGLE
+        """
+        start_time = time.perf_counter()
+
+        with start_span(
+            "cascade_enricher.ensure_asn_inventory",
+            attributes={
+                "asn.number": asn,
+                "asn.organization": organization_name or "unknown",
+                "asn.country": organization_country or "unknown",
+                "asn.rir": rir_registry or "unknown",
+            },
+        ) as span:
+            now = datetime.now(timezone.utc)
+
+            # Check if ASN exists (with row-level lock for concurrency)
+            stmt = select(ASNInventory).where(ASNInventory.asn_number == asn).with_for_update()
+            existing = self.session.execute(stmt).scalar_one_or_none()
+
+            if existing:
+                # Update existing record
+                existing.last_seen = now
+                existing.updated_at = now
+
+                # Update organization metadata if we have better data
+                if organization_name and not existing.organization_name:
+                    existing.organization_name = organization_name
+                if organization_country and not existing.organization_country:
+                    existing.organization_country = organization_country
+                if rir_registry and not existing.rir_registry:
+                    existing.rir_registry = rir_registry
+
+                logger.debug(f"Updated ASN {asn} ({existing.organization_name})")
+                self.session.flush()
+
+                # Record metrics
+                self._stats.asn_records_updated += 1
+                if span:
+                    span.set_attribute("asn.operation", "update")
+
+                result = existing
+            else:
+                # Create new ASN record
+                new_asn = ASNInventory(
+                    asn_number=asn,
+                    organization_name=organization_name,
+                    organization_country=organization_country,
+                    rir_registry=rir_registry,
+                    first_seen=now,
+                    last_seen=now,
+                    unique_ip_count=0,  # Will be updated by database triggers or queries
+                    total_session_count=0,
+                    enrichment={},
+                    created_at=now,
+                    updated_at=now,
+                )
+                self.session.add(new_asn)
+                self.session.flush()
+                logger.debug(f"Created ASN {asn} ({organization_name})")
+
+                # Record metrics
+                self._stats.asn_records_created += 1
+                if span:
+                    span.set_attribute("asn.operation", "create")
+
+                result = new_asn
+
+            # Track unique ASNs seen (for gauge metric)
+            self._stats.asn_unique_seen.add(asn)
+
+            # Record operation duration
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._stats.asn_operation_duration_ms += duration_ms
+
+            if span:
+                span.set_attribute("asn.operation_duration_ms", duration_ms)
+
+            return result
 
 
 __all__ = ["CascadeEnricher", "CascadeStats"]
