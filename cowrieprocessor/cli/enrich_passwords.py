@@ -1435,7 +1435,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             # IP/ASN inventory enrichment (if --ips flag provided)
             ip_count = 0
             ip_limit = args.ips
-            if ip_limit != 0:
+            if ip_limit >= 0:
                 logger.info("Starting IP/ASN inventory enrichment using CascadeEnricher...")
 
                 # Create session for database operations
@@ -1468,12 +1468,14 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
 
                         from ..db.models import IPInventory
 
-                        # Subquery: IPs with fresh enrichment (<30 days old)
+                        # Subquery: IPs with fresh enrichment (<7 days old)
+                        # Use 7-day threshold to match GreyNoise TTL (minimum of all sources)
+                        # This ensures we query IPs that _is_fresh() will actually consider stale
                         fresh_ips = (
                             session.query(IPInventory.ip_address)
                             .filter(
                                 IPInventory.enrichment_updated_at.isnot(None),
-                                IPInventory.enrichment_updated_at >= func.current_date() - literal(30),
+                                IPInventory.enrichment_updated_at >= func.current_date() - literal(7),
                             )
                             .subquery()
                         )
@@ -1527,7 +1529,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
 
                         logger.info(f"IP/ASN inventory enrichment: {ip_count} IPs processed, {ip_errors} errors")
             else:
-                logger.info("IP/ASN inventory enrichment disabled (--ips not provided or set to 0)")
+                logger.info("IP/ASN inventory enrichment disabled (--ips set to -1)")
 
             # Record final status
             status_emitter.record_metrics(
@@ -1537,7 +1539,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                     "ips_processed": ip_count,
                     "sessions_total": session_limit if session_limit > 0 else "unlimited",
                     "files_total": file_limit if file_limit > 0 else "unlimited",
-                    "ips_total": ip_limit if ip_limit > 0 else "disabled",
+                    "ips_total": ip_limit if ip_limit > 0 else ("all_stale" if ip_limit == 0 else "disabled"),
                     "enrichment_stats": enrichment_stats,
                     "cache_snapshot": cache_manager.snapshot(),
                 }
@@ -1698,8 +1700,8 @@ Examples:
     refresh_parser.add_argument(
         '--ips',
         type=int,
-        default=0,
-        help='Number of IPs to enrich in ip_inventory/asn_inventory (0 for all stale IPs, default: 0 disabled)',
+        default=-1,
+        help='Number of IPs to enrich in ip_inventory/asn_inventory (0 for all stale IPs, -1 to disable, default: -1)',
     )
     refresh_parser.add_argument(
         '--commit-interval', type=int, default=100, help='Commit after this many updates (default: 100)'
