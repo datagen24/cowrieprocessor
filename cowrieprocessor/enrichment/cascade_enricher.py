@@ -37,10 +37,11 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, attributes
 
-from cowrieprocessor.db.models import IPInventory, SessionSummary
+from cowrieprocessor.db.models import ASNInventory, IPInventory, SessionSummary
 from cowrieprocessor.enrichment.cymru_client import CymruClient, CymruResult
 from cowrieprocessor.enrichment.greynoise_client import GreyNoiseClient, GreyNoiseResult
 from cowrieprocessor.enrichment.maxmind_client import MaxMindClient, MaxMindResult
@@ -164,6 +165,15 @@ class CascadeEnricher:
                 logger.debug(f"MaxMind hit for {ip_address}: {maxmind_result.country_code}, ASN {maxmind_result.asn}")
                 self._stats.maxmind_hits += 1
 
+                # Create or update ASN inventory record if ASN present
+                if maxmind_result.asn:
+                    self._ensure_asn_inventory(
+                        asn=maxmind_result.asn,
+                        organization_name=maxmind_result.asn_org,
+                        organization_country=maxmind_result.country_code,
+                        rir_registry=None,  # MaxMind doesn't provide RIR
+                    )
+
             # Step 2b: Cymru fallback if ASN missing
             if not maxmind_result or maxmind_result.asn is None:
                 logger.debug(f"ASN missing for {ip_address}, trying Cymru")
@@ -171,6 +181,14 @@ class CascadeEnricher:
                 if cymru_result and cymru_result.asn:
                     logger.debug(f"Cymru hit for {ip_address}: ASN {cymru_result.asn}")
                     self._stats.cymru_hits += 1
+
+                    # Create or update ASN inventory record
+                    self._ensure_asn_inventory(
+                        asn=cymru_result.asn,
+                        organization_name=cymru_result.asn_org,
+                        organization_country=cymru_result.country_code,
+                        rir_registry=cymru_result.registry,
+                    )
 
             # Step 2c: GreyNoise for scanner classification (independent)
             try:
@@ -586,6 +604,80 @@ class CascadeEnricher:
             created_at=now,
             updated_at=now,
         )
+
+    def _ensure_asn_inventory(
+        self,
+        asn: int,
+        organization_name: str | None,
+        organization_country: str | None,
+        rir_registry: str | None,
+    ) -> ASNInventory:
+        """Create or update ASN inventory record with row-level locking.
+
+        This method ensures the ASN inventory table stays synchronized with IP enrichment data.
+        It uses SELECT FOR UPDATE to prevent race conditions when multiple processes enrich
+        IPs from the same ASN concurrently.
+
+        Args:
+            asn: Autonomous System Number (e.g., 15169 for Google)
+            organization_name: ASN owner organization name (e.g., "GOOGLE")
+            organization_country: ISO 3166-1 alpha-2 country code (e.g., "US")
+            rir_registry: Regional Internet Registry (ARIN, RIPE, APNIC, LACNIC, AFRINIC)
+
+        Returns:
+            ASNInventory object (either newly created or updated existing)
+
+        Example:
+            >>> asn_record = cascade._ensure_asn_inventory(
+            ...     asn=15169,
+            ...     organization_name="GOOGLE",
+            ...     organization_country="US",
+            ...     rir_registry=None
+            ... )
+            >>> print(f"ASN {asn_record.asn_number}: {asn_record.organization_name}")
+            ASN 15169: GOOGLE
+        """
+        now = datetime.now(timezone.utc)
+
+        # Check if ASN exists (with row-level lock for concurrency)
+        stmt = select(ASNInventory).where(ASNInventory.asn_number == asn).with_for_update()
+        existing = self.session.execute(stmt).scalar_one_or_none()
+
+        if existing:
+            # Update existing record
+            existing.last_seen = now
+            existing.updated_at = now
+
+            # Update organization metadata if we have better data
+            if organization_name and not existing.organization_name:
+                existing.organization_name = organization_name
+            if organization_country and not existing.organization_country:
+                existing.organization_country = organization_country
+            if rir_registry and not existing.rir_registry:
+                existing.rir_registry = rir_registry
+
+            logger.debug(f"Updated ASN {asn} ({existing.organization_name})")
+            self.session.flush()
+            return existing
+        else:
+            # Create new ASN record
+            new_asn = ASNInventory(
+                asn_number=asn,
+                organization_name=organization_name,
+                organization_country=organization_country,
+                rir_registry=rir_registry,
+                first_seen=now,
+                last_seen=now,
+                unique_ip_count=0,  # Will be updated by database triggers or queries
+                total_session_count=0,
+                enrichment={},
+                created_at=now,
+                updated_at=now,
+            )
+            self.session.add(new_asn)
+            self.session.flush()
+            logger.debug(f"Created ASN {asn} ({organization_name})")
+            return new_asn
 
 
 __all__ = ["CascadeEnricher", "CascadeStats"]
