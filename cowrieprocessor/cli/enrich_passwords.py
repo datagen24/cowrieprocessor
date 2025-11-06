@@ -903,8 +903,8 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
             if dialect_name == "postgresql":
                 # For PostgreSQL, get the raw payload and sanitize it
                 query = """
-                    SELECT payload FROM raw_events 
-                    WHERE session_id = :session_id 
+                    SELECT payload FROM raw_events
+                    WHERE session_id = :session_id
                     AND payload::text LIKE '%src_ip%'
                     LIMIT 1
                 """
@@ -926,8 +926,8 @@ def _extract_ip_from_raw_events(engine: Engine, session_id: str) -> Optional[str
                 # For SQLite, use json_extract
                 query = """
                     SELECT json_extract(payload, '$.src_ip') as src_ip
-                    FROM raw_events 
-                    WHERE session_id = :session_id 
+                    FROM raw_events
+                    WHERE session_id = :session_id
                     AND json_extract(payload, '$.src_ip') IS NOT NULL
                     LIMIT 1
                 """
@@ -996,12 +996,12 @@ def table_exists(engine: Engine, table_name: str) -> bool:
 
     if dialect_name == "postgresql":
         query = """
-            SELECT 1 FROM information_schema.tables 
+            SELECT 1 FROM information_schema.tables
             WHERE table_name = :table_name
         """
     else:
         query = """
-            SELECT 1 FROM sqlite_master 
+            SELECT 1 FROM sqlite_master
             WHERE type='table' AND name = :table_name
         """
 
@@ -1023,7 +1023,7 @@ def update_session(
     """
     # First, get the existing enrichment data
     get_sql = """
-        SELECT enrichment FROM session_summaries 
+        SELECT enrichment FROM session_summaries
         WHERE session_id = :session_id
     """
 
@@ -1432,19 +1432,120 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             elif file_limit != 0:
                 logger.info("No VirusTotal API key available; skipping file enrichment refresh")
 
+            # IP/ASN inventory enrichment (if --ips flag provided)
+            ip_count = 0
+            ip_limit = args.ips
+            if ip_limit != 0:
+                logger.info("Starting IP/ASN inventory enrichment using CascadeEnricher...")
+
+                # Create session for database operations
+                session_maker = create_session_maker(engine)
+                with session_maker() as session:
+                    # Create cascade enricher with factory function
+                    try:
+                        from ..enrichment.cascade_factory import create_cascade_enricher
+
+                        # Filter out None values for type safety (factory expects dict[str, str])
+                        enricher_config = {k: v for k, v in resolved_credentials.items() if v is not None}
+
+                        cascade = create_cascade_enricher(
+                            cache_dir=Path(args.cache_dir),
+                            db_session=session,
+                            config=enricher_config,
+                            maxmind_license_key=resolved_credentials.get("maxmind_license_key"),
+                            enable_greynoise=bool(resolved_credentials.get("greynoise_api")),
+                        )
+                        logger.info("CascadeEnricher initialized successfully")
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize CascadeEnricher: {e}")
+                        logger.warning("Skipping IP/ASN inventory enrichment")
+                        cascade = None
+
+                    if cascade:
+                        # Query unique source IPs from session_summaries that aren't in ip_inventory
+                        # or have stale enrichment data (>30 days old)
+                        from sqlalchemy import func, literal
+
+                        from ..db.models import IPInventory
+
+                        # Subquery: IPs with fresh enrichment (<30 days old)
+                        fresh_ips = (
+                            session.query(IPInventory.ip_address)
+                            .filter(
+                                IPInventory.enrichment_updated_at.isnot(None),
+                                IPInventory.enrichment_updated_at >= func.current_date() - literal(30),
+                            )
+                            .subquery()
+                        )
+
+                        # Main query: IPs not in fresh_ips subquery
+                        query = session.query(SessionSummary.source_ip).distinct()
+                        query = query.filter(~SessionSummary.source_ip.in_(session.query(fresh_ips.c.ip_address)))
+
+                        if ip_limit > 0:
+                            query = query.limit(ip_limit)
+
+                        ips_to_enrich = [row[0] for row in query.all()]
+                        logger.info(f"Found {len(ips_to_enrich)} IPs requiring enrichment")
+
+                        # Enrich each IP
+                        ip_errors = 0
+                        for ip_address in ips_to_enrich:
+                            try:
+                                ip_inventory = cascade.enrich_ip(ip_address)
+                                ip_count += 1
+
+                                if ip_count % args.commit_interval == 0:
+                                    session.commit()
+                                    logger.info(
+                                        f"[ips] committed {ip_count} rows "
+                                        f"(ASN={ip_inventory.current_asn if ip_inventory else 'N/A'}, "
+                                        f"Country={ip_inventory.geo_country if ip_inventory else 'N/A'})"
+                                    )
+
+                                # Update status every 10 IPs
+                                if ip_count % 10 == 0:
+                                    status_emitter.record_metrics(
+                                        {
+                                            "sessions_processed": session_count,
+                                            "files_processed": file_count,
+                                            "ips_processed": ip_count,
+                                            "ips_total": len(ips_to_enrich),
+                                            "ip_errors": ip_errors,
+                                        }
+                                    )
+
+                            except Exception as e:
+                                logger.warning(f"Failed to enrich IP {ip_address}: {e}")
+                                ip_errors += 1
+                                continue
+
+                        # Commit any remaining IPs
+                        if ip_count % args.commit_interval:
+                            session.commit()
+                            logger.info(f"[ips] committed tail {ip_count % args.commit_interval}")
+
+                        logger.info(f"IP/ASN inventory enrichment: {ip_count} IPs processed, {ip_errors} errors")
+            else:
+                logger.info("IP/ASN inventory enrichment disabled (--ips not provided or set to 0)")
+
             # Record final status
             status_emitter.record_metrics(
                 {
                     "sessions_processed": session_count,
                     "files_processed": file_count,
+                    "ips_processed": ip_count,
                     "sessions_total": session_limit if session_limit > 0 else "unlimited",
                     "files_total": file_limit if file_limit > 0 else "unlimited",
+                    "ips_total": ip_limit if ip_limit > 0 else "disabled",
                     "enrichment_stats": enrichment_stats,
                     "cache_snapshot": cache_manager.snapshot(),
                 }
             )
 
-            logger.info(f"Enrichment refresh completed: {session_count} sessions, {file_count} files updated")
+            logger.info(
+                f"Enrichment refresh completed: {session_count} sessions, {file_count} files, {ip_count} IPs updated"
+            )
             return 0
 
     except Exception as e:
@@ -1467,19 +1568,19 @@ def main() -> int:
 Examples:
   # Enrich passwords for last 30 days
   cowrie-enrich passwords --last-days 30
-  
+
   # Enrich passwords for specific date range
   cowrie-enrich passwords --start-date 2025-09-01 --end-date 2025-09-30
-  
+
   # Enrich passwords for specific sensor
   cowrie-enrich passwords --sensor prod-sensor-01 --last-days 7
-  
+
   # Force re-enrichment of already-enriched sessions
   cowrie-enrich passwords --last-days 30 --force
-  
+
   # Refresh enrichment data for existing sessions and files
   cowrie-enrich refresh --sessions 1000 --files 500
-  
+
   # Refresh all enrichment data (sessions and files)
   cowrie-enrich refresh --sessions 0 --files 0 --vt-api-key $VT_API_KEY --dshield-email your.email@example.com
         """,
@@ -1593,6 +1694,12 @@ Examples:
     )
     refresh_parser.add_argument(
         '--files', type=int, default=500, help='Number of files to refresh (0 for all, default: 500)'
+    )
+    refresh_parser.add_argument(
+        '--ips',
+        type=int,
+        default=0,
+        help='Number of IPs to enrich in ip_inventory/asn_inventory (0 for all stale IPs, default: 0 disabled)',
     )
     refresh_parser.add_argument(
         '--commit-interval', type=int, default=100, help='Commit after this many updates (default: 100)'
