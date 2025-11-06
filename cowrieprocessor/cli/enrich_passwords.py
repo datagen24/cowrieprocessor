@@ -1468,14 +1468,14 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
 
                         from ..db.models import IPInventory
 
-                        # Subquery: IPs with fresh enrichment (<7 days old)
-                        # Use 7-day threshold to match GreyNoise TTL (minimum of all sources)
-                        # This ensures we query IPs that _is_fresh() will actually consider stale
+                        # Subquery: IPs with recent enrichment attempts (<30 days)
+                        # This is a "candidate selection" threshold - _is_fresh() does the real check
+                        # _is_fresh() will return False if MaxMind data is missing (ignoring TTL)
                         fresh_ips = (
                             session.query(IPInventory.ip_address)
                             .filter(
                                 IPInventory.enrichment_updated_at.isnot(None),
-                                IPInventory.enrichment_updated_at >= func.current_date() - literal(7),
+                                IPInventory.enrichment_updated_at >= func.current_date() - literal(30),
                             )
                             .subquery()
                         )

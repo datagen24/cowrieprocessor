@@ -483,13 +483,19 @@ class CascadeEnricher:
     # Private helper methods
 
     def _is_fresh(self, inventory: IPInventory) -> bool:
-        """Check if cached data is within TTL for each source.
+        """Check if cached data has ALL cascade sources AND is within TTL.
+
+        For CASCADE enrichment, we require MaxMind data at minimum (always available
+        offline). If MaxMind is missing, we need to enrich regardless of TTL.
+
+        For optional sources (Cymru, GreyNoise), we only check TTL if they're present.
+        Missing optional sources don't trigger re-enrichment (they may have failed before).
 
         Args:
             inventory: IPInventory object to check freshness
 
         Returns:
-            True if all cached data is fresh, False if any is stale
+            True if has required sources AND fresh, False if missing sources OR stale
         """
         now = datetime.now(timezone.utc)
         enrichment: dict[str, dict[str, str | int | float | bool | None]] = inventory.enrichment or {}
@@ -498,14 +504,20 @@ class CascadeEnricher:
         if not enrichment:
             return False
 
-        # MaxMind: Check database age (updated weekly)
-        if "maxmind" in enrichment:
-            db_age = self.maxmind.get_database_age()
-            if db_age and db_age >= timedelta(days=7):
-                logger.debug(f"MaxMind data stale for {inventory.ip_address} (DB age: {db_age.days} days)")
-                return False
+        # REQUIRED: MaxMind data (offline DB, always available)
+        # If missing, we need to enrich - ignore TTL
+        if "maxmind" not in enrichment:
+            logger.debug(f"Missing MaxMind data for {inventory.ip_address} - needs enrichment")
+            return False
 
-        # Cymru: 90-day TTL
+        # Check MaxMind freshness (database age)
+        db_age = self.maxmind.get_database_age()
+        if db_age and db_age >= timedelta(days=7):
+            logger.debug(f"MaxMind data stale for {inventory.ip_address} (DB age: {db_age.days} days)")
+            return False
+
+        # OPTIONAL: Cymru (only check TTL if present)
+        # If missing, don't force re-enrichment (may have failed before due to API issues)
         if "cymru" in enrichment:
             if not inventory.enrichment_updated_at:
                 return False
@@ -518,7 +530,8 @@ class CascadeEnricher:
                 logger.debug(f"Cymru data stale for {inventory.ip_address} (age: {age.days} days)")
                 return False
 
-        # GreyNoise: 7-day TTL
+        # OPTIONAL: GreyNoise (only check TTL if present)
+        # If missing, don't force re-enrichment (may have hit quota before)
         if "greynoise" in enrichment:
             if not inventory.enrichment_updated_at:
                 return False
