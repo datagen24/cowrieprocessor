@@ -1600,6 +1600,22 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                                         session.query(IPInventory).filter(IPInventory.ip_address == ip_address).first()
                                     )
 
+                                    # Ensure ASN exists in asn_inventory before setting foreign key
+                                    if maxmind_result and maxmind_result.asn:
+                                        cascade._ensure_asn_inventory(
+                                            asn=maxmind_result.asn,
+                                            organization_name=maxmind_result.asn_org,
+                                            organization_country=maxmind_result.country_code,
+                                            rir_registry=None,  # MaxMind doesn't provide RIR
+                                        )
+                                    elif cymru_result and cymru_result.asn:
+                                        cascade._ensure_asn_inventory(
+                                            asn=cymru_result.asn,
+                                            organization_name=cymru_result.asn_org,
+                                            organization_country=cymru_result.country_code,
+                                            rir_registry=cymru_result.registry,
+                                        )
+
                                     # Merge results
                                     merged = cascade._merge_results(
                                         cached, maxmind_result, cymru_result, greynoise_result, ip_address
@@ -1650,6 +1666,8 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                                 except Exception as e:
                                     logger.warning(f"Failed to enrich IP {ip_address}: {e}")
                                     ip_errors += 1
+                                    # Rollback the session to reset state after error
+                                    session.rollback()
                                     continue
 
                             # Commit any remaining IPs
