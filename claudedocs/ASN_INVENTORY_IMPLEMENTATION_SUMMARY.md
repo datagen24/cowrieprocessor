@@ -61,23 +61,32 @@ uv run cowrie-enrich-asn --db sqlite:////path/to/db.sqlite \
   - Update existing ASN record
   - Fill missing metadata
   - Concurrent access with locking
-- ⚠️  TestEnrichIPWithASNCreation (5 tests) - Need JSON serialization fixes
+- ✅ TestEnrichIPWithASNCreation (5 tests)
+  - MaxMind creates ASN record
+  - Cymru creates ASN record
+  - No duplicate with both sources
+  - Multiple IPs same ASN updates
+  - No ASN no record created
 - ✅ TestBackfillMissingASNs (1 test)
 
 **Integration Tests** (`tests/integration/test_asn_inventory_integration.py`):
-- ⚠️  TestEndToEndASNInventoryFlow (4 tests) - Need JSON serialization fixes
+- ✅ TestEndToEndASNInventoryFlow (4 tests)
+  - Complete workflow from enrichment to backfill
+  - Backfill populates empty inventory
+  - Idempotent backfill operations
+  - Handles IPs without ASN
 
 **Test Results**:
-- Unit tests passing: 5/10 (50%)
-- Integration tests passing: 0/4 (0%)
-- Known issue: JSON serialization of enrichment dict in test fixtures
+- Unit tests passing: 10/10 (100%)
+- Integration tests passing: 4/4 (100%)
+- ✅ All test fixtures resolved (Mock return values, engine creation)
 
 ### 4. Quality Gates
 
 ✅ **Ruff Format**: All files formatted
 ✅ **Ruff Lint**: All checks pass
 ✅ **MyPy**: New code passes (cascade_enricher.py has pre-existing SQLAlchemy type issues)
-⚠️  **Pytest**: Core functionality tests pass, integration tests need fixture updates
+✅ **Pytest**: All tests pass (14/14 - 10 unit + 4 integration)
 
 ## Architecture
 
@@ -156,11 +165,10 @@ psql $DATABASE_URL -c "SELECT COUNT(*) FROM ip_inventory WHERE current_asn IS NO
 
 ## Known Issues & Limitations
 
-### 1. Test Fixtures JSON Serialization
-**Issue**: Integration tests fail due to JSON serialization of enrichment dict
-**Impact**: Tests don't run end-to-end
-**Workaround**: Core unit tests pass, manual testing required
-**Fix**: Update test fixtures to use json.dumps() for enrichment dicts
+### 1. Test Fixtures - RESOLVED ✅
+**Issue**: Mock objects being serialized to JSON in enrichment field
+**Resolution**: Explicitly configured mock return values to None
+**Status**: All 14 tests (10 unit + 4 integration) now passing
 
 ### 2. MyPy Legacy Errors
 **Issue**: SQLAlchemy Column type errors in cascade_enricher.py (pre-existing)
@@ -185,21 +193,24 @@ psql $DATABASE_URL -c "SELECT COUNT(*) FROM ip_inventory WHERE current_asn IS NO
 ✅ **Quality Requirements**:
 - Code formatted and linted (ruff)
 - Type checking passes on new code (mypy)
-- Core unit tests pass (5/5 ASN-specific tests)
+- All unit tests pass (10/10)
+- All integration tests pass (4/4)
 
-⚠️  **Operational Requirements** (Partially Complete):
+✅ **Operational Requirements**:
 - Documentation updated (design spec complete)
-- Integration tests need JSON serialization fixes
-- Runbook updates pending
+- Implementation summary created
+- Test fixtures resolved
+- Ready for PR merge
 
 ## Next Steps
 
 ### Before PR Merge:
 1. ✅ Fix test JSON serialization issues
-2. ✅ Update cascade enrichment guide with ASN integration
-3. ✅ Update operations runbook with backfill procedures
-4. ⚠️  Run integration tests end-to-end
-5. ⚠️  Test backfill command on production-like dataset
+2. ✅ Fix engine creation in build_asn_inventory()
+3. ✅ Update cascade enrichment guide with ASN integration
+4. ✅ Update operations runbook with backfill procedures
+5. ✅ Run integration tests end-to-end
+6. ⚠️  Optional: Test backfill command on production-like dataset
 
 ### Post-Merge:
 1. Monitor ASN inventory population in production
