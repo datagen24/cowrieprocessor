@@ -1,10 +1,22 @@
+# Pre-commit hooks for code quality and security
+# Installation: uv run pre-commit install
+# Manual run: uv run pre-commit run --all-files
+# Update hooks: uv run pre-commit autoupdate
+
 repos:
+  # ============================================================================
+  # CODE QUALITY - Linting and Formatting
+  # ============================================================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.13.2
     hooks:
       - id: ruff
+        args: [--fix]  # Auto-fix where possible
       - id: ruff-format
 
+  # ============================================================================
+  # TYPE CHECKING
+  # ============================================================================
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.18.2
     hooks:
@@ -12,3 +24,106 @@ repos:
         additional_dependencies:
           - types-requests==2.32.0.20240914
           - types-python-dateutil==2.9.0.20250822
+
+  # ============================================================================
+  # SECURITY - Secret Detection and Credential Protection
+  # ============================================================================
+
+  # Detect secrets in commits (ADR-007/008 compliance)
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args:
+          - '--baseline'
+          - '.secrets.baseline'
+          - '--exclude-files'
+          - '.*\.example\.toml$'  # Allow example files
+          - '--exclude-files'
+          - 'tests/fixtures/.*'  # Allow test fixtures
+        exclude: |
+          (?x)^(
+              .*\.example\.toml$|
+              tests/fixtures/.*|
+              \.secrets\.baseline$
+          )$
+
+  # Standard security checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent committing private keys
+      - id: detect-private-key
+        exclude: |
+          (?x)^(
+              docs/ADR/.*\.md$|
+              docs/sphinx/source/adr/.*\.md$
+          )$
+
+      # Prevent large files (>1MB) from being committed
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+
+      # Detect merge conflict markers
+      - id: check-merge-conflict
+
+      # Ensure files end with newline
+      - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+              tests/fixtures/.*|
+              .*\.json$
+          )$
+
+      # Trim trailing whitespace
+      - id: trailing-whitespace
+        exclude: |
+          (?x)^(
+              tests/fixtures/.*|
+              .*\.md$
+          )$
+
+      # Check YAML syntax
+      - id: check-yaml
+        args: ['--unsafe']  # Allow custom tags in YAML
+
+      # Check TOML syntax
+      - id: check-toml
+
+  # ============================================================================
+  # CUSTOM SECURITY - Block Sensitive Configuration Files
+  # ============================================================================
+  - repo: local
+    hooks:
+      # Block sensors.toml (only allow sensors.example.toml)
+      - id: block-sensitive-config
+        name: Block sensitive configuration files
+        entry: bash -c
+        language: system
+        pass_filenames: false
+        always_run: true
+        args:
+          - -c
+          - |
+            if git diff --cached --name-only | grep -E "(^|/)sensors\.toml$"; then
+              echo "❌ ERROR: sensors.toml detected! Only commit sensors.example.toml"
+              echo "   This file contains credentials and MUST NOT be committed."
+              echo "   See ADR-007 and ADR-008 for security requirements."
+              exit 1
+            fi
+
+      # Block other credential files
+      - id: block-credential-files
+        name: Block credential and secret files
+        entry: bash -c
+        language: system
+        pass_filenames: false
+        always_run: true
+        args:
+          - -c
+          - |
+            if git diff --cached --name-only | grep -E "\.(env|secret|key|pem|p12|pfx|crt|cer)$"; then
+              echo "❌ ERROR: Credential file detected in commit!"
+              echo "   Files with extensions .env, .secret, .key, .pem, etc. must not be committed."
+              exit 1
+            fi
