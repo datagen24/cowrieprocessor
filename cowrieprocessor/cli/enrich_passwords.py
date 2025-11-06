@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import time
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
@@ -1436,7 +1436,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
             ip_count = 0
             ip_limit = args.ips
             if ip_limit >= 0:
-                logger.info("Starting IP/ASN inventory enrichment using CascadeEnricher...")
+                logger.info("Starting IP/ASN inventory enrichment using 3-pass CascadeEnricher...")
 
                 # Create session for database operations
                 session_maker = create_session_maker(engine)
@@ -1490,44 +1490,174 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                         ips_to_enrich = [row[0] for row in query.all()]
                         logger.info(f"Found {len(ips_to_enrich)} IPs requiring enrichment")
 
-                        # Enrich each IP
-                        ip_errors = 0
-                        for ip_address in ips_to_enrich:
-                            try:
-                                ip_inventory = cascade.enrich_ip(ip_address)
-                                ip_count += 1
+                        if ips_to_enrich:
+                            # Pass 1: MaxMind Collection (offline, fast)
+                            logger.info("Pass 1/3: MaxMind offline enrichment...")
+                            status_emitter.record_metrics(
+                                {
+                                    "phase": "maxmind_collection",
+                                    "ips_total": len(ips_to_enrich),
+                                }
+                            )
 
-                                if ip_count % args.commit_interval == 0:
-                                    session.commit()
-                                    logger.info(
-                                        f"[ips] committed {ip_count} rows "
-                                        f"(ASN={ip_inventory.current_asn if ip_inventory else 'N/A'}, "
-                                        f"Country={ip_inventory.geo_country if ip_inventory else 'N/A'})"
+                            maxmind_results: dict[str, Any] = {}
+                            ips_needing_cymru: list[str] = []
+
+                            for idx, ip_address in enumerate(ips_to_enrich):
+                                try:
+                                    maxmind_result = cascade.maxmind.lookup_ip(ip_address)
+                                    maxmind_results[ip_address] = maxmind_result
+
+                                    if not maxmind_result or maxmind_result.asn is None:
+                                        ips_needing_cymru.append(ip_address)
+
+                                    # Status emitter every 100 IPs
+                                    if (idx + 1) % 100 == 0:
+                                        status_emitter.record_metrics(
+                                            {
+                                                "phase": "maxmind_collection",
+                                                "ips_processed": idx + 1,
+                                                "ips_total": len(ips_to_enrich),
+                                                "ips_needing_cymru": len(ips_needing_cymru),
+                                            }
+                                        )
+                                except Exception as e:
+                                    logger.warning(f"MaxMind lookup failed for {ip_address}: {e}")
+                                    maxmind_results[ip_address] = None
+                                    ips_needing_cymru.append(ip_address)
+
+                            logger.info(
+                                f"Pass 1 complete: {len(maxmind_results)} MaxMind lookups, "
+                                f"{len(ips_needing_cymru)} IPs need Cymru ASN enrichment"
+                            )
+
+                            # Pass 2: Cymru Bulk Batching (online, efficient bulk queries)
+                            cymru_results: dict[str, Any] = {}
+                            if ips_needing_cymru:
+                                logger.info(f"Pass 2/3: Cymru bulk enrichment for {len(ips_needing_cymru)} IPs...")
+                                status_emitter.record_metrics(
+                                    {
+                                        "phase": "cymru_batching",
+                                        "ips_needing_cymru": len(ips_needing_cymru),
+                                    }
+                                )
+
+                                batch_size = 500  # Cymru MAX_BULK_SIZE
+                                num_batches = (len(ips_needing_cymru) + batch_size - 1) // batch_size
+
+                                for batch_idx in range(num_batches):
+                                    start = batch_idx * batch_size
+                                    end = min(start + batch_size, len(ips_needing_cymru))
+                                    batch = ips_needing_cymru[start:end]
+
+                                    try:
+                                        batch_results = cascade.cymru.bulk_lookup(batch)
+                                        cymru_results.update(batch_results)
+                                        logger.info(
+                                            f"Cymru batch {batch_idx + 1}/{num_batches}: "
+                                            f"{len(batch_results)} IPs enriched"
+                                        )
+
+                                        status_emitter.record_metrics(
+                                            {
+                                                "phase": "cymru_batching",
+                                                "batch": batch_idx + 1,
+                                                "batches_total": num_batches,
+                                                "ips_enriched": len(cymru_results),
+                                            }
+                                        )
+                                    except Exception as e:
+                                        logger.error(f"Cymru batch {batch_idx + 1}/{num_batches} failed: {e}")
+                                        continue
+
+                                logger.info(f"Pass 2 complete: {len(cymru_results)} Cymru ASN enrichments")
+
+                            # Pass 3: Merge + GreyNoise + Database Update
+                            logger.info("Pass 3/3: Merging results and updating database...")
+                            status_emitter.record_metrics(
+                                {
+                                    "phase": "merge_and_update",
+                                    "ips_total": len(ips_to_enrich),
+                                }
+                            )
+
+                            ip_errors = 0
+                            for idx, ip_address in enumerate(ips_to_enrich):
+                                try:
+                                    maxmind_result = maxmind_results.get(ip_address)
+                                    cymru_result = cymru_results.get(ip_address)
+
+                                    # GreyNoise (independent, per-IP lookup)
+                                    greynoise_result = None
+                                    if cascade.greynoise:
+                                        try:
+                                            greynoise_result = cascade.greynoise.lookup_ip(ip_address)
+                                        except Exception as e:
+                                            logger.debug(f"GreyNoise lookup failed for {ip_address}: {e}")
+
+                                    # Check cache first
+                                    cached = (
+                                        session.query(IPInventory).filter(IPInventory.ip_address == ip_address).first()
                                     )
 
-                                # Update status every 10 IPs
-                                if ip_count % 10 == 0:
-                                    status_emitter.record_metrics(
-                                        {
-                                            "sessions_processed": session_count,
-                                            "files_processed": file_count,
-                                            "ips_processed": ip_count,
-                                            "ips_total": len(ips_to_enrich),
-                                            "ip_errors": ip_errors,
-                                        }
+                                    # Merge results
+                                    merged = cascade._merge_results(
+                                        cached, maxmind_result, cymru_result, greynoise_result, ip_address
                                     )
 
-                            except Exception as e:
-                                logger.warning(f"Failed to enrich IP {ip_address}: {e}")
-                                ip_errors += 1
-                                continue
+                                    # Update database
+                                    now = datetime.now(timezone.utc)
+                                    if cached:
+                                        cached.enrichment = merged.enrichment
+                                        cached.enrichment_updated_at = now  # type: ignore[assignment]
+                                        cached.current_asn = merged.current_asn
+                                        cached.asn_last_verified = now  # type: ignore[assignment]
+                                        cached.last_seen = now  # type: ignore[assignment]
+                                        cached.session_count = (cached.session_count or 0) + 1  # type: ignore[assignment]
+                                    else:
+                                        setattr(merged, "created_at", now)
+                                        setattr(merged, "updated_at", now)
+                                        setattr(merged, "enrichment_updated_at", now)
+                                        setattr(merged, "asn_last_verified", now)
+                                        setattr(merged, "first_seen", now)
+                                        setattr(merged, "last_seen", now)
+                                        setattr(merged, "session_count", 1)
+                                        session.add(merged)
 
-                        # Commit any remaining IPs
-                        if ip_count % args.commit_interval:
-                            session.commit()
-                            logger.info(f"[ips] committed tail {ip_count % args.commit_interval}")
+                                    ip_count += 1
 
-                        logger.info(f"IP/ASN inventory enrichment: {ip_count} IPs processed, {ip_errors} errors")
+                                    # Batch commit
+                                    if ip_count % args.commit_interval == 0:
+                                        session.commit()
+                                        logger.info(
+                                            f"[ips] committed {ip_count} rows "
+                                            f"(ASN={merged.current_asn if merged else 'N/A'})"
+                                        )
+
+                                    # Update status every 10 IPs
+                                    if ip_count % 10 == 0:
+                                        status_emitter.record_metrics(
+                                            {
+                                                "phase": "merge_and_update",
+                                                "sessions_processed": session_count,
+                                                "files_processed": file_count,
+                                                "ips_processed": ip_count,
+                                                "ips_total": len(ips_to_enrich),
+                                                "ip_errors": ip_errors,
+                                            }
+                                        )
+
+                                except Exception as e:
+                                    logger.warning(f"Failed to enrich IP {ip_address}: {e}")
+                                    ip_errors += 1
+                                    continue
+
+                            # Commit any remaining IPs
+                            if ip_count % args.commit_interval:
+                                session.commit()
+                                logger.info(f"[ips] committed tail {ip_count % args.commit_interval}")
+
+                            logger.info(f"IP/ASN inventory enrichment: {ip_count} IPs processed, {ip_errors} errors")
             else:
                 logger.info("IP/ASN inventory enrichment disabled (--ips set to -1)")
 

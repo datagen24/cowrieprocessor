@@ -123,7 +123,7 @@ uv run cowrie-enrich refresh \
     --sessions 0 \
     --files 0 \
     --ips 100 \
-    --db "postgresql://user:pass@host:5432/db" \
+    --db "postgresql://user:pass@host:5432/db" \ <!-- pragma: allowlist secret --> 
     --verbose
 ```
 
@@ -332,9 +332,14 @@ All acceptance criteria met:
 - **Final Status**: `/claudedocs/ADR_007_008_FINAL_STATUS.md`
 - **Workflows Guide**: `/claudedocs/ASN_INVENTORY_WORKFLOWS.md`
 - **Compliance Analysis**: `/claudedocs/ADR_007_008_COMPLIANCE_ANALYSIS.md`
+- **Cymru Batching Optimization** (Nov 2025): `/claudedocs/CYMRU_BATCHING_USER_GUIDE.md` 🆕
+  - 33x performance improvement for large IP sets
+  - Eliminates DNS timeout issues
+  - 3-pass enrichment architecture
 
 ---
 
 **Completed By**: PM Agent + Claude Code
 **Completion Date**: 2025-11-06
 **Verification**: All code quality gates passed
+**Performance Enhancement**: Cymru batching added 2025-11-06

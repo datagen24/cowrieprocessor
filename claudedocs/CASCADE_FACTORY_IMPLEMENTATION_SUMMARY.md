@@ -241,7 +241,7 @@ config = {'greynoise_api': 'sops://secrets.json#api.greynoise'}
 ```python
 # VIOLATION: Plaintext API key in code
 greynoise_client = GreyNoiseClient(
-    api_key="gn_abc123xyz",  # ❌ SECURITY VIOLATION
+    api_key="gn_abc123xyz",  # ❌ SECURITY VIOLATION <!-- pragma: allowlist secret -->
     cache=cache_manager,
 )
 ```
@@ -416,3 +416,13 @@ The factory implementation successfully addresses ADR-007/008 violations by:
 **Security Impact**: Eliminates plaintext API key exposure risk per ADR-007
 **Architecture Impact**: Ensures proper 3-tier caching per ADR-008
 **Maintainability Impact**: Factory pattern simplifies initialization and testing
+
+---
+
+## Performance Enhancement (Nov 2025)
+
+**Cymru Batching Optimization**: See `/claudedocs/CYMRU_BATCHING_USER_GUIDE.md`
+- 33x performance improvement using bulk netcat interface
+- Eliminates DNS timeout issues
+- 3-pass enrichment pattern (MaxMind → Cymru bulk → GreyNoise)
+- User guide for `cowrie-enrich refresh --ips` command
