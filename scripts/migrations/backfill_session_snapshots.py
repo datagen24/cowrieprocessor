@@ -32,19 +32,19 @@ need backfilling.
 **Usage**:
     # Dry-run validation (no changes)
     uv run python scripts/migrations/backfill_session_snapshots.py \\
-        --db "postgresql://user:pass@host:port/database" \\
+        --db "postgresql://user:pass@host:port/database" \\  # pragma: allowlist secret
         --dry-run
 
     # Production backfill with progress tracking
     uv run python scripts/migrations/backfill_session_snapshots.py \\
-        --db "postgresql://user:pass@host:port/database" \\
+        --db "postgresql://user:pass@host:port/database" \\  # pragma: allowlist secret
         --batch-size 1000 \\
         --status-dir /mnt/dshield/data/logs/status \\
         --progress
 
     # Resume from previous checkpoint
     uv run python scripts/migrations/backfill_session_snapshots.py \\
-        --db "postgresql://user:pass@host:port/database" \\
+        --db "postgresql://user:pass@host:port/database" \\  # pragma: allowlist secret
         --resume \\
         --checkpoint-file /path/to/checkpoint.json
 
@@ -74,7 +74,7 @@ from sqlalchemy import Engine, func, update
 from sqlalchemy.orm import Session
 
 from cowrieprocessor.db import create_engine_from_settings, create_session_maker
-from cowrieprocessor.db.models import IPInventory, SessionSummary
+from cowrieprocessor.db.models import SessionSummary
 from cowrieprocessor.settings import DatabaseSettings
 from cowrieprocessor.status_emitter import StatusEmitter
 
@@ -212,56 +212,32 @@ def lookup_ip_snapshots_batch(session: Session, ip_addresses: list[str]) -> Dict
         return {}
 
     # Batch query for all IPs - single query for entire batch
-    # Query raw columns (not hybrid properties) for SQLite compatibility
-    results = (
-        session.query(
-            IPInventory.ip_address,
-            IPInventory.current_asn,
-            IPInventory.enrichment,
-            IPInventory.enrichment_updated_at,
-        )
-        .filter(IPInventory.ip_address.in_(ip_addresses))
-        .all()
-    )
+    # Query computed columns from ip_inventory (ADR-007 schema)
+    # Use raw SQL text() to access columns directly (avoid hybrid_property evaluation)
+    from sqlalchemy import text as sql_text
+
+    results = session.execute(
+        sql_text("""
+            SELECT ip_address, current_asn, geo_country, ip_types, enrichment_updated_at
+            FROM ip_inventory
+            WHERE ip_address = ANY(:ip_list)
+        """),
+        {"ip_list": list(ip_addresses)},
+    ).fetchall()
 
     snapshots: Dict[str, Dict[str, Any]] = {}
     for row in results:
-        ip, asn, enrichment_json, enriched_at = row
+        ip, asn, country, ip_types_array, enriched_at = row
 
-        # Extract country from enrichment JSON (priority: MaxMind > Cymru > DShield)
-        country = None
-        if enrichment_json:
-            country = (
-                (enrichment_json.get("maxmind", {}) or {}).get("country")
-                or (enrichment_json.get("cymru", {}) or {}).get("country")
-                or (enrichment_json.get("dshield", {}) or {}).get("ip", {}).get("ascountry")
-            )
-
-        # Extract IP type from SPUR enrichment
-        # Priority: VPN > TOR > PROXY > DATACENTER > RESIDENTIAL > MOBILE
+        # Extract primary IP type from array (first element)
+        # ip_types is already prioritized by enrichment logic
         primary_type = None
-        if enrichment_json:
-            ip_type_raw = (enrichment_json.get("spur", {}) or {}).get("client", {}).get("types")
-            if ip_type_raw:
-                if isinstance(ip_type_raw, str):
-                    # Single type string
-                    primary_type = ip_type_raw
-                elif isinstance(ip_type_raw, list) and ip_type_raw:
-                    # Array of types - prioritize by threat level
-                    type_priority = {
-                        "VPN": 1,
-                        "TOR": 2,
-                        "PROXY": 3,
-                        "DATACENTER": 4,
-                        "RESIDENTIAL": 5,
-                        "MOBILE": 6,
-                    }
-                    sorted_types = sorted(ip_type_raw, key=lambda t: type_priority.get(t, 99))
-                    primary_type = sorted_types[0] if sorted_types else None
+        if ip_types_array and len(ip_types_array) > 0:
+            primary_type = ip_types_array[0]  # First element is highest priority
 
         snapshots[ip] = {
             "asn": asn,
-            "country": country if country != "XX" else None,  # XX = unknown
+            "country": country if country and country != "XX" else None,  # XX = unknown
             "ip_type": primary_type,
             "enrichment_at": enriched_at,
         }
@@ -318,9 +294,14 @@ def backfill_snapshots(
     failed_batches: list[int] = []
 
     with session_maker() as session:
-        # Count sessions needing backfill
+        # Count sessions needing backfill (have source_ip but missing snapshots)
         total_count = (
-            session.query(func.count(SessionSummary.session_id)).filter(SessionSummary.source_ip.is_(None)).scalar()
+            session.query(func.count(SessionSummary.session_id))
+            .filter(
+                SessionSummary.source_ip.isnot(None),  # Must have source IP
+                SessionSummary.snapshot_country.is_(None),  # Missing snapshots
+            )
+            .scalar()
         )
 
         logger.info(f"Found {total_count:,} sessions needing snapshot backfill")
@@ -340,38 +321,20 @@ def backfill_snapshots(
             batch_num += 1
 
             try:
-                # Query batch of sessions missing source_ip
-                # Extract source IP from enrichment JSON (stored during initial ingestion)
-                dialect = session.bind.dialect.name if session.bind else "sqlite"
-
-                if dialect == "postgresql":
-                    # PostgreSQL: Use JSONB operator
-                    batch = (
-                        session.query(
-                            SessionSummary.session_id,
-                            func.jsonb_extract_path_text(
-                                SessionSummary.enrichment, "session_metadata", "source_ip"
-                            ).label("source_ip"),
-                            SessionSummary.enrichment,
-                        )
-                        .filter(SessionSummary.source_ip.is_(None))
-                        .limit(batch_size)
-                        .all()
+                # Query sessions that HAVE source_ip but are missing snapshots
+                batch = (
+                    session.query(
+                        SessionSummary.session_id,
+                        SessionSummary.source_ip,
+                        SessionSummary.enrichment,
                     )
-                else:
-                    # SQLite: Use json_extract
-                    batch = (
-                        session.query(
-                            SessionSummary.session_id,
-                            func.json_extract(SessionSummary.enrichment, "$.session_metadata.source_ip").label(
-                                "source_ip"
-                            ),
-                            SessionSummary.enrichment,
-                        )
-                        .filter(SessionSummary.source_ip.is_(None))
-                        .limit(batch_size)
-                        .all()
+                    .filter(
+                        SessionSummary.source_ip.isnot(None),  # Must have source IP
+                        SessionSummary.snapshot_country.is_(None),  # Missing snapshots
                     )
+                    .limit(batch_size)
+                    .all()
+                )
 
                 if not batch:
                     break  # No more sessions to process
