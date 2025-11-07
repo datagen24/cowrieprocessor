@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill snapshot columns for existing session_summaries from ip_inventory.
+r"""Backfill snapshot columns for existing session_summaries from ip_inventory.
 
 This script implements Phase 2 of ADR-007 snapshot population fix. It backfills the 5 snapshot
 columns (source_ip, snapshot_asn, snapshot_country, snapshot_ip_type, enrichment_at) for
@@ -569,13 +569,13 @@ def main() -> int:
         epilog="""
 Examples:
   # Dry-run validation (no changes)
-  %(prog)s --db "postgresql://user:pass@host/db" --dry-run
+  %(prog)s --db "postgresql://user:pass@host/db" --dry-run  # pragma: allowlist secret
 
   # Production backfill with progress tracking
-  %(prog)s --db "postgresql://user:pass@host/db" --batch-size 1000 --progress
+  %(prog)s --db "postgresql://user:pass@host/db" --batch-size 1000 --progress # pragma: allowlist secret
 
   # Resume from checkpoint
-  %(prog)s --db "postgresql://user:pass@host/db" --resume
+  %(prog)s --db "postgresql://user:pass@host/db" --resume # pragma: allowlist secret
 
 Environment Variables:
   DB_URI        Database connection string (overridden by --db)
