@@ -63,6 +63,7 @@ need backfilling.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import logging
 import sys
@@ -79,6 +80,37 @@ from cowrieprocessor.settings import DatabaseSettings
 from cowrieprocessor.status_emitter import StatusEmitter
 
 logger = logging.getLogger(__name__)
+
+
+def is_private_or_reserved(ip_str: str) -> bool:
+    """Check if IP address is private, reserved, or non-routable (RFC1918, bogons, etc.).
+
+    Args:
+        ip_str: IP address string
+
+    Returns:
+        True if IP is private/reserved/non-routable, False if public
+
+    References:
+        - RFC1918: Private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        - RFC6598: Shared address space (100.64.0.0/10)
+        - RFC5737: Documentation (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24)
+        - Loopback, link-local, multicast, reserved ranges
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+    except ValueError:
+        # Invalid IP format - treat as non-routable
+        logger.warning(f"Invalid IP address format: {ip_str}")
+        return True
 
 
 class CheckpointState:
@@ -361,11 +393,29 @@ def backfill_snapshots(
                 # Update sessions with snapshots
                 if not dry_run:
                     updates_performed = 0
+                    marked_private = 0
+                    marked_no_data = 0
+
                     for session_id, source_ip in session_ip_map.items():
                         snapshot = ip_snapshots.get(source_ip, {})
 
-                        # Only update if we have snapshot data (graceful degradation if IP missing)
-                        if snapshot or source_ip:
+                        # Check if IP is private/reserved (RFC1918, bogons, etc.)
+                        if is_private_or_reserved(source_ip):
+                            # Mark private IPs with sentinel value to prevent re-selection
+                            # Use 'XX' as sentinel (DShield convention for non-routable IPs)
+                            session.execute(
+                                update(SessionSummary)
+                                .where(SessionSummary.session_id == session_id)
+                                .values(
+                                    source_ip=source_ip,
+                                    snapshot_country="XX",  # Sentinel: unenrichable (private IP)
+                                )
+                            )
+                            marked_private += 1
+                            continue
+
+                        # Only update if we have actual snapshot data (country is required)
+                        if snapshot.get("country"):
                             session.execute(
                                 update(SessionSummary)
                                 .where(SessionSummary.session_id == session_id)
@@ -378,17 +428,65 @@ def backfill_snapshots(
                                 )
                             )
                             updates_performed += 1
+                        else:
+                            # Public IP with no/unknown enrichment data
+                            # Mark with sentinel value to prevent re-selection
+                            # Use 'XX' as sentinel (DShield convention for non-routable IPs)
+                            session.execute(
+                                update(SessionSummary)
+                                .where(SessionSummary.session_id == session_id)
+                                .values(
+                                    source_ip=source_ip,
+                                    snapshot_country="XX",  # Sentinel: unenrichable (failed enrichment)
+                                )
+                            )
+                            marked_no_data += 1
 
                     session.commit()
-                    total_updated += updates_performed
+                    # Count ALL processed sessions (enriched + marked) for progress tracking
+                    total_updated += updates_performed + marked_private + marked_no_data
+
+                    # Log marked sessions for debugging
+                    if marked_private > 0 or marked_no_data > 0:
+                        logger.debug(
+                            f"Batch {batch_num}: Marked {marked_private} private IPs, "
+                            f"{marked_no_data} public IPs with no enrichment data (excluded from future runs)"
+                        )
                 else:
-                    # Dry-run: count what would be updated
-                    updates_performed = len([s for s in session_ip_map.values() if s in ip_snapshots])
-                    total_updated += updates_performed
+                    # Dry-run: apply same validation logic
+                    updates_performed = 0
+                    marked_private = 0
+                    marked_no_data = 0
+
+                    for session_id, source_ip in session_ip_map.items():
+                        snapshot = ip_snapshots.get(source_ip, {})
+
+                        # Check if IP is private/reserved (RFC1918, bogons, etc.)
+                        if is_private_or_reserved(source_ip):
+                            marked_private += 1
+                            continue
+
+                        # Only count if we have actual snapshot data (country is required)
+                        if snapshot.get("country"):
+                            updates_performed += 1
+                        else:
+                            # Public IP with no/unknown enrichment data
+                            marked_no_data += 1
+
+                    # Count ALL processed sessions (enriched + marked) for progress tracking
+                    total_updated += updates_performed + marked_private + marked_no_data
                     logger.info(
-                        f"DRY RUN - Batch {batch_num}: Would update {updates_performed} sessions "
+                        f"DRY RUN - Batch {batch_num}: Would update {updates_performed} sessions with snapshots, "
+                        f"mark {marked_private + marked_no_data} as unenrichable "
                         f"({len(ip_snapshots)}/{len(unique_ips)} IPs found in inventory)"
                     )
+
+                    # Log breakdown for debugging
+                    if marked_private > 0 or marked_no_data > 0:
+                        logger.debug(
+                            f"DRY RUN - Batch {batch_num}: Would mark {marked_private} private IPs, "
+                            f"{marked_no_data} public IPs with no enrichment data"
+                        )
 
                 # Save checkpoint every 10 batches
                 if batch_num % 10 == 0:
