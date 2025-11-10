@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session, attributes
 from cowrieprocessor.db.models import ASNInventory, IPInventory, SessionSummary
 from cowrieprocessor.enrichment.cymru_client import CymruClient, CymruResult
 from cowrieprocessor.enrichment.greynoise_client import GreyNoiseClient, GreyNoiseResult
+from cowrieprocessor.enrichment.ip_classification import IPClassifier
 from cowrieprocessor.enrichment.maxmind_client import MaxMindClient, MaxMindResult
 from cowrieprocessor.telemetry import start_span
 
@@ -73,6 +74,7 @@ class CascadeStats:
     maxmind_hits: int = 0
     cymru_hits: int = 0
     greynoise_hits: int = 0
+    ip_classification_hits: int = 0
     errors: int = 0
 
     # ASN inventory metrics
@@ -107,6 +109,7 @@ class CascadeEnricher:
         cymru: CymruClient,
         greynoise: GreyNoiseClient,
         session: Session,
+        ip_classifier: IPClassifier | None = None,
     ) -> None:
         """Initialize cascade enricher with all clients and database session.
 
@@ -115,10 +118,12 @@ class CascadeEnricher:
             cymru: Team Cymru client (online whois lookups)
             greynoise: GreyNoise Community API client (online scanner checks)
             session: Active SQLAlchemy session for database operations
+            ip_classifier: IP classification service (infrastructure types), optional
         """
         self.maxmind = maxmind
         self.cymru = cymru
         self.greynoise = greynoise
+        self.ip_classifier = ip_classifier
         self.session = session
         self._stats = CascadeStats()
 
@@ -442,6 +447,54 @@ class CascadeEnricher:
                         self.session.flush()  # Ensure changes are persisted
                 except Exception as e:
                     logger.warning(f"Failed to refresh GreyNoise for {inventory.ip_address}: {e}")
+                    continue
+
+        # Refresh stale IP classification data (>1 day old)
+        if (source is None or source == "ip_classification") and self.ip_classifier:
+            classification_cutoff = now - timedelta(days=1)
+            # Fetch candidates and filter in Python for cross-database compatibility
+            candidates = (
+                self.session.query(IPInventory)
+                .filter(IPInventory.enrichment_updated_at < classification_cutoff)
+                .limit(limit * 2)  # Over-fetch to account for filtering
+                .all()
+            )
+            stale_classification = [
+                inv for inv in candidates if inv.enrichment and "ip_classification" in inv.enrichment
+            ][:limit]
+
+            refreshed["ip_classification_refreshed"] = 0
+
+            for inventory in stale_classification:
+                try:
+                    ip_str = str(inventory.ip_address)
+                    # Get ASN info from enrichment for residential heuristic
+                    asn = None
+                    as_name = None
+                    if inventory.current_asn:
+                        asn = inventory.current_asn
+                    if inventory.enrichment and "cymru" in inventory.enrichment:
+                        as_name = inventory.enrichment["cymru"].get("asn_org")
+
+                    classification = self.ip_classifier.classify(ip_str, asn, as_name)
+                    classification_enrichment: dict[str, dict[str, str | float | None]] = inventory.enrichment or {}
+                    classification_enrichment["ip_classification"] = {
+                        "ip_type": classification.ip_type.value,
+                        "provider": classification.provider,
+                        "confidence": classification.confidence,
+                        "source": classification.source,
+                        "classified_at": (
+                            classification.classified_at.isoformat() if classification.classified_at else None
+                        ),
+                    }
+                    inventory.enrichment = classification_enrichment
+                    attributes.flag_modified(inventory, "enrichment")  # Mark JSON field as modified
+                    inventory.enrichment_updated_at = now
+                    refreshed["ip_classification_refreshed"] += 1
+                    self._stats.ip_classification_hits += 1
+                    self.session.flush()  # Ensure changes are persisted
+                except Exception as e:
+                    logger.warning(f"Failed to refresh IP classification for {inventory.ip_address}: {e}")
                     continue
 
         self.session.commit()
