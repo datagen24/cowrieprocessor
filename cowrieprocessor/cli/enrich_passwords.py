@@ -1640,6 +1640,49 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                                         setattr(merged, "session_count", 1)
                                         session.add(merged)
 
+                                    # Pass 4: IP Classification (if enabled via cascade factory)
+                                    if cascade.ip_classifier:
+                                        try:
+                                            # Get ASN info for residential heuristic
+                                            asn_value: int | None = (
+                                                int(merged.current_asn) if merged and merged.current_asn else None
+                                            )
+                                            as_name = None
+                                            if merged and merged.enrichment and "cymru" in merged.enrichment:
+                                                as_name = merged.enrichment["cymru"].get("asn_org")
+
+                                            classification = cascade.ip_classifier.classify(
+                                                ip_address, asn_value, as_name
+                                            )
+
+                                            # Add classification to enrichment JSONB
+                                            enrichment_data: dict[str, Any] = dict(
+                                                (cached.enrichment if cached else merged.enrichment) or {}
+                                            )
+                                            enrichment_data["ip_classification"] = {
+                                                "ip_type": classification.ip_type.value,
+                                                "provider": classification.provider,
+                                                "confidence": classification.confidence,
+                                                "source": classification.source,
+                                                "classified_at": (
+                                                    classification.classified_at.isoformat()
+                                                    if classification.classified_at
+                                                    else None
+                                                ),
+                                            }
+
+                                            if cached:
+                                                cached.enrichment = enrichment_data  # type: ignore[assignment]
+                                            else:
+                                                merged.enrichment = enrichment_data  # type: ignore[assignment]
+
+                                            logger.debug(
+                                                f"IP {ip_address} classified as {classification.ip_type.value} "
+                                                f"({classification.confidence:.2f} confidence)"
+                                            )
+                                        except Exception as e:
+                                            logger.warning(f"Failed to classify IP {ip_address}: {e}")
+
                                     ip_count += 1
 
                                     # Batch commit
