@@ -6,18 +6,16 @@ IP ranges with daily automated updates from official sources.
 
 from __future__ import annotations
 
-import csv
 import logging
-from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
 
 try:
-    import pytricia  # type: ignore
+    import pytricia
 except ImportError:
-    pytricia = None  # type: ignore
+    pytricia = None
 
 from .matchers import IPMatcher
 
@@ -197,9 +195,9 @@ class CloudProviderMatcher(IPMatcher):
             ValueError: If CSV is malformed or empty
 
         Note:
-            Caches CSV to disk at cache_dir/{provider}_ipv4.csv
+            Caches TXT to disk at cache_dir/{provider}_ips_v4.txt
         """
-        url = f"{self.data_url}/{provider}/ipv4.csv"
+        url = f"{self.data_url}/{provider}/{provider}_ips_v4.txt"
         logger.debug(f"Downloading {provider} ranges from {url}")
 
         response = requests.get(url, timeout=self.request_timeout)
@@ -209,32 +207,29 @@ class CloudProviderMatcher(IPMatcher):
             raise ValueError(f"Empty response from {provider} IP ranges")
 
         # Cache to disk
-        cache_file = self.cache_dir / f"{provider}_ipv4.csv"
+        cache_file = self.cache_dir / f"{provider}_ips_v4.txt"
         cache_file.write_text(response.text)
 
-        # Parse CSV: ip_prefix,region,service
+        # Parse TXT: one CIDR per line
         new_trie = pytricia.PyTricia()
-        reader = csv.DictReader(StringIO(response.text))
         cidrs_loaded = 0
 
-        for row in reader:
+        for line in response.text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
             try:
-                prefix = row.get("ip_prefix", "").strip()
-                region = row.get("region", "unknown").strip()
-                service = row.get("service", "unknown").strip()
-
-                if not prefix:
-                    continue
-
-                new_trie[prefix] = {"region": region, "service": service}
+                # Plain text format: just CIDR per line
+                new_trie[line] = {"region": "unknown", "service": "unknown"}
                 cidrs_loaded += 1
 
             except (ValueError, KeyError) as e:
-                logger.warning(f"Invalid CIDR entry for {provider}: {row} - {e}")
+                logger.warning(f"Invalid CIDR entry for {provider}: {line} - {e}")
                 continue
 
         if cidrs_loaded == 0:
-            raise ValueError(f"No valid CIDRs parsed from {provider} CSV")
+            raise ValueError(f"No valid CIDRs parsed from {provider} TXT file")
 
         # Replace old trie atomically
         self.tries[provider] = new_trie
