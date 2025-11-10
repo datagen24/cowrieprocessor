@@ -59,6 +59,7 @@ from .cache import EnrichmentCacheManager
 from .cascade_enricher import CascadeEnricher
 from .cymru_client import CymruClient
 from .greynoise_client import GreyNoiseClient
+from .ip_classification import create_ip_classifier
 from .maxmind_client import MaxMindClient
 from .rate_limiting import RateLimiter
 
@@ -125,6 +126,7 @@ def create_cascade_enricher(
     config: dict[str, str],
     maxmind_license_key: Optional[str] = None,
     enable_greynoise: bool = True,
+    enable_ip_classification: bool = True,
 ) -> CascadeEnricher:
     """Create CascadeEnricher with proper cache wiring and secrets management.
 
@@ -157,6 +159,7 @@ def create_cascade_enricher(
             - greynoise_api: GreyNoise Community API key URI (e.g., "env:GREYNOISE_API_KEY")
         maxmind_license_key: Optional MaxMind license key URI for automatic database updates
         enable_greynoise: Whether to enable GreyNoise scanner detection (default: True)
+        enable_ip_classification: Whether to enable IP infrastructure classification (default: True)
 
     Returns:
         Fully initialized CascadeEnricher ready for IP enrichment operations
@@ -297,12 +300,28 @@ def create_cascade_enricher(
         greynoise_client = MockGreyNoiseClient()
         logger.info("GreyNoise disabled (using MockGreyNoiseClient)")
 
+    # Initialize IP classifier (optional Pass 4)
+    ip_classifier = None
+    if enable_ip_classification:
+        try:
+            # Get engine from session for DatabaseCache (SQLAlchemy 2.0)
+            engine = db_session.get_bind()
+            ip_classifier = create_ip_classifier(
+                cache_dir=cache_dir,
+                db_engine=engine,
+                enable_redis=True,
+            )
+            logger.info("Initialized IPClassifier for infrastructure type detection")
+        except Exception as e:
+            logger.warning(f"Failed to initialize IP classifier: {e} (IP classification disabled)")
+
     # Create CascadeEnricher with all components wired
     cascade_enricher = CascadeEnricher(
         maxmind=maxmind_client,
         cymru=cymru_client,
         greynoise=greynoise_client,  # type: ignore[arg-type]  # Mock satisfies interface
         session=db_session,
+        ip_classifier=ip_classifier,
     )
 
     logger.info(
