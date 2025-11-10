@@ -1,0 +1,8 @@
+Executing Query 12: ASN and Infrastructure Analysis
+Expected runtime: 15-30 seconds
+======================================================================
+asn,as_name,primary_country,session_count,days_active,first_seen,last_seen,avg_commands,total_downloads,total_ssh_injections,vt_flagged_sessions,dshield_flagged_sessions,infrastructure_type,asn_percentage
+
+Query 12 complete!
+Top ASNs and cloud provider patterns should be visible above
+======================================================================

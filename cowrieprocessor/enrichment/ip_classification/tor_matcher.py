@@ -144,6 +144,7 @@ class TorExitNodeMatcher(IPMatcher):
 
         # Update in-memory set
         self.exit_nodes = new_nodes
+        self._data_loaded = True
         logger.info(f"Loaded {len(self.exit_nodes)} TOR exit nodes")
 
     def get_stats(self) -> Dict[str, Any]:

@@ -28,9 +28,9 @@ The IP classification module requires periodic updates to external data sources 
 
 ### 3. Datacenter IP Ranges
 **Provider**: jhassine/server-ip-addresses (GitHub)
-**URL**: https://raw.githubusercontent.com/jhassine/server-ip-addresses/main/data/datacenters.csv
-**Providers**: DigitalOcean, Linode, OVH, Hetzner, Vultr
-**Format**: CSV with `provider,cidr` columns
+**URL**: https://raw.githubusercontent.com/jhassine/server-ip-addresses/master/data/datacenters.csv
+**Providers**: Multiple hosting providers (DigitalOcean, Linode, OVH, Hetzner, Vultr, and others)
+**Format**: CSV with `provider,cidr` columns (unified file for all providers)
 **Update Frequency**: **Weekly** (datacenter ranges relatively stable)
 **Criticality**: Medium (75% confidence classification)
 

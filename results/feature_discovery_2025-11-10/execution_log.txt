@@ -1,0 +1,45 @@
+============================================================================
+Feature Discovery Query Execution - Post-Snapshot Fix
+============================================================================
+
+Database: 10.130.30.89/cowrieprocessor
+Results directory: results/feature_discovery_2025-11-10
+
+[1;33mPHASE 1: Verifying snapshot backfill status...[0m
+
+Snapshot backfill verification:
+        1629746 |          1393838 |              1629572 |                    0 |   85.52 |       99.99 |        0.00
+
+[0;32m✓ Snapshot coverage validated:[0m
+  - ASN: 99.99%
+  - Country: 0.00%
+
+[1;33mPHASE 2: Running core feature discovery queries...[0m
+
+[0;34mQuery 1: Session Activity Patterns[0m
+[0;32m✓ Query 1 complete (     318 rows)[0m
+
+[0;34mQuery 2: SSH Key Reuse Analysis[0m
+[0;32m✓ Query 2 complete (       3 rows)[0m
+
+[1;33mPHASE 3: Running NEW infrastructure feature queries...[0m
+
+[0;34mQuery 11: Geographic Distribution[0m
+[0;32m✓ Query 11 complete (     122 rows)[0m
+
+[0;34mQuery 12: ASN Infrastructure Analysis[0m
+[0;32m✓ Query 12 complete (       8 rows)[0m
+
+[0;34mQuery 13: Anonymization Analysis[0m
+[0;32m✓ Query 13 complete (     325 rows)[0m
+
+[0;34mQuery 14: Reputation Distribution[0m
+psql:scripts/phase1/sql_query_14_reputation_distribution_FIXED.sql:79: ERROR:  column "session_summaries.enrichment" must appear in the GROUP BY clause or be used in an aggregate function
+LINE 28:         WHEN enrichment->'dshield'->'ip'->>'attacks' IS NULL...
+                      ^
+[0;32m✓ Query 14 complete (       7 rows)[0m
+
+[0;34mQuery 15: Snapshot-Based Session Clustering[0m
+ERROR:  syntax error at end of input
+LINE 1: ...BY session_count DESC LIMIT 1000 ) TO STDOUT WITH CSV HEADER
+                                                                       ^

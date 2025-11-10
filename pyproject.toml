@@ -12,7 +12,7 @@ dependencies = [
   "ipaddress>=1.0.23",
   "pathlib>=1.0.1",
   "python-dateutil>=2.8.2",
-  "sqlalchemy>=2.0.36",
+  "sqlalchemy>=2.0.36",  # ORM for database operations (ADR-007: three-tier enrichment)
   "types-python-dateutil>=2.9.0.20250822",
   "pip>=25.2",
   "tqdm>=4.67.1",
@@ -21,16 +21,19 @@ dependencies = [
   "pandas>=2.0.0",
   "numpy>=1.24.0",
   "vt-py>=0.21.0",
-  "redis>=7.0.1",
+  "redis>=7.0.1",  # L1 cache for enrichment (ADR-007: multi-tier caching)
   "geoip2>=4.7.0",
   "dnspython>=2.4.0",
+  # PostgreSQL driver - Required for production (ADR-007: three-tier enrichment)
+  "psycopg[binary]>=3.1.0",
+  "psycopg-pool>=3.1.0",
+  # IP Classification dependencies (ADR-003: IP classifier service)
+  "pytricia>=1.0.2",  # CIDR tree for fast IP range matching (cloud/datacenter ranges)
+  "aiohttp>=3.9.0",  # Async HTTP for data source downloads (TOR list, cloud ranges)
 ]
 
 [project.optional-dependencies]
-postgres = [
-    "psycopg[binary]>=3.1",
-    "psycopg-pool>=3.1",
-]
+# No optional dependencies - all moved to core for production deployment
 
 [build-system]
 requires = ["setuptools>=61"]

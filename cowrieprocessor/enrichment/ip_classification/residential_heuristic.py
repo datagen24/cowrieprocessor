@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class ResidentialHeuristic:
         self._stats_misses = 0
         self._stats_excluded = 0
 
-    def match(self, ip: str, asn: Optional[int] = None, as_name: Optional[str] = None) -> Optional[Dict[str, any]]:
+    def match(self, ip: str, asn: Optional[int] = None, as_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Check if IP likely belongs to a residential ISP based on ASN name.
 
         This method applies regex patterns to the ASN organization name to identify
@@ -172,7 +172,7 @@ class ResidentialHeuristic:
         self._stats_misses += 1
         return None
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get heuristic statistics.
 
         Returns:

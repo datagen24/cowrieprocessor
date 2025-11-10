@@ -15,9 +15,9 @@ from typing import Any, Dict, Optional
 import requests
 
 try:
-    import pytricia  # type: ignore
+    import pytricia
 except ImportError:
-    pytricia = None  # type: ignore
+    pytricia = None
 
 from .matchers import IPMatcher
 
@@ -53,7 +53,7 @@ class DatacenterMatcher(IPMatcher):
     Example:
         >>> from pathlib import Path
         >>> matcher = DatacenterMatcher(
-        ...     data_url="https://raw.githubusercontent.com/jhassine/server-ip-addresses/main",
+        ...     data_url="https://raw.githubusercontent.com/jhassine/server-ip-addresses/master",
         ...     update_interval_seconds=604800,
         ...     cache_dir=Path("/tmp/ip_classification")
         ... )
@@ -67,7 +67,7 @@ class DatacenterMatcher(IPMatcher):
 
     def __init__(
         self,
-        data_url: str = "https://raw.githubusercontent.com/jhassine/server-ip-addresses/main",
+        data_url: str = "https://raw.githubusercontent.com/jhassine/server-ip-addresses/master",
         update_interval_seconds: int = 604800,  # 7 days
         cache_dir: Path = Path.home() / ".cache" / "cowrieprocessor" / "ip_classification",
         request_timeout: int = 30,
@@ -140,48 +140,68 @@ class DatacenterMatcher(IPMatcher):
         return None
 
     def _download_data(self) -> None:
-        """Download and parse datacenter IP ranges.
+        """Download and parse datacenter IP ranges from unified CSV file.
 
-        Downloads CSV files for all hosting providers and builds a unified
-        PyTricia prefix tree for fast CIDR matching.
+        Downloads single datacenters.csv file containing all hosting providers
+        and builds a unified PyTricia prefix tree for fast CIDR matching.
 
         Data Format (CSV):
-            Header: ip_prefix,region,provider
-            Example: 104.236.0.0/16,nyc1,digitalocean
+            Header: provider,cidr
+            Example: DigitalOcean,104.236.0.0/16
 
-        Providers Updated:
-            - DigitalOcean: ~1,000 CIDRs
-            - Linode: ~500 CIDRs
-            - OVH: ~2,000 CIDRs
-            - Hetzner: ~1,500 CIDRs
-            - Vultr: ~500 CIDRs
+        Providers Included:
+            - DigitalOcean, Linode, OVH, Hetzner, Vultr, and others
+            - Total: ~5,000-10,000 CIDRs across all providers
 
         Raises:
-            requests.RequestException: If all provider downloads fail
-            ValueError: If no valid CIDRs found across all providers
+            requests.RequestException: If HTTP request fails
+            ValueError: If CSV is malformed or empty
 
         Note:
-            Partial success allowed - if some providers fail, continues with others.
+            Single unified CSV file from jhassine/server-ip-addresses repository.
+            File path: data/datacenters.csv
             Called automatically by _ensure_data_loaded() when stale.
         """
-        total_cidrs_loaded = 0
-        failed_providers = []
-        new_trie = pytricia.PyTricia()
+        url = f"{self.data_url}/data/datacenters.csv"
+        logger.debug(f"Downloading datacenter ranges from {url}")
 
-        for provider in self.PROVIDERS:
+        response = requests.get(url, timeout=self.request_timeout)
+        response.raise_for_status()
+
+        if not response.text:
+            raise ValueError("Empty response from datacenter IP ranges")
+
+        # Cache to disk
+        cache_file = self.cache_dir / "datacenters.csv"
+        cache_file.write_text(response.text)
+
+        # Parse CSV: provider,cidr
+        new_trie = pytricia.PyTricia()
+        reader = csv.DictReader(StringIO(response.text))
+        total_cidrs_loaded = 0
+        self._provider_cidr_counts.clear()
+
+        for row in reader:
             try:
-                cidrs_loaded = self._update_provider(provider, new_trie)
-                total_cidrs_loaded += cidrs_loaded
-                self._provider_cidr_counts[provider] = cidrs_loaded
-            except Exception as e:
-                logger.error(f"Failed to update {provider} ranges: {e}")
-                failed_providers.append(provider)
-                # Continue with other providers (partial success)
+                provider = row.get("provider", "").strip().lower()
+                cidr = row.get("cidr", "").strip()
+
+                if not cidr or not provider:
+                    continue
+
+                # Store in trie with provider info
+                new_trie[cidr] = {"provider": provider, "region": "unknown"}
+                total_cidrs_loaded += 1
+
+                # Track per-provider counts
+                self._provider_cidr_counts[provider] = self._provider_cidr_counts.get(provider, 0) + 1
+
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Invalid CIDR entry in datacenters.csv: {row} - {e}")
+                continue
 
         if total_cidrs_loaded == 0:
-            raise ValueError(
-                f"No valid CIDRs loaded from any datacenter provider. Failed providers: {', '.join(failed_providers)}"
-            )
+            raise ValueError("No valid CIDRs loaded from datacenters.csv")
 
         # Replace old trie atomically
         self.trie = new_trie
@@ -189,68 +209,8 @@ class DatacenterMatcher(IPMatcher):
 
         logger.info(
             f"Datacenter ranges loaded: {total_cidrs_loaded} total CIDRs "
-            f"({', '.join(f'{p}={self._provider_cidr_counts[p]}' for p in self.PROVIDERS)})"
+            f"from {len(self._provider_cidr_counts)} providers"
         )
-
-    def _update_provider(self, provider: str, trie: Any) -> int:
-        """Update IP ranges for a single datacenter provider.
-
-        Downloads CSV file from GitHub repository, parses CIDR blocks,
-        and adds to the unified PyTricia tree.
-
-        Args:
-            provider: Provider name (e.g., "digitalocean", "linode")
-            trie: PyTricia tree to populate
-
-        Returns:
-            Number of CIDRs successfully loaded
-
-        Raises:
-            requests.RequestException: If HTTP request fails
-            ValueError: If CSV is malformed or empty
-
-        Note:
-            Caches CSV to disk at cache_dir/{provider}_ipv4.csv
-        """
-        url = f"{self.data_url}/{provider}/ipv4.csv"
-        logger.debug(f"Downloading {provider} datacenter ranges from {url}")
-
-        response = requests.get(url, timeout=self.request_timeout)
-        response.raise_for_status()
-
-        if not response.text:
-            raise ValueError(f"Empty response from {provider} datacenter ranges")
-
-        # Cache to disk
-        cache_file = self.cache_dir / f"{provider}_datacenter_ipv4.csv"
-        cache_file.write_text(response.text)
-
-        # Parse CSV: ip_prefix,region,provider
-        reader = csv.DictReader(StringIO(response.text))
-        cidrs_loaded = 0
-
-        for row in reader:
-            try:
-                prefix = row.get("ip_prefix", "").strip()
-                region = row.get("region", "unknown").strip()
-
-                if not prefix:
-                    continue
-
-                # Store provider name explicitly since we're using unified trie
-                trie[prefix] = {"provider": provider, "region": region}
-                cidrs_loaded += 1
-
-            except (ValueError, KeyError) as e:
-                logger.warning(f"Invalid CIDR entry for {provider}: {row} - {e}")
-                continue
-
-        if cidrs_loaded == 0:
-            logger.warning(f"No valid CIDRs parsed from {provider} CSV")
-            return 0
-
-        logger.debug(f"Updated {provider} datacenter ranges: {cidrs_loaded} CIDRs")
-        return cidrs_loaded
 
     def get_stats(self) -> Dict[str, Any]:
         """Get matcher statistics including per-provider CIDR counts.
