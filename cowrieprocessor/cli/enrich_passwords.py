@@ -24,6 +24,7 @@ from ..enrichment.hibp_client import HIBPPasswordEnricher
 from ..enrichment.password_extractor import PasswordExtractor
 from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
 from ..status_emitter import StatusEmitter
+from ..utils.config import get_data_dir
 from .db_config import resolve_database_settings
 
 logger = logging.getLogger(__name__)
@@ -706,7 +707,7 @@ def enrich_passwords(args: argparse.Namespace) -> int:
         session_maker = create_session_maker(engine)
 
         # Initialize enrichment components
-        cache_dir = Path(args.cache_dir)
+        cache_dir = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
         cache_manager = EnrichmentCacheManager(base_dir=cache_dir)
 
         rate, burst = get_service_rate_limit("hibp")
@@ -1272,7 +1273,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         from ..enrichment import EnrichmentCacheManager
         from ..enrichment.handlers import EnrichmentService
 
-        cache_dir_path = Path(args.cache_dir)
+        cache_dir_path = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
         cache_manager = EnrichmentCacheManager(cache_dir_path)
         service = EnrichmentService(
             cache_dir=cache_dir_path,
@@ -1291,7 +1292,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         if not status_dir:
             from pathlib import Path
 
-            default_status_dir = Path("/mnt/dshield/data/logs/status")
+            default_status_dir = get_data_dir() / "logs" / "status"
             if not default_status_dir.exists():
                 # Use a local temp directory if the default doesn't exist
                 status_dir = Path.home() / ".cache" / "cowrieprocessor" / "status"
@@ -1448,8 +1449,9 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                         # Filter out None values for type safety (factory expects dict[str, str])
                         enricher_config = {k: v for k, v in resolved_credentials.items() if v is not None}
 
+                        cache_dir = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
                         cascade = create_cascade_enricher(
-                            cache_dir=Path(args.cache_dir),
+                            cache_dir=cache_dir,
                             db_session=session,
                             config=enricher_config,
                             maxmind_license_key=resolved_credentials.get("maxmind_license_key"),
@@ -1814,8 +1816,8 @@ Examples:
     passwords_parser.add_argument(
         '--cache-dir',
         type=str,
-        default='/mnt/dshield/data/cache',
-        help='Cache directory for HIBP responses (default: /mnt/dshield/data/cache)',
+        default=None,
+        help='Cache directory for HIBP responses (default: read from sensors.toml or /mnt/dshield/data/cache)',
     )
 
     passwords_parser.add_argument('--status-dir', type=str, help='Directory for status files (optional)')
@@ -1914,8 +1916,8 @@ Examples:
     refresh_parser.add_argument(
         '--cache-dir',
         type=str,
-        default='/mnt/dshield/data/cache',
-        help='Cache directory for enrichment responses (default: /mnt/dshield/data/cache)',
+        default=None,
+        help='Cache directory for enrichment responses (default: read from sensors.toml or /mnt/dshield/data/cache)',
     )
     refresh_parser.add_argument('--status-dir', type=str, help='Directory for status files (optional)')
 
