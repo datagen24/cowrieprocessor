@@ -47,26 +47,39 @@ MOCK_CLOUDFLARE_CSV = """ip_prefix,region,service
 104.16.0.0/16,global,cdn
 104.17.0.0/16,global,cdn"""
 
-# Datacenter CSV data
-MOCK_DIGITALOCEAN_CSV = """ip_prefix,region,provider
-104.236.0.0/16,nyc1,digitalocean
-104.237.0.0/16,nyc2,digitalocean"""
+# Datacenter CSV data (unified format: cidr,hostmin,hostmax,vendor)
+MOCK_DIGITALOCEAN_CSV = """cidr,hostmin,hostmax,vendor
+104.236.0.0/16,104.236.0.0,104.236.255.255,DigitalOcean
+104.237.0.0/16,104.237.0.0,104.237.255.255,DigitalOcean"""
 
-MOCK_LINODE_CSV = """ip_prefix,region,provider
-45.79.0.0/16,us-east,linode
-45.80.0.0/16,us-west,linode"""
+MOCK_LINODE_CSV = """cidr,hostmin,hostmax,vendor
+45.79.0.0/16,45.79.0.0,45.79.255.255,Linode
+45.80.0.0/16,45.80.0.0,45.80.255.255,Linode"""
 
-MOCK_OVH_CSV = """ip_prefix,region,provider
-51.38.0.0/16,eu,ovh
-51.39.0.0/16,us,ovh"""
+MOCK_OVH_CSV = """cidr,hostmin,hostmax,vendor
+51.38.0.0/16,51.38.0.0,51.38.255.255,OVH
+51.39.0.0/16,51.39.0.0,51.39.255.255,OVH"""
 
-MOCK_HETZNER_CSV = """ip_prefix,region,provider
-5.75.0.0/16,de,hetzner
-5.76.0.0/16,fi,hetzner"""
+MOCK_HETZNER_CSV = """cidr,hostmin,hostmax,vendor
+5.75.0.0/16,5.75.0.0,5.75.255.255,Hetzner
+5.76.0.0/16,5.76.0.0,5.76.255.255,Hetzner"""
 
-MOCK_VULTR_CSV = """ip_prefix,region,provider
-45.76.0.0/16,us,vultr
-45.77.0.0/16,eu,vultr"""
+MOCK_VULTR_CSV = """cidr,hostmin,hostmax,vendor
+45.76.0.0/16,45.76.0.0,45.76.255.255,Vultr
+45.77.0.0/16,45.77.0.0,45.77.255.255,Vultr"""
+
+# Unified datacenter CSV (all providers combined)
+MOCK_UNIFIED_DATACENTER_CSV = """cidr,hostmin,hostmax,vendor
+104.236.0.0/16,104.236.0.0,104.236.255.255,DigitalOcean
+104.237.0.0/16,104.237.0.0,104.237.255.255,DigitalOcean
+45.79.0.0/16,45.79.0.0,45.79.255.255,Linode
+45.80.0.0/16,45.80.0.0,45.80.255.255,Linode
+51.38.0.0/16,51.38.0.0,51.38.255.255,OVH
+51.39.0.0/16,51.39.0.0,51.39.255.255,OVH
+5.75.0.0/16,5.75.0.0,5.75.255.255,Hetzner
+5.76.0.0/16,5.76.0.0,5.76.255.255,Hetzner
+45.76.0.0/16,45.76.0.0,45.76.255.255,Vultr
+45.77.0.0/16,45.77.0.0,45.77.255.255,Vultr"""
 
 
 @pytest.fixture

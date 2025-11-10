@@ -145,7 +145,7 @@ class DatabaseCache:
 
                 # Return cached value
                 LOGGER.debug(f"Cache hit: {service}/{cache_key}")
-                return result.cache_value  # type: ignore[return-value]
+                return result.cache_value  # type: ignore[no-any-return]
 
         except SQLAlchemyError as e:
             LOGGER.error(f"Database cache get error: {e}", exc_info=True)
@@ -205,9 +205,9 @@ class DatabaseCache:
                     ).scalar_one_or_none()
 
                     if existing:
-                        existing.cache_value = cache_value  # type: ignore[assignment]
-                        existing.created_at = now  # type: ignore[assignment]
-                        existing.expires_at = expires_at  # type: ignore[assignment]
+                        existing.cache_value = cache_value
+                        existing.created_at = now
+                        existing.expires_at = expires_at
                     else:
                         entry = EnrichmentCache(
                             service=service,
@@ -244,7 +244,7 @@ class DatabaseCache:
                 )
                 result = session.execute(stmt)
                 session.commit()
-                rowcount = result.rowcount  # type: ignore[attr-defined]
+                rowcount = result.rowcount
                 deleted = bool(rowcount > 0 if rowcount is not None else False)
                 if deleted:
                     LOGGER.debug(f"Cache entry deleted: {service}/{cache_key}")
@@ -292,7 +292,7 @@ class DatabaseCache:
                 result = session.execute(delete_stmt)
                 session.commit()
 
-                rowcount = result.rowcount  # type: ignore[attr-defined]
+                rowcount = result.rowcount
                 deleted = int(rowcount if rowcount is not None else 0)
                 LOGGER.info(f"Deleted {deleted} expired cache entries")
                 return deleted

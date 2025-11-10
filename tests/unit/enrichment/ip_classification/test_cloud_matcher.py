@@ -10,7 +10,7 @@ import pytest
 
 # Check if pytricia is available
 try:
-    import pytricia
+    import pytricia  # noqa: F401 - Used for availability check
 
     PYTRICIA_AVAILABLE = True
 except ImportError:
@@ -90,8 +90,8 @@ class TestCloudProviderMatcher:
 
         assert result is not None
         assert result["provider"] == "aws"
-        assert result["region"] == "us-east-1"
-        assert result["service"] == "ec2"
+        assert result["region"] == "unknown"  # Plain text format has no region data
+        assert result["service"] == "unknown"  # Plain text format has no service data
 
     @patch("cowrieprocessor.enrichment.ip_classification.cloud_matcher.requests.get")
     def test_match_azure_ip(self, mock_get: Mock, cloud_matcher: CloudProviderMatcher) -> None:
@@ -109,8 +109,8 @@ class TestCloudProviderMatcher:
 
         assert result is not None
         assert result["provider"] == "azure"
-        assert result["region"] == "eastus"
-        assert result["service"] == "compute"
+        assert result["region"] == "unknown"  # Plain text format has no region data
+        assert result["service"] == "unknown"  # Plain text format has no service data
 
     @patch("cowrieprocessor.enrichment.ip_classification.cloud_matcher.requests.get")
     def test_match_gcp_ip(self, mock_get: Mock, cloud_matcher: CloudProviderMatcher) -> None:
@@ -128,8 +128,8 @@ class TestCloudProviderMatcher:
 
         assert result is not None
         assert result["provider"] == "gcp"
-        assert result["region"] == "us-central1"
-        assert result["service"] == "compute"
+        assert result["region"] == "unknown"  # Plain text format has no region data
+        assert result["service"] == "unknown"  # Plain text format has no service data
 
     @patch("cowrieprocessor.enrichment.ip_classification.cloud_matcher.requests.get")
     def test_match_cloudflare_ip(self, mock_get: Mock, cloud_matcher: CloudProviderMatcher) -> None:
@@ -147,8 +147,8 @@ class TestCloudProviderMatcher:
 
         assert result is not None
         assert result["provider"] == "cloudflare"
-        assert result["region"] == "global"
-        assert result["service"] == "cdn"
+        assert result["region"] == "unknown"  # Plain text format has no region data
+        assert result["service"] == "unknown"  # Plain text format has no service data
 
     @patch("cowrieprocessor.enrichment.ip_classification.cloud_matcher.requests.get")
     def test_match_non_cloud_ip(self, mock_get: Mock, cloud_matcher: CloudProviderMatcher) -> None:
@@ -232,6 +232,6 @@ class TestCloudProviderMatcher:
 
         cloud_matcher._update_provider("aws")
 
-        cache_file = cloud_matcher.cache_dir / "aws_ipv4.csv"
+        cache_file = cloud_matcher.cache_dir / "aws_ips_v4.txt"  # Plain text format, not CSV
         assert cache_file.exists()
         assert cache_file.read_text() == MOCK_AWS_CSV

@@ -146,12 +146,12 @@ class DatacenterMatcher(IPMatcher):
         and builds a unified PyTricia prefix tree for fast CIDR matching.
 
         Data Format (CSV):
-            Header: provider,cidr
-            Example: DigitalOcean,104.236.0.0/16
+            Header: cidr,hostmin,hostmax,vendor
+            Example: 104.236.0.0/16,104.236.0.0,104.236.255.255,DigitalOcean
 
         Providers Included:
-            - DigitalOcean, Linode, OVH, Hetzner, Vultr, and others
-            - Total: ~5,000-10,000 CIDRs across all providers
+            - AWS, DigitalOcean, Linode, OVH, Hetzner, Vultr, and many others
+            - Total: ~47,000+ CIDRs across all cloud/datacenter providers
 
         Raises:
             requests.RequestException: If HTTP request fails
@@ -175,7 +175,7 @@ class DatacenterMatcher(IPMatcher):
         cache_file = self.cache_dir / "datacenters.csv"
         cache_file.write_text(response.text)
 
-        # Parse CSV: provider,cidr
+        # Parse CSV: cidr,hostmin,hostmax,vendor
         new_trie = pytricia.PyTricia()
         reader = csv.DictReader(StringIO(response.text))
         total_cidrs_loaded = 0
@@ -183,7 +183,7 @@ class DatacenterMatcher(IPMatcher):
 
         for row in reader:
             try:
-                provider = row.get("provider", "").strip().lower()
+                provider = row.get("vendor", "").strip().lower()
                 cidr = row.get("cidr", "").strip()
 
                 if not cidr or not provider:

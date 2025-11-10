@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 try:
-    import pytricia
+    import pytricia  # noqa: F401
 
     PYTRICIA_AVAILABLE = True
 except ImportError:
@@ -17,8 +17,6 @@ except ImportError:
 
 from cowrieprocessor.enrichment.ip_classification.datacenter_matcher import DatacenterMatcher
 from tests.fixtures.ip_classification_fixtures import (
-    MOCK_DIGITALOCEAN_CSV,
-    MOCK_LINODE_CSV,
     SAMPLE_DIGITALOCEAN_IP,
     SAMPLE_LINODE_IP,
     SAMPLE_UNKNOWN_IP,
@@ -62,13 +60,14 @@ class TestDatacenterMatcher:
 
         assert result is not None
         assert result["provider"] == "digitalocean"
-        assert result["region"] == "nyc1"
+        # Region is now "unknown" in unified CSV format (no per-region tracking)
+        assert result["region"] == "unknown"
 
     @patch("cowrieprocessor.enrichment.ip_classification.datacenter_matcher.requests.get")
     def test_match_linode_ip(self, mock_get: Mock, datacenter_matcher: DatacenterMatcher) -> None:
         """Test matching a Linode IP address."""
-        # Mock unified CSV with Linode entry (provider,cidr format)
-        unified_csv = "provider,cidr\nLinode,45.79.0.0/16\n"
+        # Mock unified CSV with Linode entry (cidr,hostmin,hostmax,vendor format)
+        unified_csv = "cidr,hostmin,hostmax,vendor\n45.79.0.0/16,45.79.0.0,45.79.255.255,Linode\n"
         mock_response = Mock()
         mock_response.text = unified_csv
         mock_response.raise_for_status = Mock()
@@ -86,12 +85,16 @@ class TestDatacenterMatcher:
     @patch("cowrieprocessor.enrichment.ip_classification.datacenter_matcher.requests.get")
     def test_match_non_datacenter_ip(self, mock_get: Mock, datacenter_matcher: DatacenterMatcher) -> None:
         """Test matching a non-datacenter IP returns None."""
+        # Mock unified CSV with DigitalOcean entries (cidr,hostmin,hostmax,vendor format)
+        unified_csv = "cidr,hostmin,hostmax,vendor\n104.236.0.0/16,104.236.0.0,104.236.255.255,DigitalOcean\n"
         mock_response = Mock()
-        mock_response.text = MOCK_DIGITALOCEAN_CSV
+        mock_response.text = unified_csv
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
         datacenter_matcher._download_data()
+        datacenter_matcher._data_loaded = True
+        datacenter_matcher.last_update = datetime.now(timezone.utc)
 
         result = datacenter_matcher.match(SAMPLE_UNKNOWN_IP)
 
@@ -99,20 +102,21 @@ class TestDatacenterMatcher:
 
     @patch("cowrieprocessor.enrichment.ip_classification.datacenter_matcher.requests.get")
     def test_partial_provider_failure(self, mock_get: Mock, datacenter_matcher: DatacenterMatcher) -> None:
-        """Test partial provider failures allow continuation."""
-
-        def mock_get_side_effect(url: str, **kwargs):
-            if "digitalocean" in url:
-                mock_response = Mock()
-                mock_response.text = MOCK_DIGITALOCEAN_CSV
-                mock_response.raise_for_status = Mock()
-                return mock_response
-            else:
-                raise Exception("Provider unavailable")
-
-        mock_get.side_effect = mock_get_side_effect
+        """Test that unified CSV loads successfully with multiple providers."""
+        # Mock unified CSV with DigitalOcean entries (2 CIDRs, cidr,hostmin,hostmax,vendor format)
+        unified_csv = (
+            "cidr,hostmin,hostmax,vendor\n"
+            "104.236.0.0/16,104.236.0.0,104.236.255.255,DigitalOcean\n"
+            "104.237.0.0/16,104.237.0.0,104.237.255.255,DigitalOcean\n"
+        )
+        mock_response = Mock()
+        mock_response.text = unified_csv
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
 
         datacenter_matcher._download_data()
+        datacenter_matcher._data_loaded = True
+        datacenter_matcher.last_update = datetime.now(timezone.utc)
 
         assert datacenter_matcher._provider_cidr_counts["digitalocean"] == 2
 

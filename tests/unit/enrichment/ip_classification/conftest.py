@@ -18,6 +18,7 @@ from tests.fixtures.ip_classification_fixtures import (
     MOCK_LINODE_CSV,
     MOCK_OVH_CSV,
     MOCK_TOR_EXIT_LIST,
+    MOCK_UNIFIED_DATACENTER_CSV,
     MOCK_VULTR_CSV,
 )
 
@@ -62,9 +63,13 @@ def mock_all_network_requests():
                 mock_response.text = MOCK_CLOUDFLARE_CSV
             else:
                 mock_response.text = ""
-        # Datacenter matchers (jhassine repo with {provider}/ipv4.csv format)
+        # Datacenter matchers (jhassine repo with unified data/datacenters.csv format)
         elif "jhassine" in url:
-            if "digitalocean" in url:
+            # New unified CSV format: single file with all providers
+            if "datacenters.csv" in url:
+                mock_response.text = MOCK_UNIFIED_DATACENTER_CSV
+            # Legacy per-provider format (for backward compatibility in tests)
+            elif "digitalocean" in url:
                 mock_response.text = MOCK_DIGITALOCEAN_CSV
             elif "linode" in url:
                 mock_response.text = MOCK_LINODE_CSV
