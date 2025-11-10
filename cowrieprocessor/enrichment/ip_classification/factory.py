@@ -51,7 +51,7 @@ def create_ip_classifier(
         enable_redis=enable_redis,
         tor_url=tor_url or "https://check.torproject.org/torbulkexitlist",
         cloud_base_url=cloud_base_url or "https://raw.githubusercontent.com/rezmoss/cloud-provider-ip-addresses/main",
-        datacenter_url=datacenter_url or "https://raw.githubusercontent.com/jhassine/server-ip-addresses/main",
+        datacenter_url=datacenter_url or "https://raw.githubusercontent.com/jhassine/server-ip-addresses/master",
     )
 
     logger.info("IPClassifier initialized successfully")

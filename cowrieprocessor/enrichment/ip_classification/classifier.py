@@ -81,7 +81,7 @@ class IPClassifier:
         enable_redis: bool = ENABLE_REDIS_CACHE,
         tor_url: str = "https://check.torproject.org/torbulkexitlist",
         cloud_base_url: str = "https://raw.githubusercontent.com/rezmoss/cloud-provider-ip-addresses/main",
-        datacenter_url: str = "https://raw.githubusercontent.com/jhassine/server-ip-addresses/main",
+        datacenter_url: str = "https://raw.githubusercontent.com/jhassine/server-ip-addresses/master",
     ) -> None:
         """Initialize IP classifier with all matchers and cache.
 
