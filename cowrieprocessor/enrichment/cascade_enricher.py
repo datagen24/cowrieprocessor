@@ -232,9 +232,9 @@ class CascadeEnricher:
         try:
             if cached:
                 # Update existing record directly (SQLAlchemy ORM)
-                cached.enrichment = merged.enrichment  # type: ignore[assignment]
+                cached.enrichment = merged.enrichment
                 cached.enrichment_updated_at = now  # type: ignore[assignment]
-                cached.current_asn = merged.current_asn  # type: ignore[assignment]
+                cached.current_asn = merged.current_asn
                 cached.asn_last_verified = now  # type: ignore[assignment]
                 cached.last_seen = now  # type: ignore[assignment]
                 cached.session_count = (cached.session_count or 0) + 1  # type: ignore[assignment]
@@ -327,7 +327,7 @@ class CascadeEnricher:
                 cymru_result = self.cymru.lookup_asn(ip_str)
                 if cymru_result and cymru_result.asn:
                     # Update enrichment JSON
-                    enrichment: dict[str, dict[str, str | int | None]] = inventory.enrichment or {}
+                    enrichment: dict[str, dict[str, str | int | None]] = inventory.enrichment or {}  # type: ignore[assignment]
                     enrichment["cymru"] = {
                         "asn": cymru_result.asn,
                         "asn_org": cymru_result.asn_org,
@@ -390,7 +390,7 @@ class CascadeEnricher:
                     ip_str = str(inventory.ip_address)
                     cymru_result = self.cymru.lookup_asn(ip_str)
                     if cymru_result:
-                        cymru_enrichment: dict[str, dict[str, str | int | None]] = inventory.enrichment or {}
+                        cymru_enrichment: dict[str, dict[str, str | int | None]] = inventory.enrichment or {}  # type: ignore[assignment]
                         cymru_enrichment["cymru"] = {
                             "asn": cymru_result.asn,
                             "asn_org": cymru_result.asn_org,
@@ -429,7 +429,7 @@ class CascadeEnricher:
                     ip_str = str(inventory.ip_address)
                     greynoise_result = self.greynoise.lookup_ip(ip_str)
                     if greynoise_result:
-                        gn_enrichment: dict[str, dict[str, str | bool | None]] = inventory.enrichment or {}
+                        gn_enrichment: dict[str, dict[str, str | bool | None]] = inventory.enrichment or {}  # type: ignore[assignment]
                         gn_enrichment["greynoise"] = {
                             "noise": greynoise_result.noise,
                             "riot": greynoise_result.riot,
@@ -477,7 +477,7 @@ class CascadeEnricher:
                         as_name = inventory.enrichment["cymru"].get("asn_org")
 
                     classification = self.ip_classifier.classify(ip_str, asn, as_name)  # type: ignore[arg-type]
-                    classification_enrichment: dict[str, dict[str, str | float | None]] = inventory.enrichment or {}
+                    classification_enrichment: dict[str, dict[str, str | float | None]] = inventory.enrichment or {}  # type: ignore[assignment]
                     classification_enrichment["ip_classification"] = {
                         "ip_type": classification.ip_type.value,
                         "provider": classification.provider,

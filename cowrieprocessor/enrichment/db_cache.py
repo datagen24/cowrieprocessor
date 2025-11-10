@@ -103,7 +103,7 @@ class DatabaseCache:
         proper cleanup of database connections.
         """
         try:
-            self.engine.dispose()
+            self.engine.dispose()  # type: ignore[union-attr]
             LOGGER.debug("DatabaseCache resources cleaned up")
         except Exception as e:
             LOGGER.warning(f"Error during DatabaseCache cleanup: {e}")
