@@ -29,8 +29,8 @@ def resolve_database_settings(db_arg: str | None = None) -> DatabaseSettings:
         # Try to load from sensors.toml first, then fall back to environment/default
         config = _load_sensors_config()
         if config:
-            # Extract only database-related configuration (filter out 'cache' and other non-DB keys)
-            db_config = {k: v for k, v in config.items() if k != 'cache'}
+            # Extract only database-related configuration (filter out 'cache', 'data_dir', and other non-DB keys)
+            db_config = {k: v for k, v in config.items() if k not in ('cache', 'data_dir')}
             return load_database_settings(config=db_config)
         return load_database_settings()
 
