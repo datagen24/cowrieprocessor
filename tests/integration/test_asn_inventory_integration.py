@@ -16,7 +16,7 @@ from cowrieprocessor.enrichment.maxmind_client import MaxMindResult
 
 
 @pytest.fixture
-def integration_db(tmp_path):
+def integration_db(tmp_path):  # type: ignore[misc]
     """Create temporary SQLite database for integration testing."""
     from cowrieprocessor.db.models import Base
 
@@ -27,7 +27,7 @@ def integration_db(tmp_path):
 
 
 @pytest.fixture
-def integration_session(integration_db):
+def integration_session(integration_db):  # type: ignore[misc]
     """Create database session for integration testing."""
     engine, _ = integration_db
     with Session(engine) as session:
@@ -58,8 +58,8 @@ class TestEndToEndASNInventoryFlow:
         )
 
         # Step 1: Enrich multiple IPs with different ASNs
-        mock_maxmind.lookup_ip.side_effect = [
-            MaxMindResult(
+        mock_maxmind.lookup_ip.side_effect = [  # type: ignore[attr-defined]
+            MaxMindResult(  # type: ignore[call-arg]
                 ip_address="8.8.8.8",
                 country_code="US",
                 country_name="United States",
@@ -72,7 +72,7 @@ class TestEndToEndASNInventoryFlow:
                 source="maxmind",
                 cached_at=datetime.now(timezone.utc),
             ),
-            MaxMindResult(
+            MaxMindResult(  # type: ignore[call-arg]
                 ip_address="1.1.1.1",
                 country_code="AU",
                 country_name="Australia",
@@ -85,7 +85,7 @@ class TestEndToEndASNInventoryFlow:
                 source="maxmind",
                 cached_at=datetime.now(timezone.utc),
             ),
-            MaxMindResult(
+            MaxMindResult(  # type: ignore[call-arg]
                 ip_address="8.8.4.4",
                 country_code="US",
                 country_name="United States",

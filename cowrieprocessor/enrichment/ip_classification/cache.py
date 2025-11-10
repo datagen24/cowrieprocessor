@@ -18,9 +18,9 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from ..db_cache import DatabaseCache
 from ..hybrid_cache import ENABLE_REDIS_CACHE, create_redis_client
@@ -124,14 +124,14 @@ class HybridIPClassificationCache:
     def __init__(
         self,
         cache_dir: Path,
-        db_engine: Engine,
+        db_engine: Union[Engine, Connection],
         enable_redis: bool = ENABLE_REDIS_CACHE,
     ) -> None:
         """Initialize multi-tier IP classification cache.
 
         Args:
             cache_dir: Base directory for disk cache (L3)
-            db_engine: SQLAlchemy engine for database cache (L2)
+            db_engine: SQLAlchemy engine or connection for database cache (L2)
             enable_redis: Enable Redis cache (L1), default from config
 
         Example:

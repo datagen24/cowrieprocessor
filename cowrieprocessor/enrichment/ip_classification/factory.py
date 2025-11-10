@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from .classifier import IPClassifier
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def create_ip_classifier(
     cache_dir: Path,
-    db_engine: Engine,
+    db_engine: Union[Engine, Connection],
     enable_redis: bool = True,
     tor_url: Optional[str] = None,
     cloud_base_url: Optional[str] = None,
@@ -25,7 +25,7 @@ def create_ip_classifier(
 
     Args:
         cache_dir: Base directory for disk cache (L3)
-        db_engine: SQLAlchemy engine for database cache (L2)
+        db_engine: SQLAlchemy engine or connection for database cache (L2)
         enable_redis: Enable Redis cache (L1), default True
         tor_url: Optional custom TOR exit node list URL
         cloud_base_url: Optional custom cloud provider IP ranges URL

@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 import pytest
 
@@ -21,7 +21,7 @@ class TestCachePerformance:
         cache_dir = Path(tempfile.mkdtemp())
         return EnrichmentCacheManager(base_dir=cache_dir)
 
-    def generate_test_data(self, count: int) -> List[Dict[str, any]]:
+    def generate_test_data(self, count: int) -> List[Dict[str, Any]]:
         """Generate test data for performance testing."""
         test_data = []
         for i in range(count):

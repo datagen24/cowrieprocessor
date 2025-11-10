@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 
 from ..hybrid_cache import ENABLE_REDIS_CACHE
 from .cache import HybridIPClassificationCache
@@ -77,7 +77,7 @@ class IPClassifier:
     def __init__(
         self,
         cache_dir: Path,
-        db_engine: Engine,
+        db_engine: Union[Engine, Connection],
         enable_redis: bool = ENABLE_REDIS_CACHE,
         tor_url: str = "https://check.torproject.org/torbulkexitlist",
         cloud_base_url: str = "https://raw.githubusercontent.com/rezmoss/cloud-provider-ip-addresses/main",
@@ -87,7 +87,7 @@ class IPClassifier:
 
         Args:
             cache_dir: Base directory for disk cache (L3)
-            db_engine: SQLAlchemy engine for database cache (L2)
+            db_engine: SQLAlchemy engine or connection for database cache (L2)
             enable_redis: Enable Redis cache (L1), default from config
             tor_url: URL for TOR exit node list (default: Tor Project bulk list)
             cloud_base_url: Base URL for cloud provider IP ranges (default: rezmoss/GitHub)

@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -74,11 +74,11 @@ class DatabaseCache:
         >>> print(f"Deleted {deleted} expired entries")
     """
 
-    def __init__(self, engine: Engine, ttl_seconds: Optional[int] = None) -> None:
-        """Initialize database cache with SQLAlchemy engine.
+    def __init__(self, engine: Union[Engine, Connection], ttl_seconds: Optional[int] = None) -> None:
+        """Initialize database cache with SQLAlchemy engine or connection.
 
         Args:
-            engine: SQLAlchemy engine for database connections
+            engine: SQLAlchemy engine or connection for database access
             ttl_seconds: Default TTL in seconds (default: 30 days)
         """
         self.engine = engine
@@ -145,7 +145,7 @@ class DatabaseCache:
 
                 # Return cached value
                 LOGGER.debug(f"Cache hit: {service}/{cache_key}")
-                return result.cache_value  # type: ignore[no-any-return]
+                return result.cache_value  # type: ignore[return-value]
 
         except SQLAlchemyError as e:
             LOGGER.error(f"Database cache get error: {e}", exc_info=True)
@@ -205,9 +205,9 @@ class DatabaseCache:
                     ).scalar_one_or_none()
 
                     if existing:
-                        existing.cache_value = cache_value
-                        existing.created_at = now
-                        existing.expires_at = expires_at
+                        existing.cache_value = cache_value  # type: ignore[assignment]
+                        existing.created_at = now  # type: ignore[assignment]
+                        existing.expires_at = expires_at  # type: ignore[assignment]
                     else:
                         entry = EnrichmentCache(
                             service=service,
@@ -244,7 +244,7 @@ class DatabaseCache:
                 )
                 result = session.execute(stmt)
                 session.commit()
-                rowcount = result.rowcount
+                rowcount = result.rowcount  # type: ignore[attr-defined]
                 deleted = bool(rowcount > 0 if rowcount is not None else False)
                 if deleted:
                     LOGGER.debug(f"Cache entry deleted: {service}/{cache_key}")
@@ -292,7 +292,7 @@ class DatabaseCache:
                 result = session.execute(delete_stmt)
                 session.commit()
 
-                rowcount = result.rowcount
+                rowcount = result.rowcount  # type: ignore[attr-defined]
                 deleted = int(rowcount if rowcount is not None else 0)
                 LOGGER.info(f"Deleted {deleted} expired cache entries")
                 return deleted

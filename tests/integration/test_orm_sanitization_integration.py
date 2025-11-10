@@ -42,7 +42,7 @@ class TestORMSanitizationIntegration(unittest.TestCase):
             # Create SessionSummary with dirty enrichment data directly
             dirty_session = SessionSummary(
                 session_id="bypass-test-1",
-                enrichment={
+                enrichment={  # type: ignore[arg-type]
                     "malicious": {
                         "field": "value\x00with\x01control\x02chars",
                     }
@@ -129,7 +129,7 @@ class TestORMSanitizationIntegration(unittest.TestCase):
 
             # Verify all were sanitized
             self.assertEqual(len(retrieved), 10)
-            for i, record in enumerate(sorted(retrieved, key=lambda x: x.session_id)):
+            for i, record in enumerate(sorted(retrieved, key=lambda x: x.session_id)):  # type: ignore[arg-type,return-value]
                 self.assertEqual(record.enrichment["value"], f"data{i}")  # type: ignore[index]
 
     def test_defense_in_depth_with_both_layers(self) -> None:

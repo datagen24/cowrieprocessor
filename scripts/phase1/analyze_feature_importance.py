@@ -529,7 +529,7 @@ class FeatureImportanceAnalyzer:
         Returns:
             List of FeatureCategory objects
         """
-        categories = {
+        categories: dict[str, list[FeatureStats]] = {
             "TTP Sequences": [],
             "Temporal Behavioral": [],
             "Infrastructure Fingerprints": [],

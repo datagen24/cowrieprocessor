@@ -112,14 +112,14 @@ def calculate_statistics(incidents: list[dict[str, Any]]) -> dict[str, Any]:
         date_span_days = 0
 
     # Attack characteristics analysis
-    characteristics = defaultdict(Counter)
+    characteristics: dict[str, Counter[str]] = defaultdict(Counter)
     for inc in incidents:
         chars = inc["metadata"]["attack_characteristics"]
         for key, value in chars.items():
             characteristics[key][str(value)] += 1
 
     # Enrichment coverage
-    enrichment_stats = {
+    enrichment_stats: dict[str, list[float]] = {
         "virustotal": [],
         "dshield": [],
         "hibp": [],

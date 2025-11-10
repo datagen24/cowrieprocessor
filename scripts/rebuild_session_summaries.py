@@ -448,7 +448,7 @@ class SessionSummaryRebuilder:
 
         with self.Session() as session:
             # Clear existing command_stats
-            deleted_count = session.execute(delete(CommandStat)).rowcount
+            deleted_count = session.execute(delete(CommandStat)).rowcount  # type: ignore[attr-defined]
             logger.info(f"Cleared {deleted_count} existing command_stats records")
             session.commit()
 

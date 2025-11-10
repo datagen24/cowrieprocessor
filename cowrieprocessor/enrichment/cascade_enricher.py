@@ -232,12 +232,12 @@ class CascadeEnricher:
         try:
             if cached:
                 # Update existing record directly (SQLAlchemy ORM)
-                cached.enrichment = merged.enrichment
-                cached.enrichment_updated_at = now
-                cached.current_asn = merged.current_asn
-                cached.asn_last_verified = now
-                cached.last_seen = now
-                cached.session_count = (cached.session_count or 0) + 1
+                cached.enrichment = merged.enrichment  # type: ignore[assignment]
+                cached.enrichment_updated_at = now  # type: ignore[assignment]
+                cached.current_asn = merged.current_asn  # type: ignore[assignment]
+                cached.asn_last_verified = now  # type: ignore[assignment]
+                cached.last_seen = now  # type: ignore[assignment]
+                cached.session_count = (cached.session_count or 0) + 1  # type: ignore[assignment]
                 self.session.flush()
                 return cached
             else:
@@ -400,12 +400,12 @@ class CascadeEnricher:
                             "allocation_date": cymru_result.allocation_date,
                             "cached_at": cymru_result.cached_at.isoformat(),
                         }
-                        inventory.enrichment = cymru_enrichment
+                        inventory.enrichment = cymru_enrichment  # type: ignore[assignment]
                         attributes.flag_modified(inventory, "enrichment")  # Mark JSON field as modified
-                        inventory.enrichment_updated_at = now
+                        inventory.enrichment_updated_at = now  # type: ignore[assignment]
                         if cymru_result.asn:
-                            inventory.current_asn = cymru_result.asn
-                            inventory.asn_last_verified = now
+                            inventory.current_asn = cymru_result.asn  # type: ignore[assignment]
+                            inventory.asn_last_verified = now  # type: ignore[assignment]
                         refreshed["cymru_refreshed"] += 1
                         self.session.flush()  # Ensure changes are persisted
                 except Exception as e:
@@ -440,9 +440,9 @@ class CascadeEnricher:
                             ),
                             "cached_at": greynoise_result.cached_at.isoformat(),
                         }
-                        inventory.enrichment = gn_enrichment
+                        inventory.enrichment = gn_enrichment  # type: ignore[assignment]
                         attributes.flag_modified(inventory, "enrichment")  # Mark JSON field as modified
-                        inventory.enrichment_updated_at = now
+                        inventory.enrichment_updated_at = now  # type: ignore[assignment]
                         refreshed["greynoise_refreshed"] += 1
                         self.session.flush()  # Ensure changes are persisted
                 except Exception as e:
@@ -476,7 +476,7 @@ class CascadeEnricher:
                     if inventory.enrichment and "cymru" in inventory.enrichment:
                         as_name = inventory.enrichment["cymru"].get("asn_org")
 
-                    classification = self.ip_classifier.classify(ip_str, asn, as_name)
+                    classification = self.ip_classifier.classify(ip_str, asn, as_name)  # type: ignore[arg-type]
                     classification_enrichment: dict[str, dict[str, str | float | None]] = inventory.enrichment or {}
                     classification_enrichment["ip_classification"] = {
                         "ip_type": classification.ip_type.value,
@@ -487,9 +487,9 @@ class CascadeEnricher:
                             classification.classified_at.isoformat() if classification.classified_at else None
                         ),
                     }
-                    inventory.enrichment = classification_enrichment
+                    inventory.enrichment = classification_enrichment  # type: ignore[assignment]
                     attributes.flag_modified(inventory, "enrichment")  # Mark JSON field as modified
-                    inventory.enrichment_updated_at = now
+                    inventory.enrichment_updated_at = now  # type: ignore[assignment]
                     refreshed["ip_classification_refreshed"] += 1
                     self._stats.ip_classification_hits += 1
                     self.session.flush()  # Ensure changes are persisted
@@ -551,7 +551,7 @@ class CascadeEnricher:
             True if has required sources AND fresh, False if missing sources OR stale
         """
         now = datetime.now(timezone.utc)
-        enrichment: dict[str, dict[str, str | int | float | bool | None]] = inventory.enrichment or {}
+        enrichment: dict[str, dict[str, str | int | float | bool | None]] = inventory.enrichment or {}  # type: ignore[assignment]
 
         # Empty enrichment is stale (no data yet)
         if not enrichment:
@@ -629,7 +629,7 @@ class CascadeEnricher:
         # Start with cached data or create new inventory
         if cached:
             inventory = cached
-            enrichment: dict[str, dict[str, str | int | float | bool | None]] = inventory.enrichment or {}
+            enrichment: dict[str, dict[str, str | int | float | bool | None]] = inventory.enrichment or {}  # type: ignore[assignment]
         else:
             # Create new inventory with provided IP address
             inventory = IPInventory(ip_address=ip_address)
@@ -650,7 +650,7 @@ class CascadeEnricher:
             }
             # Set ASN if available from MaxMind
             if maxmind.asn:
-                inventory.current_asn = maxmind.asn
+                inventory.current_asn = maxmind.asn  # type: ignore[assignment]
 
         # Merge Cymru data (ASN fallback only if MaxMind didn't provide)
         if cymru and (not maxmind or maxmind.asn is None):
@@ -665,7 +665,7 @@ class CascadeEnricher:
             }
             # Set ASN from Cymru if MaxMind didn't provide
             if cymru.asn:
-                inventory.current_asn = cymru.asn
+                inventory.current_asn = cymru.asn  # type: ignore[assignment]
 
         # Merge GreyNoise data (scanner classification, independent)
         if greynoise:
@@ -678,7 +678,7 @@ class CascadeEnricher:
                 "cached_at": greynoise.cached_at.isoformat(),
             }
 
-        inventory.enrichment = enrichment
+        inventory.enrichment = enrichment  # type: ignore[assignment]
         return inventory
 
     def _create_minimal_inventory(self, ip_address: str, now: datetime) -> IPInventory:
@@ -756,16 +756,16 @@ class CascadeEnricher:
 
             if existing:
                 # Update existing record
-                existing.last_seen = now
-                existing.updated_at = now
+                existing.last_seen = now  # type: ignore[assignment]
+                existing.updated_at = now  # type: ignore[assignment]
 
                 # Update organization metadata if we have better data
                 if organization_name and not existing.organization_name:
-                    existing.organization_name = organization_name
+                    existing.organization_name = organization_name  # type: ignore[assignment]
                 if organization_country and not existing.organization_country:
-                    existing.organization_country = organization_country
+                    existing.organization_country = organization_country  # type: ignore[assignment]
                 if rir_registry and not existing.rir_registry:
-                    existing.rir_registry = rir_registry
+                    existing.rir_registry = rir_registry  # type: ignore[assignment]
 
                 logger.debug(f"Updated ASN {asn} ({existing.organization_name})")
                 self.session.flush()

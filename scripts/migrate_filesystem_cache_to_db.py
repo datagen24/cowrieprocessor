@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("DRY RUN MODE: No database operations will be performed")
 
     # Migration statistics
-    stats = {
+    stats: dict[str, int | dict[str, dict[str, int]]] = {
         "total_scanned": 0,
         "total_migrated": 0,
         "total_errors": 0,

@@ -586,14 +586,14 @@ class BulkLoader:
                 index_elements=["source", "source_inode", "source_generation", "source_offset"]
             )
             result = session.execute(stmt)
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table).values(records)
             pg_stmt = pg_stmt.on_conflict_do_nothing(
                 index_elements=["source", "source_inode", "source_generation", "source_offset"]
             )
             result = session.execute(pg_stmt)
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
         inserted = 0
         for record in records:
@@ -616,12 +616,12 @@ class BulkLoader:
             stmt = sqlite_dialect.insert(table)
             stmt = stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(stmt, [self._files_to_dict(f) for f in files])
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
         if dialect_name == "postgresql" and postgres_dialect is not None:
             pg_stmt = postgres_dialect.insert(table)
             pg_stmt = pg_stmt.on_conflict_do_nothing(index_elements=["session_id", "shasum"])
             result = session.execute(pg_stmt, [self._files_to_dict(f) for f in files])
-            return int(result.rowcount or 0)
+            return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
         inserted = 0
         for file_record in files:

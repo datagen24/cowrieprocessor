@@ -153,7 +153,7 @@ def test_end_to_end_password_enrichment(test_db, cache_manager, mock_rate_limite
         }
 
         # Update session enrichment
-        session_summary.enrichment = {'password_stats': password_stats}
+        session_summary.enrichment = {'password_stats': password_stats}  # type: ignore[assignment]
         db_session.commit()
 
         # Verify enrichment was saved
@@ -175,7 +175,7 @@ def test_daily_aggregation(test_db, cache_manager, mock_rate_limiter) -> None:
         for i in range(3):
             session_id = f"session{i}"
             session_summary = create_test_session(session_id)
-            session_summary.enrichment = {
+            session_summary.enrichment = {  # type: ignore[assignment]
                 'password_stats': {
                     'total_attempts': 5,
                     'unique_passwords': 3,
@@ -256,7 +256,7 @@ def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter) -> None:
     with test_db() as db_session:
         # Create session with existing password stats
         session_summary = create_test_session(session_id)
-        session_summary.enrichment = {
+        session_summary.enrichment = {  # type: ignore[assignment]
             'password_stats': {
                 'total_attempts': 1,
                 'unique_passwords': 1,
@@ -267,7 +267,7 @@ def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter) -> None:
         db_session.commit()
 
         # Verify initial enrichment
-        assert session_summary.enrichment['password_stats']['total_attempts'] == 1
+        assert session_summary.enrichment['password_stats']['total_attempts'] == 1  # type: ignore[index]
 
         # Force re-enrichment with new data
         new_stats = {
@@ -275,7 +275,7 @@ def test_force_reenrichment(test_db, cache_manager, mock_rate_limiter) -> None:
             'unique_passwords': 3,
             'breached_passwords': 2,
         }
-        session_summary.enrichment = {'password_stats': new_stats}
+        session_summary.enrichment = {'password_stats': new_stats}  # type: ignore[assignment]
         db_session.commit()
 
         # Verify update

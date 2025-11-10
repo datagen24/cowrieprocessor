@@ -285,7 +285,7 @@ def main() -> None:
             if incidents:
                 mode_name = mode.replace("_", " ").title()
                 print(f"{mode_name} ({len(incidents)}):")
-                for incident in incidents:
+                for incident in list(incidents):  # Convert to list for type safety
                     print(f"  - {incident}")
                 print()
 

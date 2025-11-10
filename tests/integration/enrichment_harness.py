@@ -163,21 +163,21 @@ class OfflineEnrichmentHarness:
         file_hashes: Iterable[str] | None = None,
     ) -> HarnessSessionResult:
         """Run offline enrichments for the provided session/IP pair."""
-        session_result = self.adapter.service.enrich_session(session_id, src_ip)
-        enrichment_payload: Dict[str, Any] = dict(session_result.get("enrichment", {}))
+        session_result = self.adapter.service.enrich_session(session_id, src_ip)  # type: ignore[attr-defined]
+        enrichment_payload: Dict[str, Any] = dict(session_result.get("enrichment", {}))  # type: ignore[arg-type]
 
         if file_hashes:
             for file_hash in file_hashes:
-                file_result = self.adapter.service.enrich_file(file_hash, file_hash)
-                enrichment_payload.update(file_result.get("enrichment", {}))
+                file_result = self.adapter.service.enrich_file(file_hash, file_hash)  # type: ignore[attr-defined]
+                enrichment_payload.update(file_result.get("enrichment", {}))  # type: ignore[arg-type]
 
         combined = {
             "session_id": session_id,
             "src_ip": src_ip,
             "enrichment": enrichment_payload,
         }
-        flags = self.adapter.service.get_session_flags(combined)
-        return HarnessSessionResult(session_id, src_ip, enrichment_payload, flags)
+        flags = self.adapter.service.get_session_flags(combined)  # type: ignore[attr-defined]
+        return HarnessSessionResult(session_id, src_ip, enrichment_payload, flags)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------
     # Stub helpers

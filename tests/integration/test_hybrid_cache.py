@@ -212,7 +212,7 @@ class TestHybridEnrichmentCache:
         """Test L1 (Redis) cache hit scenario."""
         # Configure mock to return cached data
         test_data = {"ip": "1.2.3.4", "reputation": "malicious"}
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=json.dumps(test_data))
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=json.dumps(test_data))  # type: ignore[union-attr]
 
         result = hybrid_cache_with_mock_redis.get_cached("dshield", "1.2.3.4")
 
@@ -228,7 +228,7 @@ class TestHybridEnrichmentCache:
     ) -> None:
         """Test L1 miss, L2 hit, and Redis backfill."""
         # Redis miss
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=None)
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=None)  # type: ignore[union-attr]
 
         # Filesystem hit - store data first
         test_data = {"ip": "1.2.3.4", "reputation": "suspicious"}
@@ -242,12 +242,12 @@ class TestHybridEnrichmentCache:
         assert hybrid_cache_with_mock_redis.stats.l2_filesystem.hits == 1
 
         # Verify Redis backfill was attempted
-        hybrid_cache_with_mock_redis.redis_client.setex.assert_called()
+        hybrid_cache_with_mock_redis.redis_client.setex.assert_called()  # type: ignore[union-attr]
 
     def test_l1_miss_l2_miss(self, hybrid_cache_with_mock_redis: HybridEnrichmentCache) -> None:
         """Test both L1 and L2 cache misses."""
         # Redis miss
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=None)
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value=None)  # type: ignore[union-attr]
 
         result = hybrid_cache_with_mock_redis.get_cached("dshield", "5.6.7.8")
 
@@ -263,8 +263,8 @@ class TestHybridEnrichmentCache:
         hybrid_cache_with_mock_redis.store_cached("dshield", "1.2.3.4", test_data)
 
         # Verify Redis store
-        hybrid_cache_with_mock_redis.redis_client.setex.assert_called_once()
-        call_args = hybrid_cache_with_mock_redis.redis_client.setex.call_args
+        hybrid_cache_with_mock_redis.redis_client.setex.assert_called_once()  # type: ignore[union-attr]
+        call_args = hybrid_cache_with_mock_redis.redis_client.setex.call_args  # type: ignore[union-attr]
         assert call_args[0][0] == "cowrie:enrichment:dshield:1.2.3.4"
         assert call_args[0][1] == 3600  # TTL
         assert json.loads(call_args[0][2]) == test_data
@@ -278,7 +278,7 @@ class TestHybridEnrichmentCache:
         import redis as redis_module
 
         # Redis error on get
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(side_effect=redis_module.RedisError("Connection lost"))
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(side_effect=redis_module.RedisError("Connection lost"))  # type: ignore[union-attr]
 
         # Store data in filesystem
         test_data = {"ip": "1.2.3.4", "reputation": "unknown"}
@@ -334,7 +334,7 @@ class TestHybridEnrichmentCache:
                 # Subsequent requests: L1 hit (return cached data)
                 return json.dumps({"ip": ip, "reputation": "test"})
 
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(side_effect=mock_redis_get)
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(side_effect=mock_redis_get)  # type: ignore[union-attr]
 
         # Process batch
         for ip in all_requests:
@@ -370,21 +370,21 @@ class TestHybridEnrichmentCache:
     def test_clear_redis(self, hybrid_cache_with_mock_redis: HybridEnrichmentCache) -> None:
         """Test clearing Redis cache."""
         # Configure mock to return some keys
-        hybrid_cache_with_mock_redis.redis_client.scan = Mock(
+        hybrid_cache_with_mock_redis.redis_client.scan = Mock(  # type: ignore[union-attr]
             side_effect=[
                 (10, ["key1", "key2", "key3"]),  # First scan
                 (0, ["key4"]),  # Final scan (cursor=0)
             ]
         )
-        hybrid_cache_with_mock_redis.redis_client.delete = Mock(
+        hybrid_cache_with_mock_redis.redis_client.delete = Mock(  # type: ignore[union-attr]
             side_effect=[3, 1]  # Delete counts
         )
 
         deleted_count = hybrid_cache_with_mock_redis.clear_redis()
 
         assert deleted_count == 4
-        assert hybrid_cache_with_mock_redis.redis_client.scan.call_count == 2
-        assert hybrid_cache_with_mock_redis.redis_client.delete.call_count == 2
+        assert hybrid_cache_with_mock_redis.redis_client.scan.call_count == 2  # type: ignore[union-attr]
+        assert hybrid_cache_with_mock_redis.redis_client.delete.call_count == 2  # type: ignore[union-attr]
 
     def test_context_manager(self, hybrid_cache_with_mock_redis: HybridEnrichmentCache) -> None:
         """Test context manager protocol."""
@@ -394,7 +394,7 @@ class TestHybridEnrichmentCache:
             cache.store_cached("test_service", "test_key", test_data)
 
         # After context exit, close should have been called
-        hybrid_cache_with_mock_redis.redis_client.close.assert_called_once()
+        hybrid_cache_with_mock_redis.redis_client.close.assert_called_once()  # type: ignore[union-attr]
 
     def test_json_encoding_error_handling(self, hybrid_cache_with_mock_redis: HybridEnrichmentCache) -> None:
         """Test handling of invalid JSON data."""
@@ -409,13 +409,13 @@ class TestHybridEnrichmentCache:
         hybrid_cache_with_mock_redis.store_cached("test", "key", invalid_data)  # type: ignore[arg-type]
 
         # Redis store should not have been called due to JSON error
-        hybrid_cache_with_mock_redis.redis_client.setex.assert_not_called()
+        hybrid_cache_with_mock_redis.redis_client.setex.assert_not_called()  # type: ignore[union-attr]
         assert hybrid_cache_with_mock_redis.stats.l1_redis.errors == 1
 
     def test_redis_decode_error_fallback(self, hybrid_cache_with_mock_redis: HybridEnrichmentCache) -> None:
         """Test fallback to L2 when Redis returns invalid JSON."""
         # Redis returns malformed JSON
-        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value="{ invalid json }")
+        hybrid_cache_with_mock_redis.redis_client.get = Mock(return_value="{ invalid json }")  # type: ignore[union-attr]
 
         # Store valid data in filesystem
         test_data = {"ip": "1.2.3.4", "valid": "data"}

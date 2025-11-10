@@ -216,11 +216,11 @@ def test_snapshot_immutability_with_coalesce(bulk_loader: BulkLoader, postgres_s
     # Update IP inventory to simulate enrichment change
     ip_entry = postgres_session.query(IPInventory).filter_by(ip_address="198.51.100.50").first()
     assert ip_entry is not None  # Type narrowing for mypy
-    ip_entry.enrichment = {
+    ip_entry.enrichment = {  # type: ignore[assignment]
         "maxmind": {"country": {"iso_code": "FR"}},  # Changed country
         "spur": {"as": {"number": 64516}, "ip_type": "DATACENTER"},  # Changed ASN and type
     }
-    ip_entry.current_asn = 64516
+    ip_entry.current_asn = 64516  # type: ignore[assignment]
     postgres_session.commit()
 
     # Simulate ON CONFLICT DO UPDATE (re-insert same session_id)
