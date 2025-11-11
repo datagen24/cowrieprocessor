@@ -47,9 +47,10 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, Generator
 
 import pytest
+from sqlalchemy import Engine
 
 from tests.validation.validation_helpers import (
     check_database_health,
@@ -63,7 +64,7 @@ from tests.validation.validation_helpers import (
 
 
 @pytest.fixture(scope="module")
-def prod_engine():
+def prod_engine() -> Generator[Engine, None, None]:
     """Production database engine (read-only by default)."""
     engine = get_production_engine()
     yield engine
@@ -83,7 +84,7 @@ def backfill_script_path() -> Path:
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_database_connectivity(prod_engine):
+def test_database_connectivity(prod_engine: Engine) -> None:
     """Verify production database connectivity and basic health.
 
     Success Criteria:
@@ -109,7 +110,7 @@ def test_database_connectivity(prod_engine):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_baseline_snapshot_coverage(prod_engine):
+def test_baseline_snapshot_coverage(prod_engine: Engine) -> None:
     """Measure baseline snapshot coverage BEFORE backfill.
 
     This establishes the starting point for validation. Expected:
@@ -135,7 +136,7 @@ def test_baseline_snapshot_coverage(prod_engine):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_backfill_requirements(prod_engine):
+def test_backfill_requirements(prod_engine: Engine) -> None:
     """Determine backfill requirements (sessions needing snapshots).
 
     Success Criteria:
@@ -161,7 +162,7 @@ def test_backfill_requirements(prod_engine):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_dry_run_safety(prod_engine, backfill_script_path):
+def test_dry_run_safety(prod_engine: Engine, backfill_script_path: Path) -> None:
     """Verify --dry-run makes NO database modifications.
 
     Success Criteria:
@@ -213,7 +214,7 @@ def test_dry_run_safety(prod_engine, backfill_script_path):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_dry_run_batch_performance(prod_engine, backfill_script_path):
+def test_dry_run_batch_performance(prod_engine: Engine, backfill_script_path: Path) -> None:
     """Measure dry-run batch processing performance.
 
     Success Criteria:
@@ -259,7 +260,7 @@ def test_dry_run_batch_performance(prod_engine, backfill_script_path):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_query_performance_snapshot_vs_join(prod_engine):
+def test_query_performance_snapshot_vs_join(prod_engine: Engine) -> None:
     """Compare query performance: snapshot columns vs JOIN.
 
     Tests multiple scenarios:
@@ -313,7 +314,7 @@ def test_query_performance_snapshot_vs_join(prod_engine):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_snapshot_accuracy_sampling(prod_engine):
+def test_snapshot_accuracy_sampling(prod_engine: Engine) -> None:
     """Validate snapshot accuracy on random sample.
 
     Samples 1000 random sessions and verifies snapshot columns match
@@ -348,7 +349,7 @@ def test_snapshot_accuracy_sampling(prod_engine):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_sample_session_inspection(prod_engine):
+def test_sample_session_inspection(prod_engine: Engine) -> None:
     """Manually inspect sample sessions for quality assurance.
 
     Retrieves 10 sessions with snapshots and 10 without for visual inspection.
@@ -373,7 +374,7 @@ def test_sample_session_inspection(prod_engine):
 @pytest.mark.production
 @pytest.mark.allow_production_writes
 @pytest.mark.skip(reason="Requires explicit --allow-production-writes marker")
-def test_small_scale_backfill_10k(prod_engine, backfill_script_path, tmp_path):
+def test_small_scale_backfill_10k(prod_engine: Engine, backfill_script_path: Path, tmp_path: Path) -> None:
     """Execute small-scale backfill test (10K sessions).
 
     **WARNING**: This test MODIFIES production database.
@@ -453,7 +454,7 @@ def test_small_scale_backfill_10k(prod_engine, backfill_script_path, tmp_path):
 
 @pytest.mark.production
 @pytest.mark.read_only
-def test_production_readiness_checklist(prod_engine):
+def test_production_readiness_checklist(prod_engine: Engine) -> None:
     """Comprehensive production readiness assessment.
 
     Validates all prerequisites for full production backfill:
