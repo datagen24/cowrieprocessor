@@ -27,14 +27,12 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx.ext.viewcode',
     'sphinx.ext.intersphinx',
-    # 'sphinx_autodoc_typehints',  # Temporarily disabled - missing dependency
-    # 'myst_parser',  # Temporarily disabled - missing dependency
+    'sphinx_autodoc_typehints',
+    'myst_parser',
 ]
 
 templates_path = ['_templates']
-exclude_patterns: list[str] = [
-    '**/*.md',  # Temporarily exclude markdown files - myst_parser missing
-]
+exclude_patterns: list[str] = []
 
 language = 'en'
 
@@ -74,7 +72,7 @@ napoleon_attr_annotations = True
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'alabaster'  # Changed from sphinx_rtd_theme - missing dependency
+html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 html_theme_options = {
     'navigation_depth': 4,
@@ -82,6 +80,9 @@ html_theme_options = {
     'sticky_navigation': True,
     'includehidden': True,
     'titles_only': False,
+    'display_version': True,
+    'prev_next_buttons_location': 'bottom',
+    'style_external_links': False,
 }
 
 # -- Options for intersphinx extension ---------------------------------------
