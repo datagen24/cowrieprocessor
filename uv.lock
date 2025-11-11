@@ -261,6 +261,7 @@ name = "cowrieprocessor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "dnspython" },
     { name = "dropbox" },
     { name = "geoip2" },
@@ -270,7 +271,10 @@ dependencies = [
     { name = "pathlib" },
     { name = "pip" },
     { name = "psutil" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
     { name = "python-dateutil" },
+    { name = "pytricia" },
     { name = "redis" },
     { name = "requests" },
     { name = "scikit-learn" },
@@ -278,12 +282,6 @@ dependencies = [
     { name = "tqdm" },
     { name = "types-python-dateutil" },
     { name = "vt-py" },
-]
-
-[package.optional-dependencies]
-postgres = [
-    { name = "psycopg", extra = ["binary"] },
-    { name = "psycopg-pool" },
 ]
 
 [package.dev-dependencies]
@@ -306,6 +304,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "dnspython", specifier = ">=2.4.0" },
     { name = "dropbox", specifier = ">=11.36.2" },
     { name = "geoip2", specifier = ">=4.7.0" },
@@ -315,9 +314,10 @@ requires-dist = [
     { name = "pathlib", specifier = ">=1.0.1" },
     { name = "pip", specifier = ">=25.2" },
     { name = "psutil", specifier = ">=7.1.0" },
-    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
-    { name = "psycopg-pool", marker = "extra == 'postgres'", specifier = ">=3.1" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1.0" },
+    { name = "psycopg-pool", specifier = ">=3.1.0" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
+    { name = "pytricia", specifier = ">=1.0.2" },
     { name = "redis", specifier = ">=7.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "scikit-learn", specifier = ">=1.3.0" },
@@ -326,7 +326,6 @@ requires-dist = [
     { name = "types-python-dateutil", specifier = ">=2.9.0.20250822" },
     { name = "vt-py", specifier = ">=0.21.0" },
 ]
-provides-extras = ["postgres"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1212,6 +1211,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/66/c0/0c8b6ad9f17a802ee
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl", hash = "sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427", size = 229892, upload-time = "2024-03-01T18:36:18.57Z" },
 ]
+
+[[package]]
+name = "pytricia"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/c6/e077cffbf4a2f364657b757fccd8f4694bffc6350fc30a563246bc5fbd9d/pytricia-1.3.0.tar.gz", hash = "sha256:1c3a3d6909e10d4c9c2f0fe4542a2481e109d29aab99cc027ca7fe93f8c8853f", size = 34118, upload-time = "2025-09-15T14:46:33.943Z" }
 
 [[package]]
 name = "pytz"

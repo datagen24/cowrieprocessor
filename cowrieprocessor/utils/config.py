@@ -11,7 +11,7 @@ def _load_sensors_config() -> dict[str, Any] | None:
     """Load global configuration from sensors.toml if available.
 
     Returns:
-        Configuration dict with 'url' and optional 'cache' keys, or None if not found
+        Configuration dict with 'url', 'data_dir', and optional 'cache' keys, or None if not found
     """
     # Try config/ directory first, then fall back to current directory
     sensors_file = Path("config/sensors.toml")
@@ -44,6 +44,11 @@ def _load_sensors_config() -> dict[str, Any] | None:
         db_url = global_config.get("db")
         if db_url:
             config["url"] = db_url
+
+        # Load data directory configuration
+        data_dir = global_config.get("data_dir")
+        if data_dir:
+            config["data_dir"] = data_dir
 
         # Load cache configuration (Redis settings)
         cache_config = global_config.get("cache", {})
@@ -145,4 +150,21 @@ def load_redis_config() -> dict[str, Any]:
     return config
 
 
-__all__ = ["load_redis_config"]
+def get_data_dir() -> Path:
+    """Get data directory from sensors.toml or return default.
+
+    Returns:
+        Path to data directory, defaulting to /mnt/dshield/data if not configured
+
+    Example:
+        >>> data_dir = get_data_dir()
+        >>> cache_dir = data_dir / "cache"
+        >>> status_dir = data_dir / "logs" / "status"
+    """
+    config = _load_sensors_config()
+    if config and "data_dir" in config:
+        return Path(config["data_dir"])
+    return Path("/mnt/dshield/data")
+
+
+__all__ = ["load_redis_config", "get_data_dir"]

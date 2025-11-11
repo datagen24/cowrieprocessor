@@ -74,9 +74,9 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
                 result = self.enrichment._enrich_with_hybrid_cache("dshield", "192.168.1.1", mock_dshield_api, {})
 
         # Verify sanitization happened
-        self.assertEqual(result["ip"]["asname"], "EvilCorp")
-        self.assertEqual(result["ip"]["ascountry"], "US")
-        self.assertEqual(result["ip"]["asnum"], "12345")
+        self.assertEqual(result["ip"]["asname"], "EvilCorp")  # type: ignore[index]
+        self.assertEqual(result["ip"]["ascountry"], "US")  # type: ignore[index]
+        self.assertEqual(result["ip"]["asnum"], "12345")  # type: ignore[index]
 
         # Verify no null bytes remain anywhere in the structure
         import json
@@ -87,8 +87,8 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
 
         # Verify sanitized data was stored in cache (not dirty data)
         mock_store.assert_called_once()
-        stored_data = mock_store.call_args[0][2]  # Third argument is the data
-        self.assertEqual(stored_data["ip"]["asname"], "EvilCorp")
+        stored_data = mock_store.call_args[0][2]  # Third argument is the data  # type: ignore[index]
+        self.assertEqual(stored_data["ip"]["asname"], "EvilCorp")  # type: ignore[index]
 
     def test_enrichment_pipeline_sanitizes_urlhaus_response(self) -> None:
         """Test that URLHaus API response goes through complete sanitization pipeline."""
@@ -105,10 +105,10 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
                 )
 
         # Verify all control chars removed
-        self.assertNotIn("\x00", result["tags"])
-        self.assertNotIn("\x01", result["tags"])
-        self.assertNotIn("\x02", result["tags"])
-        self.assertEqual(result["tags"], "malware,phishing,trojan")
+        self.assertNotIn("\x00", result["tags"])  # type: ignore[arg-type]
+        self.assertNotIn("\x01", result["tags"])  # type: ignore[arg-type]
+        self.assertNotIn("\x02", result["tags"])  # type: ignore[arg-type]
+        self.assertEqual(result["tags"], "malware,phishing,trojan")  # type: ignore[index]
 
     def test_enrichment_pipeline_sanitizes_spur_response(self) -> None:
         """Test that SPUR API response goes through complete sanitization pipeline."""
@@ -139,10 +139,10 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
                 result = self.enrichment._enrich_with_hybrid_cache("spur", "10.0.0.1", mock_spur_api, {"spur_data": []})
 
         # Verify sanitization of list elements
-        spur_data = result["spur_data"]
-        self.assertEqual(spur_data[0], "ISPName")  # organization
-        self.assertEqual(spur_data[11], "NewYork")  # city
-        self.assertEqual(spur_data[12], "US")  # country
+        spur_data = result["spur_data"]  # type: ignore[index]
+        self.assertEqual(spur_data[0], "ISPName")  # organization  # type: ignore[index]
+        self.assertEqual(spur_data[11], "NewYork")  # city  # type: ignore[index]
+        self.assertEqual(spur_data[12], "US")  # country  # type: ignore[index]
 
     def test_cached_enrichment_data_is_sanitized_on_retrieval(self) -> None:
         """Test that pre-existing dirty cached data is sanitized when retrieved.
@@ -163,8 +163,8 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
             result = self.enrichment._enrich_with_hybrid_cache("dshield", "10.0.0.1", lambda: {}, {})
 
         # Verify cached data was sanitized before return
-        self.assertEqual(result["ip"]["asname"], "CachedISP")
-        self.assertEqual(result["ip"]["ascountry"], "DE")
+        self.assertEqual(result["ip"]["asname"], "CachedISP")  # type: ignore[index]
+        self.assertEqual(result["ip"]["ascountry"], "DE")  # type: ignore[index]
 
     def test_file_metadata_extraction_sanitizes_filename(self) -> None:
         """Test that file download event extraction sanitizes filename.
@@ -188,9 +188,9 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
         file_data = extract_file_data(dirty_event, "test-session-1")
 
         self.assertIsNotNone(file_data)
-        self.assertEqual(file_data["filename"], "malicious.exe")
-        self.assertNotIn("\x00", file_data["filename"])
-        self.assertNotIn("\x01", file_data["filename"])
+        self.assertEqual(file_data["filename"], "malicious.exe")  # type: ignore[index]
+        self.assertNotIn("\x00", file_data["filename"])  # type: ignore[index]
+        self.assertNotIn("\x01", file_data["filename"])  # type: ignore[index]
 
     def test_file_metadata_extraction_sanitizes_url(self) -> None:
         """Test that file download event extraction sanitizes URL."""
@@ -208,9 +208,9 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
         file_data = extract_file_data(dirty_event, "test-session-1")
 
         self.assertIsNotNone(file_data)
-        self.assertEqual(file_data["download_url"], "http://evil.com/malware.exe")
-        self.assertNotIn("\x00", file_data["download_url"])
-        self.assertNotIn("\x01", file_data["download_url"])
+        self.assertEqual(file_data["download_url"], "http://evil.com/malware.exe")  # type: ignore[index]
+        self.assertNotIn("\x00", file_data["download_url"])  # type: ignore[index]
+        self.assertNotIn("\x01", file_data["download_url"])  # type: ignore[index]
 
     def test_file_metadata_extraction_sanitizes_both_fields(self) -> None:
         """Test sanitization of both filename and URL with multiple control chars."""
@@ -227,8 +227,8 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
 
         self.assertIsNotNone(file_data)
         # All control chars removed, stripped
-        self.assertEqual(file_data["filename"], "trojan.exe")
-        self.assertEqual(file_data["download_url"], "http://badsite.com/file")
+        self.assertEqual(file_data["filename"], "trojan.exe")  # type: ignore[index]
+        self.assertEqual(file_data["download_url"], "http://badsite.com/file")  # type: ignore[index]
 
     def test_source_files_sanitization_removes_null_bytes(self) -> None:
         """Test that session source file paths are sanitized.
@@ -250,13 +250,13 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
 
         # Verify sanitization
         self.assertIsNotNone(sanitized)
-        self.assertEqual(len(sanitized), 3)
+        self.assertEqual(len(sanitized), 3)  # type: ignore[arg-type]
         self.assertIn("/path/to/file1.log", sanitized)
         self.assertIn("/path/to/file2.log", sanitized)
         self.assertIn("/clean/path/file3.log", sanitized)
 
         # Verify sorted
-        self.assertEqual(sanitized[0], "/clean/path/file3.log")
+        self.assertEqual(sanitized[0], "/clean/path/file3.log")  # type: ignore[index]
 
     def test_source_files_sanitization_removes_multiple_control_chars(self) -> None:
         """Test removal of multiple different control characters from file paths."""
@@ -267,13 +267,13 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
         sanitized = self.loader._sanitize_source_files(dirty_files)
 
         self.assertIsNotNone(sanitized)
-        self.assertEqual(len(sanitized), 1)
-        self.assertEqual(sanitized[0], "/path/with/many/control/chars.log")
+        self.assertEqual(len(sanitized), 1)  # type: ignore[arg-type]
+        self.assertEqual(sanitized[0], "/path/with/many/control/chars.log")  # type: ignore[index]
 
         # Verify no control chars remain
         for char_code in range(0x00, 0x20):
             if char_code not in (0x09, 0x0A, 0x0D):  # Preserve tabs, newlines
-                self.assertNotIn(chr(char_code), sanitized[0])
+                self.assertNotIn(chr(char_code), sanitized[0])  # type: ignore[index]
 
     def test_full_pipeline_all_sanitization_points(self) -> None:
         """Integration test validating all three sanitization points work together.
@@ -310,11 +310,11 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
         source_files_result = self.loader._sanitize_source_files(dirty_source_files)
 
         # Verify all sanitization worked
-        self.assertEqual(enrichment_result["ip"]["asname"], "TestISP")
+        self.assertEqual(enrichment_result["ip"]["asname"], "TestISP")  # type: ignore[index]
         self.assertIsNotNone(file_result)
-        self.assertEqual(file_result["filename"], "trojan.exe")
+        self.assertEqual(file_result["filename"], "trojan.exe")  # type: ignore[index]
         self.assertIsNotNone(source_files_result)
-        self.assertEqual(len(source_files_result), 2)
+        self.assertEqual(len(source_files_result), 2)  # type: ignore[arg-type]
 
         # Verify no control chars remain in any output
         import json
@@ -324,11 +324,11 @@ class TestPhase1SanitizationE2E(unittest.TestCase):
         self.assertNotIn("\\x00", enrichment_json)
 
         # Check file metadata
-        self.assertNotIn("\x00", file_result["filename"])
-        self.assertNotIn("\x00", file_result["download_url"])
+        self.assertNotIn("\x00", file_result["filename"])  # type: ignore[index]
+        self.assertNotIn("\x00", file_result["download_url"])  # type: ignore[index]
 
         # Check source files
-        for path in source_files_result:
+        for path in source_files_result:  # type: ignore[union-attr]
             self.assertNotIn("\x00", path)
             self.assertNotIn("\x01", path)
 

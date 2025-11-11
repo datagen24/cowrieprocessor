@@ -24,7 +24,7 @@ class TestSnowshoeIntegration:
         # Simulate a 2-hour snowshoe campaign with 200 unique IPs
         # Each IP makes exactly 1 session (classic snowshoe pattern)
         for i in range(200):
-            session = Mock(spec=SessionSummary)
+            session = Mock(spec=SessionSummary)  # type: ignore[misc]
             session.session_id = f"snowshoe_campaign_{i:03d}"
 
             # Clustered timing within 2-hour window (snowshoe characteristic)
@@ -69,7 +69,7 @@ class TestSnowshoeIntegration:
         # 20 IPs with 10 sessions each (200 total sessions)
         for ip_idx in range(20):
             for session_idx in range(10):
-                session = Mock(spec=SessionSummary)
+                session = Mock(spec=SessionSummary)  # type: ignore[misc]
                 session.session_id = f"normal_ip_{ip_idx:02d}_session_{session_idx:02d}"
 
                 # Distributed timing (normal traffic pattern)
@@ -293,7 +293,7 @@ class TestSnowshoeIntegration:
         base_time = datetime.now(UTC)
 
         for i in range(1000):
-            session = Mock(spec=SessionSummary)
+            session = Mock(spec=SessionSummary)  # type: ignore[misc]
             session.session_id = f"large_dataset_{i:04d}"
 
             # Distributed timing
@@ -343,7 +343,7 @@ class TestSnowshoeIntegration:
 
         # Create sessions with various malformed data
         for i in range(10):
-            session = Mock(spec=SessionSummary)
+            session = Mock(spec=SessionSummary)  # type: ignore[misc]
             session.session_id = f"malformed_{i}"
 
             if i % 3 == 0:

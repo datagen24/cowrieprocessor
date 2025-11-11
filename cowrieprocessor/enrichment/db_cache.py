@@ -19,11 +19,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -74,11 +74,11 @@ class DatabaseCache:
         >>> print(f"Deleted {deleted} expired entries")
     """
 
-    def __init__(self, engine: Engine, ttl_seconds: Optional[int] = None) -> None:
-        """Initialize database cache with SQLAlchemy engine.
+    def __init__(self, engine: Union[Engine, Connection], ttl_seconds: Optional[int] = None) -> None:
+        """Initialize database cache with SQLAlchemy engine or connection.
 
         Args:
-            engine: SQLAlchemy engine for database connections
+            engine: SQLAlchemy engine or connection for database access
             ttl_seconds: Default TTL in seconds (default: 30 days)
         """
         self.engine = engine
@@ -103,7 +103,7 @@ class DatabaseCache:
         proper cleanup of database connections.
         """
         try:
-            self.engine.dispose()
+            self.engine.dispose()  # type: ignore[union-attr]
             LOGGER.debug("DatabaseCache resources cleaned up")
         except Exception as e:
             LOGGER.warning(f"Error during DatabaseCache cleanup: {e}")

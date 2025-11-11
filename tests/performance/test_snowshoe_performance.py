@@ -18,7 +18,7 @@ class TestSnowshoePerformance:
     """Performance tests for snowshoe detection with large datasets."""
 
     @pytest.fixture
-    def large_snowshoe_dataset(self) -> List[SessionSummary]:
+    def large_snowshoe_dataset(self) -> List[SessionSummary]:  # type: ignore[type-arg]
         """Create a large dataset simulating snowshoe attacks."""
         sessions = []
         base_time = datetime.now(UTC)
@@ -60,7 +60,7 @@ class TestSnowshoePerformance:
         return sessions
 
     @pytest.fixture
-    def large_mixed_dataset(self) -> List[SessionSummary]:
+    def large_mixed_dataset(self) -> List[SessionSummary]:  # type: ignore[type-arg]
         """Create a large mixed dataset with both snowshoe and normal traffic."""
         sessions = []
         base_time = datetime.now(UTC)

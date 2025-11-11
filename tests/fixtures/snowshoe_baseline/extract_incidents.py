@@ -356,8 +356,8 @@ def extract_category_incidents(
                 attack_date=attack_date,
                 ip_count=incident.ip_count,
                 session_count=incident.session_count,
-                window_start=incident.window_start.isoformat(),
-                window_end=incident.window_end.isoformat(),
+                window_start=incident.window_start.isoformat(),  # type: ignore[union-attr]
+                window_end=incident.window_end.isoformat(),  # type: ignore[union-attr]
                 incident_number=idx,
             )
 

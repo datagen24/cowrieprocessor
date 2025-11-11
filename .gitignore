@@ -37,6 +37,14 @@ Thumbs.db
 # Secrets configuration
 sensors.toml
 !sensors.example.toml
+.env
+!.env.example
+.pgpass
+!.pgpass.example
+
+# Config directory overrides (if local customizations exist)
+config/sensors.toml
+!config/sensors.example.toml
 
 # Coverage and test output files
 *.json

@@ -11,7 +11,19 @@ from typing import Any, Dict, Optional
 
 # LoaderCheckpoint imported lazily to avoid circular imports
 
-_DEFAULT_STATUS_DIR = Path("/mnt/dshield/data/logs/status")
+
+def _get_default_status_dir() -> Path:
+    """Get default status directory from config or fallback to hardcoded path."""
+    try:
+        from .utils.config import get_data_dir
+
+        return get_data_dir() / "logs" / "status"
+    except ImportError:
+        # Fallback for cases where config is not available
+        return Path("/mnt/dshield/data/logs/status")
+
+
+_DEFAULT_STATUS_DIR = _get_default_status_dir()
 
 
 def _to_dict(obj: Any) -> Dict[str, Any]:

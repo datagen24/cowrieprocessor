@@ -24,6 +24,7 @@ from ..enrichment.hibp_client import HIBPPasswordEnricher
 from ..enrichment.password_extractor import PasswordExtractor
 from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
 from ..status_emitter import StatusEmitter
+from ..utils.config import get_data_dir
 from .db_config import resolve_database_settings
 
 logger = logging.getLogger(__name__)
@@ -706,7 +707,7 @@ def enrich_passwords(args: argparse.Namespace) -> int:
         session_maker = create_session_maker(engine)
 
         # Initialize enrichment components
-        cache_dir = Path(args.cache_dir)
+        cache_dir = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
         cache_manager = EnrichmentCacheManager(base_dir=cache_dir)
 
         rate, burst = get_service_rate_limit("hibp")
@@ -1272,7 +1273,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         from ..enrichment import EnrichmentCacheManager
         from ..enrichment.handlers import EnrichmentService
 
-        cache_dir_path = Path(args.cache_dir)
+        cache_dir_path = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
         cache_manager = EnrichmentCacheManager(cache_dir_path)
         service = EnrichmentService(
             cache_dir=cache_dir_path,
@@ -1291,7 +1292,7 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
         if not status_dir:
             from pathlib import Path
 
-            default_status_dir = Path("/mnt/dshield/data/logs/status")
+            default_status_dir = get_data_dir() / "logs" / "status"
             if not default_status_dir.exists():
                 # Use a local temp directory if the default doesn't exist
                 status_dir = Path.home() / ".cache" / "cowrieprocessor" / "status"
@@ -1448,8 +1449,9 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                         # Filter out None values for type safety (factory expects dict[str, str])
                         enricher_config = {k: v for k, v in resolved_credentials.items() if v is not None}
 
+                        cache_dir = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
                         cascade = create_cascade_enricher(
-                            cache_dir=Path(args.cache_dir),
+                            cache_dir=cache_dir,
                             db_session=session,
                             config=enricher_config,
                             maxmind_license_key=resolved_credentials.get("maxmind_license_key"),
@@ -1640,6 +1642,49 @@ def refresh_enrichment(args: argparse.Namespace) -> int:
                                         setattr(merged, "session_count", 1)
                                         session.add(merged)
 
+                                    # Pass 4: IP Classification (if enabled via cascade factory)
+                                    if cascade.ip_classifier:
+                                        try:
+                                            # Get ASN info for residential heuristic
+                                            asn_value: int | None = (
+                                                int(merged.current_asn) if merged and merged.current_asn else None
+                                            )
+                                            as_name = None
+                                            if merged and merged.enrichment and "cymru" in merged.enrichment:
+                                                as_name = merged.enrichment["cymru"].get("asn_org")
+
+                                            classification = cascade.ip_classifier.classify(
+                                                ip_address, asn_value, as_name
+                                            )
+
+                                            # Add classification to enrichment JSONB
+                                            enrichment_data: dict[str, Any] = dict(
+                                                (cached.enrichment if cached else merged.enrichment) or {}
+                                            )
+                                            enrichment_data["ip_classification"] = {
+                                                "ip_type": classification.ip_type.value,
+                                                "provider": classification.provider,
+                                                "confidence": classification.confidence,
+                                                "source": classification.source,
+                                                "classified_at": (
+                                                    classification.classified_at.isoformat()
+                                                    if classification.classified_at
+                                                    else None
+                                                ),
+                                            }
+
+                                            if cached:
+                                                cached.enrichment = enrichment_data  # type: ignore[assignment]
+                                            else:
+                                                merged.enrichment = enrichment_data  # type: ignore[assignment]
+
+                                            logger.debug(
+                                                f"IP {ip_address} classified as {classification.ip_type.value} "
+                                                f"({classification.confidence:.2f} confidence)"
+                                            )
+                                        except Exception as e:
+                                            logger.warning(f"Failed to classify IP {ip_address}: {e}")
+
                                     ip_count += 1
 
                                     # Batch commit
@@ -1771,8 +1816,8 @@ Examples:
     passwords_parser.add_argument(
         '--cache-dir',
         type=str,
-        default='/mnt/dshield/data/cache',
-        help='Cache directory for HIBP responses (default: /mnt/dshield/data/cache)',
+        default=None,
+        help='Cache directory for HIBP responses (default: read from sensors.toml or /mnt/dshield/data/cache)',
     )
 
     passwords_parser.add_argument('--status-dir', type=str, help='Directory for status files (optional)')
@@ -1871,8 +1916,8 @@ Examples:
     refresh_parser.add_argument(
         '--cache-dir',
         type=str,
-        default='/mnt/dshield/data/cache',
-        help='Cache directory for enrichment responses (default: /mnt/dshield/data/cache)',
+        default=None,
+        help='Cache directory for enrichment responses (default: read from sensors.toml or /mnt/dshield/data/cache)',
     )
     refresh_parser.add_argument('--status-dir', type=str, help='Directory for status files (optional)')
 

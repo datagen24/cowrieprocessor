@@ -150,9 +150,10 @@ class TestMigrationSystem:
 
             # Verify data was preserved and new columns populated
             updated_event = session.query(RawEvent).first()
-            assert updated_event.session_id == "test-session-123"
-            assert updated_event.event_type == "cowrie.session.connect"
-            assert updated_event.event_timestamp == "2025-01-27T10:00:00Z"
+            assert updated_event is not None  # type: ignore[unreachable]
+            assert updated_event.session_id == "test-session-123"  # type: ignore[union-attr]
+            assert updated_event.event_type == "cowrie.session.connect"  # type: ignore[union-attr]
+            assert updated_event.event_timestamp == "2025-01-27T10:00:00Z"  # type: ignore[union-attr]
 
             session.close()
 
@@ -307,9 +308,10 @@ class TestMigrationCompatibility:
 
             # Verify JSON extraction worked
             updated_event = session.query(RawEvent).first()
-            assert updated_event.session_id == "test-session-456"
-            assert updated_event.event_type == "cowrie.session.file_download"
-            assert updated_event.event_timestamp == "2025-01-27T11:00:00Z"
+            assert updated_event is not None  # type: ignore[unreachable]
+            assert updated_event.session_id == "test-session-456"  # type: ignore[union-attr]
+            assert updated_event.event_type == "cowrie.session.file_download"  # type: ignore[union-attr]
+            assert updated_event.event_timestamp == "2025-01-27T11:00:00Z"  # type: ignore[union-attr]
 
             session.close()
 

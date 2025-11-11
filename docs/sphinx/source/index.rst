@@ -15,6 +15,7 @@ Features
 
 * **Multi-sensor honeypot log aggregation** with SQLite and PostgreSQL support
 * **Threat intelligence enrichment** via VirusTotal, DShield, URLHaus, SPUR, and HIBP
+* **IP infrastructure classification** for TOR, cloud, datacenter, and residential networks (90%+ coverage, $0/month)
 * **Advanced threat detection** using machine learning and behavioral analysis
 * **Dead Letter Queue (DLQ)** processing with circuit breaker pattern
 * **Elasticsearch integration** for reporting and visualization
@@ -39,6 +40,7 @@ User Guides
    :maxdepth: 2
    :caption: Guides
 
+   guides/ip-classification
    guides/telemetry
    guides/dlq-processing
    guides/dlq-production

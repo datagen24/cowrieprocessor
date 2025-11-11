@@ -170,7 +170,8 @@ def validate_metadata(metadata: dict[str, Any], filename: str) -> bool:
     valid = True
 
     # Check required fields
-    for field in METADATA_SCHEMA["required"]:
+    required_fields: list[str] = METADATA_SCHEMA["required"]  # type: ignore[assignment]
+    for field in required_fields:
         if field not in metadata:
             print(f"  ❌ Missing required field: {field}")
             valid = False
@@ -209,7 +210,7 @@ def validate_metadata(metadata: dict[str, Any], filename: str) -> bool:
 
     # Validate attack_characteristics
     attack_chars = metadata.get("attack_characteristics", {})
-    required_chars = METADATA_SCHEMA["properties"]["attack_characteristics"]["required"]
+    required_chars: list[str] = METADATA_SCHEMA["properties"]["attack_characteristics"]["required"]  # type: ignore[assignment]
     for char_field in required_chars:
         if char_field not in attack_chars:
             print(f"  ❌ attack_characteristics.{char_field} is required")
@@ -218,14 +219,14 @@ def validate_metadata(metadata: dict[str, Any], filename: str) -> bool:
     # Validate enums
     for enum_field in ["geographic_spread", "temporal_pattern", "command_similarity"]:
         value = attack_chars.get(enum_field)
-        allowed = METADATA_SCHEMA["properties"]["attack_characteristics"]["properties"][enum_field]["enum"]
+        allowed: list[str] = METADATA_SCHEMA["properties"]["attack_characteristics"]["properties"][enum_field]["enum"]  # type: ignore[assignment]
         if value not in allowed:
             print(f"  ❌ attack_characteristics.{enum_field}: '{value}' not in {allowed}")
             valid = False
 
     # Validate ground_truth_label
     label = metadata.get("ground_truth_label", "")
-    allowed_labels = METADATA_SCHEMA["properties"]["ground_truth_label"]["enum"]
+    allowed_labels: list[str] = METADATA_SCHEMA["properties"]["ground_truth_label"]["enum"]  # type: ignore[assignment]
     if label not in allowed_labels:
         print(f"  ❌ ground_truth_label: '{label}' not in {allowed_labels}")
         valid = False

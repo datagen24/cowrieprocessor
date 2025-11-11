@@ -207,25 +207,25 @@ def test_feature_extraction(
                     enrichment_status = "partial"
 
             result = ExtractionResult(
-                session_id=session.session_id,
+                session_id=session.session_id,  # type: ignore[arg-type]
                 category=category,
                 success=True,
                 extraction_time_ms=elapsed_ms,
                 features=features,
-                total_commands=session.command_count,
-                auth_attempts=session.login_attempts,
+                total_commands=session.command_count,  # type: ignore[arg-type]
+                auth_attempts=session.login_attempts,  # type: ignore[arg-type]
                 enrichment_status=enrichment_status,
             )
         except Exception as e:
             elapsed_ms = (time.perf_counter() - start) * 1000
             result = ExtractionResult(
-                session_id=session.session_id,
+                session_id=session.session_id,  # type: ignore[arg-type]
                 category=category,
                 success=False,
                 extraction_time_ms=elapsed_ms,
                 error=str(e),
-                total_commands=session.command_count,
-                auth_attempts=session.login_attempts,
+                total_commands=session.command_count,  # type: ignore[arg-type]
+                auth_attempts=session.login_attempts,  # type: ignore[arg-type]
             )
 
         results.append(result)

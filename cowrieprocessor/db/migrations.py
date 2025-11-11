@@ -485,8 +485,8 @@ def _upgrade_to_v7(connection: Connection) -> None:
         # Check if constraint already exists
         constraint_exists = connection.execute(
             text(f"""
-            SELECT 1 FROM information_schema.table_constraints 
-            WHERE constraint_name = '{constraint_name}' 
+            SELECT 1 FROM information_schema.table_constraints
+            WHERE constraint_name = '{constraint_name}'
             AND table_name = '{table_name}'
         """)
         ).fetchone()
@@ -501,8 +501,8 @@ def _upgrade_to_v7(connection: Connection) -> None:
     # Add unique constraint for idempotency_key
     unique_constraint_exists = connection.execute(
         text("""
-        SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'uq_idempotency_key' 
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'uq_idempotency_key'
         AND table_name = 'dead_letter_events'
     """)
     ).fetchone()
@@ -594,7 +594,7 @@ def _upgrade_to_v7(connection: Connection) -> None:
         connection,
         """
         CREATE OR REPLACE VIEW dlq_health AS
-        SELECT 
+        SELECT
             COUNT(*) FILTER (WHERE NOT resolved) as pending_events,
             COUNT(*) FILTER (WHERE resolved) as processed_events,
             AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))) as avg_resolution_time_seconds,
@@ -659,7 +659,7 @@ def _upgrade_to_v7(connection: Connection) -> None:
         _safe_execute_sql(
             connection,
             """
-            UPDATE dead_letter_events 
+            UPDATE dead_letter_events
             SET payload_checksum = encode(digest(payload::TEXT, 'sha256'), 'hex')
             WHERE payload_checksum IS NULL
             """,
@@ -670,10 +670,10 @@ def _upgrade_to_v7(connection: Connection) -> None:
         _safe_execute_sql(
             connection,
             """
-            UPDATE dead_letter_events 
+            UPDATE dead_letter_events
             SET idempotency_key = encode(digest(
-                COALESCE(source, '') || ':' || 
-                COALESCE(source_offset::TEXT, '') || ':' || 
+                COALESCE(source, '') || ':' ||
+                COALESCE(source_offset::TEXT, '') || ':' ||
                 COALESCE(payload_checksum, ''), 'sha256'
             ), 'hex')
             WHERE idempotency_key IS NULL
@@ -1641,9 +1641,9 @@ def _upgrade_to_v12(connection: Connection) -> None:
                 if not _safe_execute_sql(
                     connection,
                     """
-                    UPDATE raw_events 
-                    SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE 
-                    WHERE event_timestamp IS NOT NULL 
+                    UPDATE raw_events
+                    SET event_timestamp_new = event_timestamp::TIMESTAMP WITH TIME ZONE
+                    WHERE event_timestamp IS NOT NULL
                     AND event_timestamp != ''
                     AND event_timestamp != 'null'
                     AND length(trim(event_timestamp)) > 0
@@ -1657,9 +1657,9 @@ def _upgrade_to_v12(connection: Connection) -> None:
                 if not _safe_execute_sql(
                     connection,
                     """
-                    UPDATE raw_events 
-                    SET event_timestamp_new = NULL 
-                    WHERE event_timestamp IS NULL 
+                    UPDATE raw_events
+                    SET event_timestamp_new = NULL
+                    WHERE event_timestamp IS NULL
                     OR event_timestamp = ''
                     OR event_timestamp = 'null'
                     OR length(trim(event_timestamp)) = 0
@@ -1851,7 +1851,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
         if not _safe_execute_sql(
             connection,
             """
-            ALTER TABLE command_sequence_vectors 
+            ALTER TABLE command_sequence_vectors
             ADD COLUMN analysis_id INTEGER REFERENCES longtail_analysis(id) ON DELETE CASCADE
             """,
             "Add analysis_id column to command_sequence_vectors",
@@ -1862,7 +1862,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
         if not _safe_execute_sql(
             connection,
             """
-            CREATE INDEX ix_command_sequence_vectors_analysis 
+            CREATE INDEX ix_command_sequence_vectors_analysis
             ON command_sequence_vectors(analysis_id)
             """,
             "Create index on command_sequence_vectors.analysis_id",
@@ -1876,7 +1876,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
         if not _safe_execute_sql(
             connection,
             """
-            ALTER TABLE behavioral_vectors 
+            ALTER TABLE behavioral_vectors
             ADD COLUMN analysis_id INTEGER REFERENCES longtail_analysis(id) ON DELETE CASCADE
             """,
             "Add analysis_id column to behavioral_vectors",
@@ -1887,7 +1887,7 @@ def _upgrade_to_v14(connection: Connection) -> None:
         if not _safe_execute_sql(
             connection,
             """
-            CREATE INDEX ix_behavioral_vectors_analysis 
+            CREATE INDEX ix_behavioral_vectors_analysis
             ON behavioral_vectors(analysis_id)
             """,
             "Create index on behavioral_vectors.analysis_id",
@@ -2360,7 +2360,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
         ("enrichment_at", "TIMESTAMPTZ"),
         ("snapshot_asn", "INTEGER"),
         ("snapshot_country", "VARCHAR(2)"),
-        ("snapshot_ip_types", "TEXT[]"),
+        ("snapshot_ip_type", "TEXT"),  # Fixed: was snapshot_ip_types TEXT[] (array)
     ]
 
     for column_name, column_type in snapshot_columns:
@@ -2413,7 +2413,7 @@ def _upgrade_to_v16(connection: Connection) -> None:
             s.enrichment->'maxmind'->>'country',
             s.enrichment->'cymru'->>'country'
           )) AS snapshot_country,
-          ARRAY[]::text[] AS snapshot_ip_types
+          NULL::text AS snapshot_ip_type  -- Fixed: was ARRAY[]::text[] (array)
         FROM session_summaries s
         """,
         "Create temporary snapshot table",

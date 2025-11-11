@@ -22,7 +22,7 @@ from cowrieprocessor.enrichment.ssh_key_extractor import SSHKeyExtractor
 
 
 @pytest.fixture
-def test_db() -> None:
+def test_db():  # type: ignore[misc]
     """Create a test database with SSH key intelligence schema."""
     engine = create_engine("sqlite:///:memory:", echo=False)
 
@@ -90,7 +90,7 @@ def sample_cowrie_events() -> list[Dict[str, Any]]:
 
 
 @pytest.fixture
-def sample_raw_events(test_db, sample_cowrie_events):
+def sample_raw_events(test_db, sample_cowrie_events):  # type: ignore[misc]
     """Insert sample raw events into test database."""
     events = []
     for i, event_data in enumerate(sample_cowrie_events):

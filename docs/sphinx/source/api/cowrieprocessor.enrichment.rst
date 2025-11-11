@@ -1,6 +1,14 @@
 cowrieprocessor.enrichment package
 ==================================
 
+Subpackages
+-----------
+
+.. toctree::
+   :maxdepth: 4
+
+   cowrieprocessor.enrichment.ip_classification
+
 Submodules
 ----------
 

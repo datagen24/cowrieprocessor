@@ -33,12 +33,8 @@ def get_enrichment_dict(session: SessionSummary) -> dict[str, Any] | None:
         Enrichment dict if available and valid, None otherwise
     """
     enrichment = session.enrichment
-    if enrichment is None:
-        return None
     # Use type guard to safely check if it's a dict
-    if is_dict(enrichment):
-        return enrichment
-    return None
+    return enrichment if is_dict(enrichment) else None
 
 
 def get_payload_dict(event: RawEvent) -> dict[str, Any] | None:
@@ -51,12 +47,8 @@ def get_payload_dict(event: RawEvent) -> dict[str, Any] | None:
         Payload dict if available and valid, None otherwise
     """
     payload = event.payload
-    if payload is None:
-        return None
     # Use type guard to safely check if it's a dict
-    if is_dict(payload):
-        return payload
-    return None
+    return payload if is_dict(payload) else None
 
 
 def get_payload_dict_from_row(row: Any) -> dict[str, Any] | None:
