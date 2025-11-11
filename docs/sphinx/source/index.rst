@@ -46,6 +46,18 @@ User Guides
    guides/dlq-production
    guides/postgresql-migration
    guides/postgresql-stored-procedures
+   guides/security-precommit-setup
+
+Operations
+----------
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Operations & Runbooks
+
+   operations/enrichment-operations
+   operations/backfill_session_snapshots
+   operations/adr007-production-execution-plan
 
 Reference
 ---------
