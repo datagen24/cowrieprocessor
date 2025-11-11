@@ -47,7 +47,7 @@ from __future__ import annotations
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Dict, Generator
 
 import pytest
 from sqlalchemy import Engine
