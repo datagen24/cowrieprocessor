@@ -122,7 +122,7 @@ If force-pushing is not possible due to branch protection or permissions:
 
 **Exposed Credentials from Error Message**:
 The original git push attempt exposed these credentials in config/sensors.toml:
-- Database password: `yqMtPOTNOBCCDk9AA8gYWQs`
+- Database password: `<DB_PASSWORD>`
 - Database IP: `10.130.30.89`
 - VirusTotal API key: `df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3`
 - URLHaus API key: `5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878`

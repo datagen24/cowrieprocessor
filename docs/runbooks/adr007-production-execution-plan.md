@@ -333,7 +333,7 @@ cd /Users/speterson/src/dshield/cowrieprocessor
 # Execute backfill (all batches, ~1680 batches for 1.68M sessions)
 # pragma: allowlist secret
 uv run python scripts/migrations/backfill_session_snapshots.py \\
-    --db "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor" \\
+    --db "postgresql://cowrieprocessor:<DB_PASSWORD>@10.130.30.89:5432/cowrieprocessor" \\
     --batch-size 1000 \\
     --status-dir /mnt/dshield/data/logs/status/backfill \\
     --progress \\

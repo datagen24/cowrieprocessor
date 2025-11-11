@@ -301,7 +301,7 @@ def refresh_enrichment(args):
 2. **❌ CRITICAL: Plaintext Credentials in Config File**
    ```toml
    # config/sensors.toml (TRACKED IN GIT!)
-   db = "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/..."
+   db = "postgresql://cowrieprocessor:<DB_PASSWORD>@10.130.30.89:5432/..."
    vtapi = "df1b419b05f595ed5be8f8bf51631fce264886920e0d97a91716a6b85c339af3"
    urlhausapi = "5761b3465ba6b7d446e72327cb24d2077118cf75a74e1878"
    ```

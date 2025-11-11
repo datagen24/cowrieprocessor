@@ -32,7 +32,7 @@ following the validation plan in docs/designs/adr007-snapshot-population-fix.md 
 - @pytest.mark.allow_production_writes: Tests that may modify production data (requires flag)
 
 **Environment**:
-- Production DB: postgresql://cowrieprocessor@10.130.30.89:5432/cowrieprocessor
+- Production DB: Set via PGPASSWORD environment variable or ~/.pgpass
 - Expected dataset: 1.68M sessions, 38K IPs
 - Backfill script: scripts/migrations/backfill_session_snapshots.py
 
@@ -182,8 +182,7 @@ def test_dry_run_safety(prod_engine, backfill_script_path):
             "python",
             str(backfill_script_path),
             "--db",
-            # pragma: allowlist secret
-            "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor",
+            "postgresql://cowrieprocessor@10.130.30.89:5432/cowrieprocessor",
             "--batch-size",
             "100",
             "--dry-run",
@@ -229,8 +228,7 @@ def test_dry_run_batch_performance(prod_engine, backfill_script_path):
             "python",
             str(backfill_script_path),
             "--db",
-            # pragma: allowlist secret
-            "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor",
+            "postgresql://cowrieprocessor@10.130.30.89:5432/cowrieprocessor",
             "--batch-size",
             "1000",
             "--dry-run",
@@ -408,8 +406,7 @@ def test_small_scale_backfill_10k(prod_engine, backfill_script_path, tmp_path):
             "python",
             str(backfill_script_path),
             "--db",
-            # pragma: allowlist secret
-            "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor",
+            "postgresql://cowrieprocessor@10.130.30.89:5432/cowrieprocessor",
             "--batch-size",
             "1000",
             "--status-dir",

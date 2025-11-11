@@ -1,0 +1,12 @@
+# PostgreSQL Password File Example
+# Copy this file to ~/.pgpass and set permissions: chmod 600 ~/.pgpass
+# Format: hostname:port:database:username:password
+#
+# This allows psql and other PostgreSQL tools to authenticate automatically
+# without exposing passwords in scripts or environment variables.
+
+# Production database
+10.130.30.89:5432:cowrieprocessor:cowrieprocessor:your_password_here
+
+# Development database (if different)
+# localhost:5432:cowrieprocessor_dev:cowrieprocessor:dev_password_here

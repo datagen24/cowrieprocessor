@@ -36,7 +36,7 @@ All tasks from the ADR-007/008 compliance analysis have been successfully comple
 - Working repository synced with cleaned history
 
 **⚠️ Task 0.1: REMAINING** - Credential Rotation Required
-- **Database password**: `yqMtPOTNOBCCDk9AA8gYWQs` (exposed, must rotate)
+- **Database password**: `<DB_PASSWORD>` (exposed, must rotate)
 - **VirusTotal API key**: `df1b419b05...` (exposed, must rotate)
 - **URLHaus API key**: `5761b3465b...` (exposed, must rotate)
 - **Action**: Rotate all credentials ASAP (estimated 4 hours)
@@ -119,7 +119,7 @@ All tasks from the ADR-007/008 compliance analysis have been successfully comple
 **1. Database Password** (15 minutes)
 ```bash
 # Connect with old password
-psql "postgresql://cowrieprocessor:yqMtPOTNOBCCDk9AA8gYWQs@10.130.30.89:5432/cowrieprocessor"
+psql "postgresql://cowrieprocessor:<DB_PASSWORD>@10.130.30.89:5432/cowrieprocessor"
 
 # Rotate password
 ALTER USER cowrieprocessor WITH PASSWORD 'NEW_SECURE_PASSWORD_HERE';
