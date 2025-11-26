@@ -320,11 +320,12 @@ class CowrieEventSchema:
     @staticmethod
     def _is_valid_session_id(session: str) -> bool:
         """Check if session ID follows expected format."""
-        # Cowrie session IDs are typically 8-character hex strings
+        # Cowrie session IDs are hex strings (8 or 12 characters observed)
         # Allow "unknown-session" for reconstructed events
         if session == "unknown-session":
             return True
-        return bool(re.match(r'^[a-f0-9]{8}$', session))
+        # Accept both 8-character and 12-character hex session IDs
+        return bool(re.match(r'^[a-f0-9]{8,12}$', session))
 
     @staticmethod
     def _is_valid_ip(ip: str) -> bool:

@@ -13,7 +13,7 @@ from .base import Base
 from .models import SchemaState
 
 SCHEMA_VERSION_KEY = "schema_version"
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +221,11 @@ def apply_migrations(engine: Engine) -> int:
             _upgrade_to_v16(connection)
             _set_schema_version(connection, 16)
             version = 16
+
+        if version < 17:
+            _upgrade_to_v17(connection)
+            _set_schema_version(connection, 17)
+            version = 17
 
     return version
 
@@ -2571,6 +2576,70 @@ def _downgrade_from_v9(connection: Connection) -> None:
 
     except Exception as e:
         logger.error(f"Rollback failed: {e}")
+
+
+def _upgrade_to_v17(connection: Connection) -> None:
+    """Upgrade to schema version 17: Add behavioral clustering columns to session_summaries.
+
+    This migration adds three columns for campaign correlation and behavioral clustering:
+    - ssh_key_fingerprint: Link sessions using the same SSH key (APT campaigns)
+    - password_hash: Track credential reuse patterns across campaigns
+    - command_signature: Cluster sessions by command execution patterns
+
+    These columns were defined in the ORM model but never created via migration,
+    causing runtime errors when the enrichment CLI attempted to query them.
+    """
+    logger.info("Starting behavioral clustering columns migration (v17)...")
+
+    dialect_name = connection.dialect.name
+
+    # Define behavioral clustering columns
+    clustering_columns = [
+        ("ssh_key_fingerprint", "VARCHAR(128)", "SSH key fingerprint for campaign clustering"),
+        ("password_hash", "VARCHAR(64)", "Password hash for credential tracking"),
+        ("command_signature", "TEXT", "Command pattern signature for behavioral clustering"),
+    ]
+
+    # Add columns to session_summaries
+    for column_name, column_type, description in clustering_columns:
+        if not _column_exists(connection, "session_summaries", column_name):
+            if dialect_name == "postgresql":
+                _safe_execute_sql(
+                    connection,
+                    f"""
+                    ALTER TABLE session_summaries
+                    ADD COLUMN {column_name} {column_type}
+                    """,
+                    f"Add {column_name} column to session_summaries",
+                )
+            else:  # SQLite
+                _safe_execute_sql(
+                    connection,
+                    f"ALTER TABLE session_summaries ADD COLUMN {column_name} {column_type}",
+                    f"Add {column_name} column to session_summaries",
+                )
+            logger.info(f"Added {column_name} column: {description}")
+        else:
+            logger.info(f"{column_name} column already exists, skipping")
+
+    # Create indexes for behavioral clustering queries
+    behavioral_indexes = [
+        ("idx_session_ssh_key_fp", "session_summaries(ssh_key_fingerprint)", "ssh_key_fingerprint"),
+        ("idx_session_password_hash", "session_summaries(password_hash)", "password_hash"),
+        ("idx_session_command_sig", "session_summaries(command_signature)", "command_signature"),
+    ]
+
+    for index_name, index_def, column_name in behavioral_indexes:
+        if _column_exists(connection, "session_summaries", column_name):
+            _safe_execute_sql(
+                connection,
+                f"CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}",
+                f"Create {index_name} index",
+            )
+        else:
+            logger.warning(f"Skipping index {index_name} - column {column_name} does not exist")
+
+    logger.info("Behavioral clustering columns migration (v17) complete")
 
 
 __all__ = ["apply_migrations", "CURRENT_SCHEMA_VERSION", "SCHEMA_VERSION_KEY"]

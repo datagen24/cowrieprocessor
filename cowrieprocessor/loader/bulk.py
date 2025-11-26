@@ -400,8 +400,9 @@ class BulkLoader:
         metrics.duplicates_skipped += len(raw_event_records) - inserted
         metrics.batches_committed += 1
 
-        if checkpoint_cb:
-            last_record = raw_event_records[-1]
+        if checkpoint_cb and (raw_event_records or dead_letter_records):
+            # Use last raw event record if available, otherwise use dead letter record
+            last_record = raw_event_records[-1] if raw_event_records else dead_letter_records[-1]
             session_ids = list(session_aggregates.keys())
             checkpoint_cb(
                 LoaderCheckpoint(
@@ -487,12 +488,21 @@ class BulkLoader:
             return {}
 
         # Batch query for all IPs - single query for entire batch
+        # Note: Using direct SQL expressions instead of hybrid properties to avoid decorator issues
+        geo_country_expr = func.coalesce(
+            IPInventory.enrichment.op('->')('maxmind').op('->>')('country'),
+            IPInventory.enrichment.op('->')('cymru').op('->>')('country'),
+            IPInventory.enrichment.op('->')('dshield').op('->')('ip').op('->>')('ascountry'),
+            'XX',
+        )
+        ip_type_expr = IPInventory.enrichment.op('->')('spur').op('->')('client').op('->>')('types')
+
         results = (
             session.query(
                 IPInventory.ip_address,
                 IPInventory.current_asn,
-                IPInventory.geo_country,
-                IPInventory.ip_type,
+                geo_country_expr,
+                ip_type_expr,
                 IPInventory.enrichment_updated_at,
             )
             .filter(IPInventory.ip_address.in_(ip_addresses))
@@ -669,6 +679,15 @@ class BulkLoader:
             # Get snapshot data for this session's canonical IP
             snapshot = ip_snapshots.get(agg.canonical_source_ip, {}) if agg.canonical_source_ip else {}
 
+            # Only set source_ip FK if the IP exists in ip_inventory
+            # This prevents FK violations when IP hasn't been enriched yet
+            # Per ADR-007: source_ip is optional (nullable) for JOINs, snapshot columns provide point-in-time data
+            source_ip_fk = (
+                agg.canonical_source_ip
+                if (agg.canonical_source_ip and agg.canonical_source_ip in ip_snapshots)
+                else None
+            )
+
             values.append(
                 {
                     "session_id": session_id,
@@ -687,7 +706,7 @@ class BulkLoader:
                     "ssh_key_injections": agg.ssh_key_injections,
                     "unique_ssh_keys": len(agg.unique_ssh_keys),
                     # Populate snapshot columns from ip_inventory lookup
-                    "source_ip": agg.canonical_source_ip,  # FK to ip_inventory
+                    "source_ip": source_ip_fk,  # FK to ip_inventory (NULL if not enriched yet)
                     "snapshot_asn": snapshot.get("asn"),
                     "snapshot_country": snapshot.get("country"),
                     "snapshot_ip_type": snapshot.get("ip_type"),

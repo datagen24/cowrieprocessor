@@ -795,25 +795,18 @@ class IPInventory(Base):
 
         Returns:
             SQLAlchemy case expression with COALESCE fallback logic.
-        """
-        dialect_name = get_dialect_name_from_engine(cls.__table__.bind) if hasattr(cls.__table__, 'bind') else None
 
-        if dialect_name == "postgresql":
-            # PostgreSQL: Use -> and ->> operators for JSONB access
-            return func.coalesce(
-                cls.enrichment.op('->')('maxmind').op('->>')('country'),
-                cls.enrichment.op('->')('cymru').op('->>')('country'),
-                cls.enrichment.op('->')('dshield').op('->')('ip').op('->>')('ascountry'),
-                'XX',
-            )
-        else:
-            # SQLite: Use json_extract function
-            return func.coalesce(
-                func.json_extract(cls.enrichment, '$.maxmind.country'),
-                func.json_extract(cls.enrichment, '$.cymru.country'),
-                func.json_extract(cls.enrichment, '$.dshield.ip.ascountry'),
-                'XX',
-            )
+        Note:
+            Hardcoded for PostgreSQL since production uses PostgreSQL.
+            If SQLite support needed, add dialect detection logic.
+        """
+        # PostgreSQL JSONB extraction using op() operators
+        return func.coalesce(
+            cls.enrichment.op('->')('maxmind').op('->>')('country'),
+            cls.enrichment.op('->')('cymru').op('->>')('country'),
+            cls.enrichment.op('->')('dshield').op('->')('ip').op('->>')('ascountry'),
+            'XX',
+        )
 
     @hybrid_property
     def ip_type(self) -> Any:

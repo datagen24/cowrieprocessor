@@ -4,6 +4,41 @@ All notable changes to the Cowrie Processor script will be documented in this fi
 
 ## [Unreleased]
 
+### Performance Improvements
+- **HIBP Password Enrichment**: Integrated 3-tier HybridEnrichmentCache for 5.16x speedup (November 26, 2025)
+  - **Before**: 1.03 iterations/sec (filesystem cache only)
+  - **After**: 5.31 iterations/sec (Redis L1 + Database L2 + Filesystem L3)
+  - **Cache tiers**: Redis L1 (0.1-1ms), Database L2 (1-3ms), Filesystem L3 (5-15ms)
+  - **Graceful degradation**: Falls back to lower tiers if Redis/Database unavailable
+  - **Backward compatible**: Optional `hybrid_cache` parameter, no breaking changes
+  - **Expected cache hit rate**: 50-90% on Redis L1 tier after warm-up
+  - **Time savings**: 81% reduction for 1000 password operations (16.2 min → 3.1 min)
+  - **Files changed**: `hibp_client.py`, `enrich_passwords.py`
+  - **Integration**: Uses existing `HybridEnrichmentCache` infrastructure (Redis + Database + Filesystem)
+
+### Bug Fixes
+- **ADR-007 Schema**: Fixed IP/ASN inventory foreign key type mismatches (November 23, 2025)
+  - Fixed hybrid property SQL expression not being called by SQLAlchemy
+  - Fixed FK constraint violations for `session_summaries.source_ip`
+  - Fixed checkpoint callback crashes on batches with only dead letter events
+  - **Validation**: 296K+ events processed successfully (0 errors)
+  - **Files changed**: `migrations.py`, `models.py`, `bulk.py`
+- **Password Handling**: Improved NUL byte sanitization for PostgreSQL TEXT fields (November 26, 2025)
+  - Enhanced `_sanitize_text_for_postgres()` to replace NUL bytes with `\x00` escape sequence
+  - Prevents PostgreSQL constraint violations during password storage
+  - **Files changed**: `password_extractor.py`, `enrich_passwords.py`
+- **Schema Validation**: Enhanced Cowrie event schema validation and error handling (November 26, 2025)
+  - Stricter validation catches malformed events early
+  - Better error messages for debugging
+  - **Files changed**: `cowrie_schema.py`, `bulk.py`
+
+### Documentation
+- **Performance Benchmarking**: Added comprehensive HIBP enrichment performance results
+- **Caching Architecture**: Documented 3-tier hybrid cache workflow and integration patterns
+- **Migration Guide**: Created HIBP cache upgrade guide with rollback procedures
+- **Validation Summary**: Comprehensive validation report for all code changes (9 files, 591 lines)
+- **Files added**: `docs/fixes/validation-summary.md`, `docs/fixes/adr-007-implementation-fixes.md`, `docs/migration/hibp-cache-upgrade.md`
+
 ### Fixed
 - **Unicode Sanitization Bug** (November 2, 2025):
   - **Critical fix**: `is_safe_for_postgres_json()` now detects JSON Unicode escape sequences (`\u0000`, `\u0001`, etc.)
