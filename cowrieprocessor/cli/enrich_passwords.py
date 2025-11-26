@@ -20,7 +20,9 @@ from tqdm import tqdm
 from ..db import apply_migrations, create_engine_from_settings, create_session_maker
 from ..db.models import PasswordSessionUsage, PasswordStatistics, PasswordTracking, RawEvent, SessionSummary
 from ..enrichment.cache import EnrichmentCacheManager
+from ..enrichment.db_cache import DatabaseCache
 from ..enrichment.hibp_client import HIBPPasswordEnricher
+from ..enrichment.hybrid_cache import HybridEnrichmentCache, create_redis_client
 from ..enrichment.password_extractor import PasswordExtractor
 from ..enrichment.rate_limiting import RateLimitedSession, get_service_rate_limit
 from ..status_emitter import StatusEmitter
@@ -175,17 +177,22 @@ def _track_password(
         # Update breach info if it changed
         if existing.breached != hibp_result['breached']:
             existing.breached = hibp_result['breached']
-            existing.breach_prevalence = hibp_result.get('prevalence')  # type: ignore[assignment]
+            # Defensive type conversion: handle int, str, or None
+            prevalence_raw = hibp_result.get('prevalence')
+            existing.breach_prevalence = int(prevalence_raw) if prevalence_raw else None  # type: ignore[assignment]
 
         password_id = existing.id
     else:
         # Create new record with sanitized password text
         sanitized_password = _sanitize_text_for_postgres(password)
+        # Defensive type conversion: handle int, str, or None
+        prevalence_raw = hibp_result.get('prevalence')
+        breach_prevalence_int = int(prevalence_raw) if prevalence_raw else None
         new_password = PasswordTracking(
             password_hash=password_sha256,
             password_text=sanitized_password,
             breached=hibp_result['breached'],
-            breach_prevalence=hibp_result.get('prevalence'),
+            breach_prevalence=breach_prevalence_int,
             last_hibp_check=datetime.now(UTC),
             first_seen=timestamp_dt,
             last_seen=timestamp_dt,
@@ -710,10 +717,26 @@ def enrich_passwords(args: argparse.Namespace) -> int:
         cache_dir = Path(args.cache_dir) if args.cache_dir else (get_data_dir() / "cache")
         cache_manager = EnrichmentCacheManager(base_dir=cache_dir)
 
+        # Initialize hybrid 3-tier cache (Redis L1, Database L2, Filesystem L3)
+        # Gracefully degrades if Redis/Database unavailable
+        redis_client = create_redis_client()  # Returns None if Redis unavailable
+        try:
+            db_cache = DatabaseCache(engine)
+            logger.info("Database cache (L2) initialized for HIBP enrichment")
+        except Exception as e:
+            logger.warning(f"Failed to initialize database cache: {e} - falling back to filesystem only")
+            db_cache = None
+
+        hybrid_cache = HybridEnrichmentCache(
+            filesystem_cache=cache_manager,
+            redis_client=redis_client,
+            database_cache=db_cache,
+        )
+
         rate, burst = get_service_rate_limit("hibp")
         rate_limiter = RateLimitedSession(rate_limit=rate, burst=burst)
 
-        hibp_enricher = HIBPPasswordEnricher(cache_manager, rate_limiter)
+        hibp_enricher = HIBPPasswordEnricher(cache_manager, rate_limiter, hybrid_cache=hybrid_cache)
         password_extractor = PasswordExtractor()
 
         # Initialize status emitter

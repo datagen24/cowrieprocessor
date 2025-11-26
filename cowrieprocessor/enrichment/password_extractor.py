@@ -51,12 +51,17 @@ class PasswordExtractor:
             # Generate SHA-256 hash for tracking (never log the actual password)
             password_sha256 = hashlib.sha256(password.encode('utf-8')).hexdigest()
 
+            # Convert datetime to ISO string for JSON serialization
+            timestamp_str = ''
+            if event.event_timestamp:
+                timestamp_str = event.event_timestamp.isoformat()
+
             passwords.append(
                 {
                     'password': password,
                     'password_sha256': password_sha256,
                     'username': event.payload.get('username', ''),
-                    'timestamp': event.event_timestamp or '',
+                    'timestamp': timestamp_str,
                     'success': 'success' in event.event_type,
                     'event_type': event.event_type,
                 }
