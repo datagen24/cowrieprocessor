@@ -333,6 +333,15 @@ The system uses a **layered database architecture** optimized for honeypot data 
    - **Benefit**: 33x faster, zero DNS timeouts, Team Cymru API compliance
    - **Pattern**: Pass 1 (collect) → Pass 2 (batch API) → Pass 3 (merge)
 
+10. **3-Tier Caching Integration** (Nov 2025): HIBP enrichment performance optimization 🆕
+   - **Problem**: Filesystem-only cache (L3) caused 500-1500ms overhead for password enrichment
+   - **Solution**: Integrated HybridEnrichmentCache (Redis L1 + Database L2 + Filesystem L3)
+   - **Pattern**: Optional hybrid_cache parameter for backward compatibility
+   - **Benefit**: 5.16x real-world speedup (1.03 → 5.31 iterations/sec)
+   - **Query Pattern**: Try L1 (Redis) → L2 (Database) → L3 (Filesystem) → API
+   - **Graceful Degradation**: Falls back to lower tiers if higher tiers unavailable
+   - **Cache TTLs**: Redis (1hr), Database (30d), Filesystem (60d per service)
+
 ## Code Quality Standards
 
 ### Mandatory Requirements (NON-NEGOTIABLE)
